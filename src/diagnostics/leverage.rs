@@ -84,7 +84,11 @@ pub fn compute_leverage(x: &Mat<f64>, with_intercept: bool) -> Col<f64> {
 ///
 /// Returns indices of observations with leverage > threshold.
 /// Default threshold is 2p/n where p is number of parameters.
-pub fn high_leverage_points(leverage: &Col<f64>, n_params: usize, threshold: Option<f64>) -> Vec<usize> {
+pub fn high_leverage_points(
+    leverage: &Col<f64>,
+    n_params: usize,
+    threshold: Option<f64>,
+) -> Vec<usize> {
     let n = leverage.nrows();
     let cutoff = threshold.unwrap_or(2.0 * n_params as f64 / n as f64);
 
@@ -106,21 +110,35 @@ mod tests {
         let leverage = compute_leverage(&x, true);
 
         for i in 0..leverage.nrows() {
-            assert!(leverage[i] >= 0.0, "Leverage[{}] = {} should be >= 0", i, leverage[i]);
-            assert!(leverage[i] <= 1.0, "Leverage[{}] = {} should be <= 1", i, leverage[i]);
+            assert!(
+                leverage[i] >= 0.0,
+                "Leverage[{}] = {} should be >= 0",
+                i,
+                leverage[i]
+            );
+            assert!(
+                leverage[i] <= 1.0,
+                "Leverage[{}] = {} should be <= 1",
+                i,
+                leverage[i]
+            );
         }
     }
 
     #[test]
     fn test_leverage_sum() {
         // Use linearly independent predictors
-        let x = Mat::from_fn(30, 2, |i, j| {
-            if j == 0 {
-                i as f64
-            } else {
-                (i as f64).sin()
-            }
-        });
+        let x = Mat::from_fn(
+            30,
+            2,
+            |i, j| {
+                if j == 0 {
+                    i as f64
+                } else {
+                    (i as f64).sin()
+                }
+            },
+        );
         let leverage = compute_leverage(&x, true);
 
         let sum: f64 = leverage.iter().sum();

@@ -49,8 +49,14 @@ fn test_ols_prediction_interval_vs_r() {
     // Intervals should be valid and contain the fit
     assert!(result.lower[0].is_finite(), "lower[0] should be finite");
     assert!(result.upper[0].is_finite(), "upper[0] should be finite");
-    assert!(result.lower[0] <= result.fit[0], "lower should be below fit");
-    assert!(result.upper[0] >= result.fit[0], "upper should be above fit");
+    assert!(
+        result.lower[0] <= result.fit[0],
+        "lower should be below fit"
+    );
+    assert!(
+        result.upper[0] >= result.fit[0],
+        "upper should be above fit"
+    );
 }
 
 /// Test OLS confidence intervals against R's predict(..., interval="confidence")
@@ -74,8 +80,14 @@ fn test_ols_confidence_interval_vs_r() {
     // and contain the fit
     assert!(result.lower[0].is_finite(), "lower[0] should be finite");
     assert!(result.upper[0].is_finite(), "upper[0] should be finite");
-    assert!(result.lower[0] <= result.fit[0], "lower should be below fit");
-    assert!(result.upper[0] >= result.fit[0], "upper should be above fit");
+    assert!(
+        result.lower[0] <= result.fit[0],
+        "lower should be below fit"
+    );
+    assert!(
+        result.upper[0] >= result.fit[0],
+        "upper should be above fit"
+    );
 }
 
 /// Test that prediction intervals are always wider than confidence intervals.
@@ -289,7 +301,12 @@ fn test_interval_coverage() {
     let result = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
 
     // With no noise, the fit should be exact
-    assert_approx(result.fit[0], true_value, 0.001, "fit should match true value");
+    assert_approx(
+        result.fit[0],
+        true_value,
+        0.001,
+        "fit should match true value",
+    );
 
     // The interval should contain the true value
     assert!(

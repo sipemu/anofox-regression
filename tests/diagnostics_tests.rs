@@ -66,12 +66,20 @@ fn test_residual_diagnostics_with_ols() {
 
     // Standardized residuals should have reasonable values
     for i in 0..std_resid.nrows() {
-        assert!(std_resid[i].abs() < 10.0, "Standardized residual {} too large", i);
+        assert!(
+            std_resid[i].abs() < 10.0,
+            "Standardized residual {} too large",
+            i
+        );
     }
 
     // Studentized residuals should have reasonable values
     for i in 0..stud_resid.nrows() {
-        assert!(stud_resid[i].abs() < 10.0, "Studentized residual {} too large", i);
+        assert!(
+            stud_resid[i].abs() < 10.0,
+            "Studentized residual {} too large",
+            i
+        );
     }
 }
 
@@ -137,7 +145,10 @@ fn test_influential_point_detection() {
         .max_by(|&a, &b| cooks[a].partial_cmp(&cooks[b]).unwrap())
         .unwrap();
 
-    assert_eq!(max_cooks_idx, 29, "Point 29 should have highest Cook's distance");
+    assert_eq!(
+        max_cooks_idx, 29,
+        "Point 29 should have highest Cook's distance"
+    );
 }
 
 // ============================================================================
@@ -159,7 +170,12 @@ fn test_vif_with_independent_predictors() {
 
     // VIF should be close to 1 for orthogonal predictors
     for j in 0..vif.nrows() {
-        assert!(vif[j] < 2.0, "VIF[{}] = {} should be < 2 for independent predictors", j, vif[j]);
+        assert!(
+            vif[j] < 2.0,
+            "VIF[{}] = {} should be < 2 for independent predictors",
+            j,
+            vif[j]
+        );
     }
 }
 
@@ -216,7 +232,9 @@ fn test_full_diagnostic_workflow() {
             (i as f64 * 0.2).sin() * 10.0
         }
     });
-    let y = Col::from_fn(50, |i| 5.0 + 2.0 * x[(i, 0)] + 3.0 * x[(i, 1)] + (i as f64 * 0.1).cos());
+    let y = Col::from_fn(50, |i| {
+        5.0 + 2.0 * x[(i, 0)] + 3.0 * x[(i, 1)] + (i as f64 * 0.1).cos()
+    });
 
     // Fit model
     let model = OlsRegressor::builder()

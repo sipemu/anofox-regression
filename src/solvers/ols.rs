@@ -7,7 +7,7 @@ use crate::inference::{
     compute_prediction_intervals, compute_xtx_inverse, compute_xtx_inverse_augmented,
     CoefficientInference,
 };
-use crate::solvers::traits::{FittedRegressor, Regressor, RegressionError};
+use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
 use faer::{Col, Index, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
@@ -329,12 +329,10 @@ impl OlsRegressor {
         // R-squared
         let r_squared = if tss > 0.0 {
             (1.0 - rss / tss).clamp(0.0, 1.0)
+        } else if rss < 1e-10 {
+            1.0
         } else {
-            if rss < 1e-10 {
-                1.0
-            } else {
-                0.0
-            }
+            0.0
         };
 
         // Adjusted R-squared
@@ -442,8 +440,11 @@ impl OlsRegressor {
         // Use the augmented design matrix method for models with intercept
         // This computes SE for both intercept and coefficients correctly
         if result.intercept.is_some() {
-            match CoefficientInference::standard_errors_with_intercept(x, result.mse, &result.aliased)
-            {
+            match CoefficientInference::standard_errors_with_intercept(
+                x,
+                result.mse,
+                &result.aliased,
+            ) {
                 Ok((se, se_int)) => {
                     // t-statistics
                     let t_stats = CoefficientInference::t_statistics(&result.coefficients, &se);

@@ -1,15 +1,15 @@
 //! Regression solvers implementing various estimation methods.
 
-mod traits;
+mod elastic_net;
 mod ols;
 mod ridge;
-mod elastic_net;
-mod wls;
 mod rls;
+mod traits;
+mod wls;
 
-pub use traits::{FittedRegressor, Regressor, RegressionError};
+pub use elastic_net::{ElasticNetRegressor, FittedElasticNet};
 pub use ols::{FittedOls, OlsRegressor};
 pub use ridge::{FittedRidge, RidgeRegressor};
-pub use elastic_net::{ElasticNetRegressor, FittedElasticNet};
-pub use wls::{FittedWls, WlsRegressor};
 pub use rls::{FittedRls, RlsRegressor};
+pub use traits::{FittedRegressor, RegressionError, Regressor};
+pub use wls::{FittedWls, WlsRegressor};

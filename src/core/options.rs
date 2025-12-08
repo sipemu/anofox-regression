@@ -156,7 +156,9 @@ impl RegressionOptions {
             return Err(OptionsError::InvalidConfidenceLevel(self.confidence_level));
         }
         if self.forgetting_factor <= 0.0 || self.forgetting_factor > 1.0 {
-            return Err(OptionsError::InvalidForgettingFactor(self.forgetting_factor));
+            return Err(OptionsError::InvalidForgettingFactor(
+                self.forgetting_factor,
+            ));
         }
         if self.tolerance <= 0.0 {
             return Err(OptionsError::InvalidTolerance(self.tolerance));
@@ -303,7 +305,10 @@ mod tests {
     #[test]
     fn test_validation_elastic_net_requires_lambda() {
         let result = RegressionOptions::builder().alpha(0.5).lambda(0.0).build();
-        assert!(matches!(result, Err(OptionsError::ElasticNetRequiresLambda)));
+        assert!(matches!(
+            result,
+            Err(OptionsError::ElasticNetRequiresLambda)
+        ));
     }
 
     #[test]

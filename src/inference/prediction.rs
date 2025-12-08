@@ -18,6 +18,7 @@ use statrs::distribution::{ContinuousCDF, StudentsT};
 ///
 /// # Returns
 /// PredictionResult containing fit, lower, upper bounds and standard errors
+#[allow(clippy::too_many_arguments)]
 pub fn compute_prediction_intervals(
     x_new: &Mat<f64>,
     xtx_inv: &Mat<f64>,
@@ -138,7 +139,10 @@ pub fn compute_xtx_inverse_augmented(x: &Mat<f64>) -> Result<Mat<f64>, &'static 
 }
 
 /// Compute (X'WX)⁻¹ for the weighted augmented design matrix.
-pub fn compute_xtwx_inverse_augmented(x: &Mat<f64>, weights: &Col<f64>) -> Result<Mat<f64>, &'static str> {
+pub fn compute_xtwx_inverse_augmented(
+    x: &Mat<f64>,
+    weights: &Col<f64>,
+) -> Result<Mat<f64>, &'static str> {
     let n_samples = x.nrows();
     let n_features = x.ncols();
     let aug_size = n_features + 1;

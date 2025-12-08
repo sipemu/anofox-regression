@@ -6,7 +6,7 @@ use crate::core::{
 };
 use crate::inference::compute_prediction_intervals;
 use crate::solvers::ridge::RidgeRegressor;
-use crate::solvers::traits::{FittedRegressor, Regressor, RegressionError};
+use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
@@ -202,11 +202,7 @@ impl Regressor for ElasticNetRegressor {
 
 impl ElasticNetRegressor {
     /// Solve Elastic Net using coordinate descent.
-    fn coordinate_descent(
-        &self,
-        x: &Mat<f64>,
-        y: &Col<f64>,
-    ) -> Result<Col<f64>, RegressionError> {
+    fn coordinate_descent(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Col<f64>, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
         let alpha = self.options.alpha;
@@ -306,12 +302,10 @@ impl ElasticNetRegressor {
         // R-squared
         let r_squared = if tss > 0.0 {
             (1.0 - rss / tss).clamp(0.0, 1.0)
+        } else if rss < 1e-10 {
+            1.0
         } else {
-            if rss < 1e-10 {
-                1.0
-            } else {
-                0.0
-            }
+            0.0
         };
 
         // Adjusted R-squared
@@ -614,6 +608,10 @@ mod tests {
             .count();
 
         // At least some sparsity expected
-        assert!(n_zero >= 1, "Expected some zero coefficients, got {}", n_zero);
+        assert!(
+            n_zero >= 1,
+            "Expected some zero coefficients, got {}",
+            n_zero
+        );
     }
 }

@@ -6,7 +6,7 @@ use crate::core::{
 };
 use crate::inference::{compute_prediction_intervals, CoefficientInference};
 use crate::solvers::ols::OlsRegressor;
-use crate::solvers::traits::{FittedRegressor, Regressor, RegressionError};
+use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor, StudentsT};
@@ -372,12 +372,10 @@ impl RidgeRegressor {
         // R-squared
         let r_squared = if tss > 0.0 {
             (1.0 - rss / tss).clamp(0.0, 1.0)
+        } else if rss < 1e-10 {
+            1.0
         } else {
-            if rss < 1e-10 {
-                1.0
-            } else {
-                0.0
-            }
+            0.0
         };
 
         // Adjusted R-squared
@@ -622,37 +620,35 @@ impl FittedRegressor for FittedRidge {
 
         match interval {
             None => PredictionResult::point_only(predictions),
-            Some(interval_type) => {
-                match &self.xtx_reg_inverse {
-                    Some(xtx_inv) => {
-                        let df = self.result.residual_df() as f64;
-                        let has_intercept = self.result.intercept.is_some();
+            Some(interval_type) => match &self.xtx_reg_inverse {
+                Some(xtx_inv) => {
+                    let df = self.result.residual_df() as f64;
+                    let has_intercept = self.result.intercept.is_some();
 
-                        compute_prediction_intervals(
-                            x,
-                            xtx_inv,
-                            &predictions,
-                            self.result.mse,
-                            df,
-                            level,
-                            interval_type,
-                            has_intercept,
-                        )
-                    }
-                    None => {
-                        let n = x.nrows();
-                        let mut lower = Col::zeros(n);
-                        let mut upper = Col::zeros(n);
-                        let mut se = Col::zeros(n);
-                        for i in 0..n {
-                            lower[i] = f64::NAN;
-                            upper[i] = f64::NAN;
-                            se[i] = f64::NAN;
-                        }
-                        PredictionResult::with_intervals(predictions, lower, upper, se)
-                    }
+                    compute_prediction_intervals(
+                        x,
+                        xtx_inv,
+                        &predictions,
+                        self.result.mse,
+                        df,
+                        level,
+                        interval_type,
+                        has_intercept,
+                    )
                 }
-            }
+                None => {
+                    let n = x.nrows();
+                    let mut lower = Col::zeros(n);
+                    let mut upper = Col::zeros(n);
+                    let mut se = Col::zeros(n);
+                    for i in 0..n {
+                        lower[i] = f64::NAN;
+                        upper[i] = f64::NAN;
+                        se[i] = f64::NAN;
+                    }
+                    PredictionResult::with_intervals(predictions, lower, upper, se)
+                }
+            },
         }
     }
 }

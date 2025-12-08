@@ -4,11 +4,11 @@ use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
 use crate::inference::{
-    compute_prediction_intervals, compute_xtx_inverse_augmented, compute_xtwx_inverse_augmented,
+    compute_prediction_intervals, compute_xtwx_inverse_augmented, compute_xtx_inverse_augmented,
     CoefficientInference,
 };
 use crate::solvers::ols::OlsRegressor;
-use crate::solvers::traits::{FittedRegressor, Regressor, RegressionError};
+use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::detect_constant_columns;
 use faer::linalg::solvers::Qr;
 use faer::{Col, Index, Mat};
@@ -166,14 +166,12 @@ impl Regressor for WlsRegressor {
         if self.options.with_intercept {
             // For WLS with intercept, we need weighted centering
             // Pass ORIGINAL (unweighted) x, y and weights - centering happens inside
-            let (x_centered, y_centered, x_means, y_mean) =
-                self.weighted_center(x, y, &weights);
+            let (x_centered, y_centered, x_means, y_mean) = self.weighted_center(x, y, &weights);
 
             // Detect constant columns in CENTERED weighted data
             // This is important for extreme weights like 1/x² where x*sqrt(1/x²)=1 is constant
             // but the centered weighted data has variation
-            let constant_cols =
-                detect_constant_columns(&x_centered, self.options.rank_tolerance);
+            let constant_cols = detect_constant_columns(&x_centered, self.options.rank_tolerance);
 
             // Solve using QR decomposition
             let (coefficients, aliased, rank) =
@@ -227,8 +225,7 @@ impl Regressor for WlsRegressor {
             })
         } else {
             // No intercept case - detect constant columns in weighted data
-            let constant_cols =
-                detect_constant_columns(&x_weighted, self.options.rank_tolerance);
+            let constant_cols = detect_constant_columns(&x_weighted, self.options.rank_tolerance);
             let (coefficients, aliased, rank) =
                 self.solve_with_qr(&x_weighted, &y_weighted, &constant_cols)?;
 
@@ -461,7 +458,12 @@ impl WlsRegressor {
 
         // Compute weighted mean of y
         let sum_w: f64 = weights.iter().sum();
-        let y_mean: f64 = y.iter().zip(weights.iter()).map(|(&yi, &wi)| wi * yi).sum::<f64>() / sum_w;
+        let y_mean: f64 = y
+            .iter()
+            .zip(weights.iter())
+            .map(|(&yi, &wi)| wi * yi)
+            .sum::<f64>()
+            / sum_w;
 
         // Compute weighted TSS
         let tss: f64 = y
@@ -480,8 +482,10 @@ impl WlsRegressor {
         // R-squared
         let r_squared = if tss > 0.0 {
             (1.0 - rss / tss).clamp(0.0, 1.0)
+        } else if rss < 1e-10 {
+            1.0
         } else {
-            if rss < 1e-10 { 1.0 } else { 0.0 }
+            0.0
         };
 
         // Adjusted R-squared
@@ -494,7 +498,11 @@ impl WlsRegressor {
         };
 
         // MSE and RMSE (weighted)
-        let mse = if df_resid > 0.0 { rss / df_resid } else { f64::NAN };
+        let mse = if df_resid > 0.0 {
+            rss / df_resid
+        } else {
+            f64::NAN
+        };
         let rmse = mse.sqrt();
 
         // F-statistic

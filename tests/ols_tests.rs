@@ -97,10 +97,7 @@ fn test_rank_deficient_matrix() {
     assert!(result.has_aliased(), "Should detect collinearity");
 
     // The aliased coefficient should be NaN
-    let has_nan = fitted
-        .coefficients()
-        .iter()
-        .any(|&c| c.is_nan());
+    let has_nan = fitted.coefficients().iter().any(|&c| c.is_nan());
     assert!(has_nan, "Aliased coefficient should be NaN");
 }
 
@@ -301,7 +298,10 @@ fn test_p_values_bounds() {
     if let Some(ref p_vals) = result.p_values {
         for i in 0..p_vals.nrows() {
             if !result.aliased[i] {
-                assert!(p_vals[i] >= 0.0 && p_vals[i] <= 1.0, "P-value out of bounds");
+                assert!(
+                    p_vals[i] >= 0.0 && p_vals[i] <= 1.0,
+                    "P-value out of bounds"
+                );
             }
         }
     }
@@ -467,7 +467,11 @@ fn test_aicc_computed() {
     let n = result.n_observations as f64;
     let k = result.n_parameters as f64;
     let expected_correction = 2.0 * k * (k + 1.0) / (n - k - 1.0);
-    assert_relative_eq!(result.aicc - result.aic, expected_correction, epsilon = 1e-10);
+    assert_relative_eq!(
+        result.aicc - result.aic,
+        expected_correction,
+        epsilon = 1e-10
+    );
 }
 
 #[test]
@@ -553,7 +557,11 @@ fn test_all_statistics_computed() {
     assert!(result.std_errors.is_some());
     let se = result.std_errors.as_ref().unwrap();
     for i in 0..se.nrows() {
-        assert!(se[i] >= 0.0 && se[i].is_finite(), "SE[{}] should be non-negative and finite", i);
+        assert!(
+            se[i] >= 0.0 && se[i].is_finite(),
+            "SE[{}] should be non-negative and finite",
+            i
+        );
     }
 
     assert!(result.t_statistics.is_some());
@@ -565,7 +573,11 @@ fn test_all_statistics_computed() {
     assert!(result.p_values.is_some());
     let p_vals = result.p_values.as_ref().unwrap();
     for i in 0..p_vals.nrows() {
-        assert!(p_vals[i] >= 0.0 && p_vals[i] <= 1.0, "p-value[{}] should be in [0,1]", i);
+        assert!(
+            p_vals[i] >= 0.0 && p_vals[i] <= 1.0,
+            "p-value[{}] should be in [0,1]",
+            i
+        );
     }
 
     assert!(result.conf_interval_lower.is_some());

@@ -4,7 +4,7 @@ use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
 use crate::inference::compute_prediction_intervals;
-use crate::solvers::traits::{FittedRegressor, Regressor, RegressionError};
+use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 
@@ -238,8 +238,10 @@ impl RlsRegressor {
         // R-squared
         let r_squared = if tss > 0.0 {
             (1.0 - rss / tss).clamp(0.0, 1.0)
+        } else if rss < 1e-10 {
+            1.0
         } else {
-            if rss < 1e-10 { 1.0 } else { 0.0 }
+            0.0
         };
 
         // Adjusted R-squared
@@ -252,7 +254,11 @@ impl RlsRegressor {
         };
 
         // MSE and RMSE
-        let mse = if df_resid > 0.0 { rss / df_resid } else { f64::NAN };
+        let mse = if df_resid > 0.0 {
+            rss / df_resid
+        } else {
+            f64::NAN
+        };
         let rmse = mse.sqrt();
 
         // F-statistic

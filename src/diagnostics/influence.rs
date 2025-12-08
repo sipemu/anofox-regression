@@ -44,12 +44,7 @@ pub fn cooks_distance(
 /// where r*_i is the externally studentized residual.
 ///
 /// Observations with |DFFITS_i| > 2*sqrt(p/n) are typically considered influential.
-pub fn dffits(
-    residuals: &Col<f64>,
-    leverage: &Col<f64>,
-    mse: f64,
-    n_params: usize,
-) -> Col<f64> {
+pub fn dffits(residuals: &Col<f64>, leverage: &Col<f64>, mse: f64, n_params: usize) -> Col<f64> {
     let n = residuals.nrows();
     let df_resid = n - n_params;
 
@@ -103,7 +98,11 @@ pub fn influential_cooks(cooks_d: &Col<f64>, threshold: Option<f64>) -> Vec<usiz
 ///
 /// Returns indices of observations with |DFFITS_i| > threshold.
 /// Common threshold: 2*sqrt(p/n).
-pub fn influential_dffits(dffits: &Col<f64>, n_params: usize, threshold: Option<f64>) -> Vec<usize> {
+pub fn influential_dffits(
+    dffits: &Col<f64>,
+    n_params: usize,
+    threshold: Option<f64>,
+) -> Vec<usize> {
     let n = dffits.nrows();
     let cutoff = threshold.unwrap_or(2.0 * (n_params as f64 / n as f64).sqrt());
 

@@ -34,8 +34,8 @@ pub mod utils;
 /// Prelude module for convenient imports.
 pub mod prelude {
     pub use crate::core::{
-        IntervalType, LambdaScaling, PredictionResult, RegressionOptions,
-        RegressionOptionsBuilder, RegressionResult,
+        IntervalType, LambdaScaling, PredictionResult, RegressionOptions, RegressionOptionsBuilder,
+        RegressionResult,
     };
     pub use crate::diagnostics::{
         compute_leverage, cooks_distance, high_leverage_points, influential_cooks,
