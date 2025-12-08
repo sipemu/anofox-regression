@@ -254,3 +254,180 @@ fn test_ridge_dimension_mismatch() {
 
     assert!(result.is_err());
 }
+
+// ============================================================================
+// Inference Tests
+// ============================================================================
+
+#[test]
+fn test_ridge_inference() {
+    let (x, y, _) = common::generate_linear_data(100, 2, 1.0, 0.5, 42);
+
+    let model = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .compute_inference(true)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+    let result = fitted.result();
+
+    // Should have inference statistics
+    assert!(result.std_errors.is_some());
+    assert!(result.t_statistics.is_some());
+    assert!(result.p_values.is_some());
+    assert!(result.conf_interval_lower.is_some());
+    assert!(result.conf_interval_upper.is_some());
+
+    // Standard errors should be positive
+    if let Some(ref se) = result.std_errors {
+        for i in 0..se.nrows() {
+            assert!(se[i] > 0.0, "SE[{}] should be positive", i);
+        }
+    }
+}
+
+#[test]
+fn test_ridge_prediction_intervals() {
+    use regress_rs::core::IntervalType;
+
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j) as f64) * 0.1);
+    let y = Col::from_fn(50, |i| 1.0 + 2.0 * i as f64 * 0.1);
+
+    let model = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .compute_inference(true)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    let x_new = Mat::from_fn(5, 2, |i, j| ((i + j + 50) as f64) * 0.1);
+    let result = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+
+    assert_eq!(result.fit.nrows(), 5);
+    assert_eq!(result.lower.nrows(), 5);
+    assert_eq!(result.upper.nrows(), 5);
+
+    // Lower should be less than fit, fit less than upper
+    for i in 0..5 {
+        if result.lower[i].is_finite() && result.upper[i].is_finite() {
+            assert!(result.lower[i] <= result.fit[i]);
+            assert!(result.fit[i] <= result.upper[i]);
+        }
+    }
+}
+
+#[test]
+fn test_ridge_lambda_scaling_glmnet() {
+    use regress_rs::core::LambdaScaling;
+
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j) as f64) * 0.1);
+    let y = Col::from_fn(50, |i| 1.0 + 2.0 * i as f64 * 0.1);
+
+    // Compare raw vs glmnet scaling
+    let model_raw = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .lambda_scaling(LambdaScaling::Raw)
+        .build();
+
+    let model_glmnet = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .lambda_scaling(LambdaScaling::Glmnet)
+        .build();
+
+    let fit_raw = model_raw.fit(&x, &y).expect("fit should succeed");
+    let fit_glmnet = model_glmnet.fit(&x, &y).expect("fit should succeed");
+
+    // Both should fit, but coefficients will differ due to scaling
+    assert!(fit_raw.r_squared() > 0.9);
+    assert!(fit_glmnet.r_squared() > 0.9);
+}
+
+#[test]
+fn test_ridge_getters() {
+    let model = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.5)
+        .build();
+
+    let x = Mat::from_fn(20, 2, |i, j| ((i + j) as f64) * 0.1);
+    let y = Col::from_fn(20, |i| i as f64);
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // Test getters
+    assert_relative_eq!(fitted.lambda(), 0.5, epsilon = 1e-10);
+    assert!(fitted.options().with_intercept);
+}
+
+#[test]
+fn test_ridge_confidence_level() {
+    let (x, y, _) = common::generate_linear_data(100, 2, 1.0, 0.5, 42);
+
+    let model = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .compute_inference(true)
+        .confidence_level(0.99)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+    let result = fitted.result();
+
+    assert_relative_eq!(result.confidence_level, 0.99, epsilon = 1e-10);
+}
+
+#[test]
+fn test_ridge_no_inference() {
+    let (x, y, _) = common::generate_linear_data(50, 2, 1.0, 0.5, 42);
+
+    let model = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .compute_inference(false)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+    let result = fitted.result();
+
+    // Should not have inference statistics
+    assert!(result.std_errors.is_none());
+    assert!(result.t_statistics.is_none());
+    assert!(result.p_values.is_none());
+}
+
+#[test]
+fn test_ridge_very_high_regularization() {
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j) as f64) * 0.1);
+    let y = Col::from_fn(50, |i| 1.0 + 2.0 * i as f64);
+
+    let model = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(10000.0)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // With extreme regularization, coefficients should be very small
+    for coef in fitted.coefficients().iter() {
+        assert!(coef.abs() < 1.0, "Coefficient should be shrunk toward zero");
+    }
+}
+
+#[test]
+fn test_ridge_single_observation() {
+    let x = Mat::from_fn(1, 2, |_, j| j as f64);
+    let y = Col::from_fn(1, |_| 5.0);
+
+    let model = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .build();
+
+    let result = model.fit(&x, &y);
+    // Should error due to insufficient observations
+    assert!(result.is_err());
+}

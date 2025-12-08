@@ -52,7 +52,7 @@ regress-rs = "0.1"
 ### Basic OLS Regression
 
 ```rust
-use statistics::prelude::*;
+use regress_rs::prelude::*;
 use faer::{Mat, Col};
 
 // Create sample data
@@ -78,7 +78,7 @@ let predictions = fitted.predict(&x_new);
 ### Prediction Intervals
 
 ```rust
-use statistics::prelude::*;
+use regress_rs::prelude::*;
 
 let fitted = OlsRegressor::builder()
     .with_intercept(true)
@@ -107,7 +107,7 @@ let result = fitted.predict_with_interval(
 ### Weighted Least Squares
 
 ```rust
-use statistics::prelude::*;
+use regress_rs::prelude::*;
 
 let weights = Col::from_fn(100, |i| 1.0 / (i + 1) as f64);
 
@@ -121,7 +121,7 @@ let fitted = model.fit(&x, &y).unwrap();
 ### Ridge Regression
 
 ```rust
-use statistics::prelude::*;
+use regress_rs::prelude::*;
 
 let model = RidgeRegressor::builder()
     .with_intercept(true)
@@ -140,7 +140,7 @@ if let Some(se) = &result.std_errors {
 ### Elastic Net
 
 ```rust
-use statistics::prelude::*;
+use regress_rs::prelude::*;
 
 let model = ElasticNetRegressor::builder()
     .with_intercept(true)
@@ -157,7 +157,7 @@ println!("Non-zero coefficients: {}", fitted.n_nonzero());
 ### Recursive Least Squares (Online Learning)
 
 ```rust
-use statistics::prelude::*;
+use regress_rs::prelude::*;
 
 let model = RlsRegressor::builder()
     .with_intercept(true)
@@ -174,7 +174,7 @@ let prediction = fitted.update(&x_new, y_new);
 ### Model Diagnostics
 
 ```rust
-use statistics::prelude::*;
+use regress_rs::prelude::*;
 
 let fitted = OlsRegressor::builder()
     .with_intercept(true)

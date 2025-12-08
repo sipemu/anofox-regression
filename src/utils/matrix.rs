@@ -132,4 +132,86 @@ mod tests {
         assert!((mean - 2.5).abs() < 1e-10);
         assert!(centered.iter().sum::<f64>().abs() < 1e-10);
     }
+
+    #[test]
+    fn test_detect_constant_columns_empty() {
+        let x = Mat::<f64>::zeros(0, 3);
+        let constant = detect_constant_columns(&x, 1e-10);
+        // With 0 rows, all columns should be considered constant
+        assert_eq!(constant.len(), 3);
+        assert!(constant.iter().all(|&c| c));
+    }
+
+    #[test]
+    fn test_column_std() {
+        let mut x = Mat::zeros(4, 2);
+        // Column 0: [0, 2, 4, 6] - mean=3, var=5, std=sqrt(5)
+        x[(0, 0)] = 0.0;
+        x[(1, 0)] = 2.0;
+        x[(2, 0)] = 4.0;
+        x[(3, 0)] = 6.0;
+        // Column 1: constant [5, 5, 5, 5] - std=0
+        x[(0, 1)] = 5.0;
+        x[(1, 1)] = 5.0;
+        x[(2, 1)] = 5.0;
+        x[(3, 1)] = 5.0;
+
+        let stds = column_std(&x);
+
+        // Column 0: population std (divide by n)
+        // variance = ((0-3)^2 + (2-3)^2 + (4-3)^2 + (6-3)^2) / 4 = (9+1+1+9)/4 = 5
+        assert!((stds[0] - 5.0_f64.sqrt()).abs() < 1e-10);
+        // Column 1: constant, std = 0
+        assert!(stds[1].abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_variance_basic() {
+        let y = Col::from_fn(4, |i| (i + 1) as f64); // [1, 2, 3, 4]
+        let var = variance(&y);
+
+        // Sample variance: sum((x - mean)^2) / (n-1)
+        // mean = 2.5, deviations = [-1.5, -0.5, 0.5, 1.5]
+        // sum of squares = 2.25 + 0.25 + 0.25 + 2.25 = 5
+        // variance = 5 / 3 = 1.6667
+        assert!((var - 5.0 / 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_variance_single_element() {
+        let y = Col::from_fn(1, |_| 5.0);
+        let var = variance(&y);
+        // With n < 2, variance should be 0
+        assert_eq!(var, 0.0);
+    }
+
+    #[test]
+    fn test_variance_empty() {
+        let y = Col::<f64>::zeros(0);
+        let var = variance(&y);
+        assert_eq!(var, 0.0);
+    }
+
+    #[test]
+    fn test_detect_constant_columns_with_tolerance() {
+        let mut x = Mat::zeros(3, 2);
+        // Column 0: nearly constant [1.0, 1.000001, 1.0]
+        x[(0, 0)] = 1.0;
+        x[(1, 0)] = 1.000001;
+        x[(2, 0)] = 1.0;
+        // Column 1: varying [1.0, 2.0, 3.0]
+        x[(0, 1)] = 1.0;
+        x[(1, 1)] = 2.0;
+        x[(2, 1)] = 3.0;
+
+        // With tight tolerance, column 0 is not constant
+        let constant_tight = detect_constant_columns(&x, 1e-10);
+        assert!(!constant_tight[0]);
+        assert!(!constant_tight[1]);
+
+        // With loose tolerance, column 0 is constant
+        let constant_loose = detect_constant_columns(&x, 1e-5);
+        assert!(constant_loose[0]);
+        assert!(!constant_loose[1]);
+    }
 }

@@ -331,3 +331,301 @@ fn test_wls_weights_access() {
         assert_relative_eq!(stored_weights[i], (i + 1) as f64);
     }
 }
+
+// ============================================================================
+// Prediction Interval Tests
+// ============================================================================
+
+#[test]
+fn test_wls_prediction_intervals() {
+    use regress_rs::core::IntervalType;
+
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j) as f64) * 0.1);
+    let y = Col::from_fn(50, |i| 1.0 + 2.0 * i as f64 * 0.1 + (i as f64 * 0.1).sin() * 0.2);
+    let weights = Col::from_fn(50, |i| 1.0 / ((i % 5 + 1) as f64));
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .compute_inference(true)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // Test prediction intervals
+    let x_new = Mat::from_fn(5, 2, |i, j| ((i + j + 50) as f64) * 0.1);
+    let result = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+
+    assert_eq!(result.fit.nrows(), 5);
+    assert_eq!(result.lower.nrows(), 5);
+    assert_eq!(result.upper.nrows(), 5);
+
+    // Lower should be less than fit, fit less than upper
+    for i in 0..5 {
+        if result.lower[i].is_finite() && result.upper[i].is_finite() {
+            assert!(result.lower[i] <= result.fit[i], "Lower bound should be <= fit");
+            assert!(result.fit[i] <= result.upper[i], "Fit should be <= upper bound");
+        }
+    }
+}
+
+#[test]
+fn test_wls_confidence_intervals() {
+    use regress_rs::core::IntervalType;
+
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j) as f64) * 0.1);
+    let y = Col::from_fn(50, |i| 1.0 + 2.0 * i as f64 * 0.1);
+    let weights = Col::from_fn(50, |_| 1.0);
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .compute_inference(true)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // Test confidence intervals for mean response
+    let x_new = Mat::from_fn(3, 2, |i, j| ((i + j + 50) as f64) * 0.1);
+    let result = fitted.predict_with_interval(&x_new, Some(IntervalType::Confidence), 0.95);
+
+    assert_eq!(result.fit.nrows(), 3);
+    assert_eq!(result.lower.nrows(), 3);
+    assert_eq!(result.upper.nrows(), 3);
+}
+
+#[test]
+fn test_wls_predict_with_no_interval() {
+    let x = Mat::from_fn(30, 1, |i, _| i as f64);
+    let y = Col::from_fn(30, |i| 1.0 + 2.0 * i as f64);
+    let weights = Col::from_fn(30, |_| 1.0);
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // No intervals requested - lower/upper will be zeros
+    let x_new = Mat::from_fn(5, 1, |i, _| (i + 30) as f64);
+    let result = fitted.predict_with_interval(&x_new, None, 0.95);
+
+    assert_eq!(result.fit.nrows(), 5);
+    // When no interval requested, lower/upper are set to zeros
+    assert_eq!(result.lower.nrows(), 5);
+    assert_eq!(result.upper.nrows(), 5);
+    for i in 0..5 {
+        assert_relative_eq!(result.lower[i], 0.0);
+        assert_relative_eq!(result.upper[i], 0.0);
+    }
+}
+
+// ============================================================================
+// No Intercept with Inference Tests
+// ============================================================================
+
+#[test]
+fn test_wls_no_intercept_with_inference() {
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j + 1) as f64) * 0.1);
+    let y = Col::from_fn(50, |i| 2.0 * i as f64 * 0.1 + 3.0 * (i + 1) as f64 * 0.1);
+    let weights = Col::from_fn(50, |i| 1.0 / ((i % 3 + 1) as f64));
+
+    let model = WlsRegressor::builder()
+        .with_intercept(false)
+        .weights(weights)
+        .compute_inference(true)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+    let result = fitted.result();
+
+    // Should have inference statistics
+    assert!(result.std_errors.is_some());
+    assert!(result.t_statistics.is_some());
+    assert!(result.p_values.is_some());
+    assert!(result.conf_interval_lower.is_some());
+    assert!(result.conf_interval_upper.is_some());
+
+    // No intercept inference
+    assert!(result.intercept.is_none());
+    assert!(result.intercept_std_error.is_none());
+}
+
+#[test]
+fn test_wls_no_intercept_prediction_intervals() {
+    use regress_rs::core::IntervalType;
+
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j + 1) as f64) * 0.1);
+    let y = Col::from_fn(50, |i| 2.0 * i as f64 * 0.1);
+    let weights = Col::from_fn(50, |_| 1.0);
+
+    let model = WlsRegressor::builder()
+        .with_intercept(false)
+        .weights(weights)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    let x_new = Mat::from_fn(5, 2, |i, j| ((i + j + 51) as f64) * 0.1);
+    let result = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+
+    assert_eq!(result.fit.nrows(), 5);
+}
+
+// ============================================================================
+// Additional Edge Cases
+// ============================================================================
+
+#[test]
+fn test_wls_insufficient_observations() {
+    let x = Mat::from_fn(3, 5, |i, j| (i + j) as f64); // 3 obs, 5 predictors
+    let y = Col::from_fn(3, |i| i as f64);
+    let weights = Col::from_fn(3, |_| 1.0);
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true) // 6 params total
+        .weights(weights)
+        .build();
+
+    let result = model.fit(&x, &y);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_wls_single_observation() {
+    let x = Mat::from_fn(1, 1, |_, _| 1.0);
+    let y = Col::from_fn(1, |_| 5.0);
+    let weights = Col::from_fn(1, |_| 1.0);
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .build();
+
+    let result = model.fit(&x, &y);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_wls_extreme_weight_ratios() {
+    // Very different weight magnitudes
+    let x = Mat::from_fn(30, 1, |i, _| i as f64);
+    let y = Col::from_fn(30, |i| 1.0 + 2.0 * i as f64);
+    let weights = Col::from_fn(30, |i| if i < 15 { 1e-6 } else { 1e6 });
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // Should still produce valid results
+    assert!(fitted.r_squared().is_finite());
+    assert!(fitted.coefficients()[0].is_finite());
+}
+
+#[test]
+fn test_wls_intercept_inference() {
+    // Use larger, more varied data to ensure numerical stability
+    let x = Mat::from_fn(100, 1, |i, _| i as f64);
+    let y = Col::from_fn(100, |i| 5.0 + 2.0 * i as f64 + 0.1 * (i as f64).sin());
+    // Use varying weights to ensure WLS path is taken (not OLS delegation)
+    let weights = Col::from_fn(100, |i| 1.0 + 0.5 * (i % 5) as f64);
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .compute_inference(true)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+    let result = fitted.result();
+
+    // Should have intercept
+    assert!(result.intercept.is_some());
+
+    // Check coefficient inference is computed
+    assert!(result.std_errors.is_some());
+    assert!(result.t_statistics.is_some());
+    assert!(result.p_values.is_some());
+
+    // If intercept inference was computed, verify it
+    if let Some(se) = result.intercept_std_error {
+        assert!(se > 0.0 || se.is_nan(), "Intercept SE should be positive or NaN");
+    }
+}
+
+#[test]
+fn test_wls_confidence_level() {
+    let x = Mat::from_fn(50, 1, |i, _| i as f64);
+    let y = Col::from_fn(50, |i| 1.0 + 2.0 * i as f64);
+    let weights = Col::from_fn(50, |_| 1.0);
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .compute_inference(true)
+        .confidence_level(0.99)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+    let result = fitted.result();
+
+    assert_relative_eq!(result.confidence_level, 0.99, epsilon = 1e-10);
+}
+
+#[test]
+fn test_wls_options_access() {
+    let weights = Col::from_fn(20, |_| 1.0);
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .compute_inference(true)
+        .build();
+
+    let x = Mat::from_fn(20, 1, |i, _| i as f64);
+    let y = Col::from_fn(20, |i| i as f64);
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // Verify options access
+    let options = fitted.options();
+    assert!(options.with_intercept);
+    assert!(options.compute_inference);
+}
+
+#[test]
+fn test_wls_no_weights_provided() {
+    // When no weights are provided, should use unit weights
+    let x = Mat::from_fn(30, 1, |i, _| i as f64);
+    let y = Col::from_fn(30, |i| 1.0 + 2.0 * i as f64);
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        // No weights()
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    assert!(fitted.r_squared() > 0.99);
+}
+
+#[test]
+fn test_wls_many_predictors() {
+    let x = Mat::from_fn(100, 10, |i, j| ((i * j + 1) as f64).sin() * 0.1);
+    let y = Col::from_fn(100, |i| (i as f64 * 0.1).cos());
+    let weights = Col::from_fn(100, |i| 1.0 / ((i % 5 + 1) as f64));
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .compute_inference(true)
+        .build();
+
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    assert_eq!(fitted.result().coefficients.nrows(), 10);
+    assert!(fitted.r_squared() >= 0.0);
+}

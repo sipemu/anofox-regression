@@ -237,4 +237,91 @@ mod tests {
         assert!(result.has_aliased());
         assert_eq!(result.n_active_coefficients(), 2);
     }
+
+    #[test]
+    fn test_is_valid() {
+        let mut result = RegressionResult::empty(3, 10);
+
+        // Empty result is not valid (rank = 0)
+        assert!(!result.is_valid());
+
+        // Valid when rank > 0 and n > p
+        result.rank = 3;
+        result.n_parameters = 4;
+        result.n_observations = 10;
+        assert!(result.is_valid());
+
+        // Not valid when n <= p
+        result.n_observations = 4;
+        assert!(!result.is_valid());
+
+        // Not valid when n < p
+        result.n_observations = 3;
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_get_coefficient() {
+        let mut result = RegressionResult::empty(3, 10);
+        result.coefficients[0] = 1.0;
+        result.coefficients[1] = 2.0;
+        result.coefficients[2] = 3.0;
+
+        // Normal access
+        assert_eq!(result.get_coefficient(0), Some(1.0));
+        assert_eq!(result.get_coefficient(1), Some(2.0));
+        assert_eq!(result.get_coefficient(2), Some(3.0));
+
+        // Out of bounds
+        assert_eq!(result.get_coefficient(5), None);
+
+        // Aliased coefficient
+        result.aliased[1] = true;
+        assert_eq!(result.get_coefficient(1), None);
+    }
+
+    #[test]
+    fn test_model_df_no_intercept() {
+        let mut result = RegressionResult::empty(3, 100);
+        result.n_parameters = 3;
+        result.intercept = None;
+
+        assert_eq!(result.model_df(), 3);
+    }
+
+    #[test]
+    fn test_tss_rss_ess() {
+        let mut result = RegressionResult::empty(2, 5);
+
+        // Create simple fitted values and residuals
+        // y = [1, 2, 3, 4, 5], fitted = [1.1, 2.0, 2.9, 4.0, 5.1], residuals = [-0.1, 0, 0.1, 0, -0.1]
+        result.fitted_values = Col::from_fn(5, |i| match i {
+            0 => 1.1,
+            1 => 2.0,
+            2 => 2.9,
+            3 => 4.0,
+            _ => 5.1,
+        });
+        result.residuals = Col::from_fn(5, |i| match i {
+            0 => -0.1,
+            1 => 0.0,
+            2 => 0.1,
+            3 => 0.0,
+            _ => -0.1,
+        });
+        result.n_observations = 5;
+
+        let rss = result.rss();
+        let tss = result.tss();
+        let ess = result.ess();
+
+        // RSS = 0.01 + 0 + 0.01 + 0 + 0.01 = 0.03
+        assert!((rss - 0.03).abs() < 1e-10);
+
+        // TSS should be greater than RSS for a decent fit
+        assert!(tss > rss);
+
+        // ESS = TSS - RSS
+        assert!((ess - (tss - rss)).abs() < 1e-10);
+    }
 }

@@ -2,11 +2,11 @@
 
 mod common;
 
-use approx::assert_relative_eq;
 use faer::{Col, Mat};
 use regress_rs::diagnostics::{
-    compute_leverage, cooks_distance, high_leverage_points, high_vif_predictors, influential_cooks,
-    standardized_residuals, studentized_residuals, variance_inflation_factor,
+    compute_leverage, cooks_distance, dffits, externally_studentized_residuals, generalized_vif,
+    high_leverage_points, high_vif_predictors, influential_cooks, influential_dffits,
+    residual_outliers, standardized_residuals, studentized_residuals, variance_inflation_factor,
 };
 use regress_rs::solvers::{FittedRegressor, OlsRegressor, Regressor};
 
@@ -274,4 +274,245 @@ fn test_full_diagnostic_workflow() {
     for j in 0..vif.nrows() {
         assert!(vif[j] >= 1.0);
     }
+}
+
+// ============================================================================
+// Extended VIF Tests
+// ============================================================================
+
+#[test]
+fn test_vif_single_predictor() {
+    // Single predictor should return VIF = 1 (can't compute collinearity)
+    let x = Mat::from_fn(50, 1, |i, _| i as f64);
+    let vif = variance_inflation_factor(&x);
+    assert_eq!(vif.nrows(), 1);
+    assert!((vif[0] - 1.0).abs() < 1e-10, "Single predictor VIF should be 1.0");
+}
+
+#[test]
+fn test_vif_too_few_observations() {
+    // With n < 3, should return VIF = 1 for all predictors
+    let x = Mat::from_fn(2, 3, |i, j| (i + j) as f64);
+    let vif = variance_inflation_factor(&x);
+    for j in 0..vif.nrows() {
+        assert!((vif[j] - 1.0).abs() < 1e-10, "VIF should be 1.0 with few observations");
+    }
+}
+
+#[test]
+fn test_generalized_vif_basic() {
+    // Test GVIF with simple group sizes
+    let x = Mat::from_fn(100, 4, |i, j| {
+        match j {
+            0 => i as f64,
+            1 => (i as f64 * 0.1).sin(),
+            2 => (i as f64 * 0.2).cos(),
+            3 => (i as f64 * 0.3).tan().min(10.0).max(-10.0),
+            _ => 0.0,
+        }
+    });
+
+    // Group sizes: [1, 1, 2] (first two are single, last two are a group)
+    let gvif = generalized_vif(&x, &[1, 1, 2]);
+    assert_eq!(gvif.len(), 3);
+    for v in &gvif {
+        assert!(*v >= 1.0, "GVIF should be >= 1.0");
+    }
+}
+
+#[test]
+fn test_generalized_vif_mismatched_sizes() {
+    let x = Mat::from_fn(50, 3, |i, j| (i + j) as f64);
+    // Group sizes don't sum to p=3
+    let gvif = generalized_vif(&x, &[1, 1]); // sum is 2, not 3
+    // Should return default values
+    assert_eq!(gvif.len(), 2);
+}
+
+#[test]
+fn test_generalized_vif_empty_group() {
+    let x = Mat::from_fn(50, 3, |i, j| (i * j) as f64 + 0.1);
+    // Include an empty group
+    let gvif = generalized_vif(&x, &[1, 0, 2]);
+    assert_eq!(gvif.len(), 3);
+    assert!((gvif[1] - 1.0).abs() < 1e-10, "Empty group should have GVIF = 1.0");
+}
+
+#[test]
+fn test_high_vif_various_thresholds() {
+    // Create data with varying collinearity
+    let x = Mat::from_fn(100, 3, |i, j| {
+        match j {
+            0 => i as f64,
+            1 => i as f64 * 1.001 + 0.5, // Highly collinear with x0
+            2 => (i as f64 * 0.1).sin(),  // Independent
+            _ => 0.0,
+        }
+    });
+
+    let vif = variance_inflation_factor(&x);
+
+    // Test with different thresholds
+    let high_5 = high_vif_predictors(&vif, 5.0);
+    let high_10 = high_vif_predictors(&vif, 10.0);
+    let high_100 = high_vif_predictors(&vif, 100.0);
+
+    // Higher threshold should result in same or fewer predictors flagged
+    assert!(high_10.len() <= high_5.len());
+    assert!(high_100.len() <= high_10.len());
+}
+
+// ============================================================================
+// Extended Residual Tests
+// ============================================================================
+
+#[test]
+fn test_externally_studentized_residuals() {
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j) as f64) * 0.1);
+    let mut y = Col::zeros(50);
+    for i in 0..50 {
+        y[i] = 1.0 + 2.0 * x[(i, 0)] + 3.0 * x[(i, 1)] + (i as f64 * 0.05).sin();
+    }
+
+    let model = OlsRegressor::builder().with_intercept(true).build();
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    let leverage = compute_leverage(&x, true);
+    let residuals = &fitted.result().residuals;
+    let mse = fitted.result().mse;
+    let n_params = fitted.result().n_parameters;
+
+    let ext_stud = externally_studentized_residuals(residuals, &leverage, mse, n_params);
+
+    // Externally studentized residuals should be defined
+    assert_eq!(ext_stud.nrows(), 50);
+
+    // Most should be finite (unless leverage is very high)
+    let finite_count = ext_stud.iter().filter(|&&r| r.is_finite()).count();
+    assert!(finite_count > 40, "Most externally studentized residuals should be finite");
+}
+
+#[test]
+fn test_standardized_residuals_zero_mse() {
+    // When MSE is 0 or negative, should return NaN or 0
+    let residuals = Col::from_fn(10, |i| i as f64 - 4.5);
+
+    let std_resid_zero = standardized_residuals(&residuals, 0.0);
+    let std_resid_neg = standardized_residuals(&residuals, -1.0);
+
+    // Should return NaN for non-zero residuals
+    for i in 0..10 {
+        if residuals[i].abs() > 1e-14 {
+            assert!(std_resid_zero[i].is_nan() || std_resid_zero[i] == 0.0);
+            assert!(std_resid_neg[i].is_nan() || std_resid_neg[i] == 0.0);
+        }
+    }
+}
+
+#[test]
+fn test_studentized_residuals_zero_mse() {
+    let residuals = Col::from_fn(10, |i| i as f64 - 4.5);
+    let leverage = Col::from_fn(10, |_| 0.1);
+
+    let stud_resid = studentized_residuals(&residuals, &leverage, 0.0);
+
+    // All should be NaN when MSE is 0
+    for i in 0..10 {
+        assert!(stud_resid[i].is_nan(), "Studentized residual should be NaN when MSE=0");
+    }
+}
+
+#[test]
+fn test_residual_outliers_various_thresholds() {
+    // Create studentized residuals with known outliers
+    let studentized = Col::from_fn(20, |i| {
+        match i {
+            5 => 3.5,   // Outlier at threshold 3
+            10 => 2.5,  // Outlier at threshold 2
+            15 => 4.0,  // Outlier at both thresholds
+            _ => (i as f64 - 10.0) * 0.1,
+        }
+    });
+
+    let outliers_2 = residual_outliers(&studentized, 2.0);
+    let outliers_3 = residual_outliers(&studentized, 3.0);
+
+    assert!(outliers_2.contains(&5));
+    assert!(outliers_2.contains(&10));
+    assert!(outliers_2.contains(&15));
+
+    assert!(outliers_3.contains(&5));
+    assert!(!outliers_3.contains(&10)); // 2.5 < 3.0
+    assert!(outliers_3.contains(&15));
+}
+
+#[test]
+fn test_externally_studentized_insufficient_df() {
+    // With too few observations relative to parameters, should return NaN
+    let residuals = Col::from_fn(5, |i| i as f64);
+    let leverage = Col::from_fn(5, |_| 0.2);
+    let mse = 1.0;
+    let n_params = 4; // df_resid = 5 - 4 = 1, which is <= 1
+
+    let ext_stud = externally_studentized_residuals(&residuals, &leverage, mse, n_params);
+
+    for i in 0..5 {
+        assert!(ext_stud[i].is_nan(), "Should be NaN with insufficient df");
+    }
+}
+
+// ============================================================================
+// Extended Influence Tests
+// ============================================================================
+
+#[test]
+fn test_dffits_basic() {
+    let x = Mat::from_fn(30, 1, |i, _| i as f64);
+    let y = Col::from_fn(30, |i| 1.0 + 2.0 * i as f64 + if i == 25 { 50.0 } else { 0.0 });
+
+    let model = OlsRegressor::builder().with_intercept(true).build();
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    let leverage = compute_leverage(&x, true);
+    let residuals = &fitted.result().residuals;
+    let mse = fitted.result().mse;
+    let n_params = fitted.result().n_parameters;
+
+    let dffits_vals = dffits(residuals, &leverage, mse, n_params);
+
+    // DFFITS should be computed for all observations
+    assert_eq!(dffits_vals.nrows(), 30);
+
+    // The outlier at i=25 should have relatively high |DFFITS|
+    let max_idx = (0..30)
+        .filter(|&i| dffits_vals[i].is_finite())
+        .max_by(|&a, &b| dffits_vals[a].abs().partial_cmp(&dffits_vals[b].abs()).unwrap());
+
+    if let Some(idx) = max_idx {
+        assert!(dffits_vals[idx].abs() > 0.5, "Outlier should have noticeable DFFITS");
+    }
+}
+
+#[test]
+fn test_influential_dffits() {
+    let x = Mat::from_fn(50, 2, |i, j| ((i + j * 10) as f64) * 0.1);
+    let y = Col::from_fn(50, |i| 1.0 + 2.0 * i as f64);
+
+    let model = OlsRegressor::builder().with_intercept(true).build();
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    let leverage = compute_leverage(&x, true);
+    let residuals = &fitted.result().residuals;
+    let mse = fitted.result().mse;
+    let n_params = fitted.result().n_parameters;
+
+    let dffits_vals = dffits(residuals, &leverage, mse, n_params);
+    let influential = influential_dffits(&dffits_vals, n_params, None);
+
+    // For a clean linear fit, should have few or no influential points
+    assert!(influential.len() < 10, "Clean fit should have few influential points");
+
+    // Test with explicit threshold
+    let influential_strict = influential_dffits(&dffits_vals, n_params, Some(0.5));
+    assert!(influential_strict.len() <= influential.len());
 }

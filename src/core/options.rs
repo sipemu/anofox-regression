@@ -326,4 +326,108 @@ mod tests {
         assert!((elastic.lambda - 0.5).abs() < 1e-10);
         assert!((elastic.alpha - 0.5).abs() < 1e-10);
     }
+
+    #[test]
+    fn test_rls_factory() {
+        let rls = RegressionOptions::rls(0.99);
+        assert!((rls.forgetting_factor - 0.99).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_builder_new() {
+        let builder = RegressionOptionsBuilder::new();
+        let opts = builder.build_unchecked();
+        assert!(opts.with_intercept); // default value
+    }
+
+    #[test]
+    fn test_builder_solver() {
+        let opts = RegressionOptions::builder()
+            .solver(SolverType::Svd)
+            .build_unchecked();
+        assert_eq!(opts.solver, SolverType::Svd);
+    }
+
+    #[test]
+    fn test_builder_rank_tolerance() {
+        let opts = RegressionOptions::builder()
+            .rank_tolerance(1e-8)
+            .build_unchecked();
+        assert!((opts.rank_tolerance - 1e-8).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_validation_invalid_confidence_level_zero() {
+        let result = RegressionOptions::builder()
+            .confidence_level(0.0)
+            .build();
+        assert!(matches!(
+            result,
+            Err(OptionsError::InvalidConfidenceLevel(_))
+        ));
+    }
+
+    #[test]
+    fn test_validation_invalid_confidence_level_one() {
+        let result = RegressionOptions::builder()
+            .confidence_level(1.0)
+            .build();
+        assert!(matches!(
+            result,
+            Err(OptionsError::InvalidConfidenceLevel(_))
+        ));
+    }
+
+    #[test]
+    fn test_validation_invalid_forgetting_factor_zero() {
+        let result = RegressionOptions::builder()
+            .forgetting_factor(0.0)
+            .build();
+        assert!(matches!(
+            result,
+            Err(OptionsError::InvalidForgettingFactor(_))
+        ));
+    }
+
+    #[test]
+    fn test_validation_invalid_forgetting_factor_over_one() {
+        let result = RegressionOptions::builder()
+            .forgetting_factor(1.5)
+            .build();
+        assert!(matches!(
+            result,
+            Err(OptionsError::InvalidForgettingFactor(_))
+        ));
+    }
+
+    #[test]
+    fn test_validation_invalid_tolerance() {
+        let result = RegressionOptions::builder()
+            .tolerance(0.0)
+            .build();
+        assert!(matches!(result, Err(OptionsError::InvalidTolerance(_))));
+    }
+
+    #[test]
+    fn test_validation_invalid_max_iterations() {
+        let result = RegressionOptions::builder()
+            .max_iterations(0)
+            .build();
+        assert!(matches!(
+            result,
+            Err(OptionsError::InvalidMaxIterations(_))
+        ));
+    }
+
+    #[test]
+    fn test_solver_type_default() {
+        let solver = SolverType::default();
+        assert_eq!(solver, SolverType::Qr);
+    }
+
+    #[test]
+    fn test_lambda_scaling_default() {
+        let scaling = LambdaScaling::default();
+        assert_eq!(scaling, LambdaScaling::Raw);
+    }
 }

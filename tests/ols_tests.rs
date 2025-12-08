@@ -599,3 +599,36 @@ fn test_all_statistics_computed() {
     assert!(ci_low.is_finite() && ci_high.is_finite());
     assert!(ci_low <= ci_high);
 }
+
+// ============================================================================
+// Score Edge Cases
+// ============================================================================
+
+#[test]
+fn test_score_with_constant_target() {
+    // Test edge case where y is constant (TSS = 0)
+    let x = Mat::from_fn(20, 1, |i, _| i as f64);
+    let y = Col::from_fn(20, |_| 5.0); // Constant target
+
+    let model = OlsRegressor::builder().with_intercept(true).build();
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // Score on same constant data should be 1.0 (perfect prediction of constant)
+    let score = fitted.score(&x, &y);
+    // Either 1.0 (perfect) or 0.0 depending on implementation
+    assert!(score == 1.0 || score == 0.0 || score.is_nan());
+}
+
+#[test]
+fn test_score_with_perfect_prediction() {
+    // Perfect linear fit
+    let x = Mat::from_fn(10, 1, |i, _| i as f64);
+    let y = Col::from_fn(10, |i| 2.0 + 3.0 * i as f64);
+
+    let model = OlsRegressor::builder().with_intercept(true).build();
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // Score should be 1.0 for perfect fit
+    let score = fitted.score(&x, &y);
+    assert_relative_eq!(score, 1.0, epsilon = 1e-10);
+}
