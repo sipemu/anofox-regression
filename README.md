@@ -1,9 +1,9 @@
 # regress-rs
 
-[![CI](https://github.com/sipemu/statistics/actions/workflows/ci.yml/badge.svg)](https://github.com/sipemu/statistics/actions/workflows/ci.yml)
+[![CI](https://github.com/sipemu/regress-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/sipemu/regress-rs/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/regress-rs.svg)](https://crates.io/crates/regress-rs)
 [![Documentation](https://docs.rs/regress-rs/badge.svg)](https://docs.rs/regress-rs)
-[![codecov](https://codecov.io/gh/sipemu/statistics/branch/main/graph/badge.svg)](https://codecov.io/gh/sipemu/regress-rs/tree/main)
+[![codecov](https://codecov.io/gh/sipemu/regress-rs/branch/main/graph/badge.svg)](https://codecov.io/gh/sipemu/regress-rs)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 A robust statistics library for regression analysis in Rust.
