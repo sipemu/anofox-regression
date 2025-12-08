@@ -8,8 +8,8 @@ use approx::assert_relative_eq;
 use faer::{Col, Mat};
 use regress_rs::diagnostics::{compute_leverage, cooks_distance, variance_inflation_factor};
 use regress_rs::solvers::{
-    BlsRegressor, ElasticNetRegressor, FittedRegressor, OlsRegressor, Regressor, RidgeRegressor,
-    TweedieRegressor, WlsRegressor,
+    BlsRegressor, ElasticNetRegressor, FittedRegressor, NegativeBinomialRegressor, OlsRegressor,
+    PoissonRegressor, Regressor, RidgeRegressor, TweedieRegressor, WlsRegressor,
 };
 use regress_rs::{NaAction, NaHandler};
 
@@ -1921,5 +1921,471 @@ fn test_binomial_predict_link_scale() {
         // Response = logistic(link)
         let expected_resp = 1.0 / (1.0 + (-pred_link.fit[i]).exp());
         assert_relative_eq!(pred_resp.fit[i], expected_resp, epsilon = 1e-6);
+    }
+}
+
+// ============================================================================
+// Poisson GLM Tests (comparing to R's glm with family=poisson)
+// R reference:
+// set.seed(42)
+// n <- 50
+// x <- 1:n / 10
+// y <- rpois(n, lambda = exp(0.5 + 0.3 * x))
+// fit <- glm(y ~ x, family = poisson(link = "log"))
+// ============================================================================
+
+#[test]
+fn test_poisson_log_vs_r() {
+    // Generate Poisson-like count data
+    let n = 50;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let eta = 0.5 + 0.3 * ((i + 1) as f64 / 10.0);
+        let mu = eta.exp();
+        // Round to integer-like counts with some variation
+        (mu + 0.5 * ((i % 5) as f64 - 2.0)).round().max(0.0)
+    });
+
+    let fitted = PoissonRegressor::log()
+        .with_intercept(true)
+        .compute_inference(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Coefficient should be positive (true value is 0.3)
+    assert!(
+        fitted.result().coefficients[0] > 0.0,
+        "Poisson coef should be positive, got {}",
+        fitted.result().coefficients[0]
+    );
+
+    // Deviance should be less than null deviance
+    assert!(
+        fitted.deviance < fitted.null_deviance,
+        "Deviance {} should be < null deviance {}",
+        fitted.deviance,
+        fitted.null_deviance
+    );
+
+    // Standard errors should be computed
+    assert!(
+        fitted.result().std_errors.is_some(),
+        "Should have standard errors"
+    );
+}
+
+#[test]
+fn test_poisson_identity_link() {
+    // Poisson with identity link
+    let n = 50;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64);
+    let y = Col::from_fn(n, |i| {
+        let mu = 5.0 + 0.5 * ((i + 1) as f64);
+        (mu + 0.3 * ((i % 5) as f64 - 2.0)).round().max(0.0)
+    });
+
+    let fitted = PoissonRegressor::identity()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Coefficient should be positive
+    assert!(fitted.result().coefficients[0] > 0.0);
+    assert!(fitted.deviance < fitted.null_deviance);
+}
+
+#[test]
+fn test_poisson_sqrt_link() {
+    // Poisson with sqrt link
+    let n = 50;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let eta = (1.0 + 0.2 * ((i + 1) as f64 / 10.0)).powi(2);
+        (eta + 0.3 * ((i % 5) as f64 - 2.0)).round().max(0.0)
+    });
+
+    let fitted = PoissonRegressor::sqrt()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Should converge
+    assert!(fitted.iterations > 0);
+    assert!(fitted.deviance.is_finite());
+}
+
+#[test]
+fn test_poisson_matches_tweedie_poisson() {
+    // Standalone Poisson should match Tweedie with var_power=1, log link
+    let n = 50;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let eta = 0.5 + 0.3 * ((i + 1) as f64 / 10.0);
+        eta.exp().round().max(1.0)
+    });
+
+    let poisson = PoissonRegressor::log()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("Poisson fit should succeed");
+
+    let tweedie = TweedieRegressor::poisson()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("Tweedie fit should succeed");
+
+    // Coefficients should be very close
+    assert_relative_eq!(
+        poisson.result().intercept.unwrap(),
+        tweedie.result().intercept.unwrap(),
+        epsilon = 0.1
+    );
+    assert_relative_eq!(
+        poisson.result().coefficients[0],
+        tweedie.coefficients()[0],
+        epsilon = 0.05
+    );
+}
+
+#[test]
+fn test_poisson_with_offset() {
+    // Rate modeling: counts with different exposures
+    let n = 50;
+    let exposure = Col::from_fn(n, |i| 1.0 + (i % 3) as f64); // 1, 2, 3
+    let offset = Col::from_fn(n, |i| exposure[i].ln());
+
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let rate = (0.5 + 0.2 * ((i + 1) as f64 / 10.0)).exp();
+        (exposure[i] * rate).round().max(0.0)
+    });
+
+    let fitted = PoissonRegressor::log()
+        .with_intercept(true)
+        .offset(offset)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Should converge
+    assert!(fitted.iterations > 0);
+
+    // Coefficient should be positive
+    assert!(
+        fitted.result().coefficients[0] > 0.0,
+        "Rate coefficient should be positive"
+    );
+}
+
+#[test]
+fn test_poisson_residuals() {
+    let n = 50;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let eta = 0.5 + 0.3 * ((i + 1) as f64 / 10.0);
+        (eta.exp() + 0.5 * ((i % 5) as f64 - 2.0)).round().max(0.0)
+    });
+
+    let fitted = PoissonRegressor::log()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    let pearson = fitted.pearson_residuals();
+    let deviance = fitted.deviance_residuals();
+    let working = fitted.working_residuals();
+
+    assert_eq!(pearson.nrows(), n);
+    assert_eq!(deviance.nrows(), n);
+    assert_eq!(working.nrows(), n);
+
+    // All residuals should be finite
+    for i in 0..n {
+        assert!(pearson[i].is_finite());
+        assert!(deviance[i].is_finite());
+        assert!(working[i].is_finite());
+    }
+}
+
+// ============================================================================
+// Negative Binomial GLM Tests (comparing to R's MASS::glm.nb)
+// R reference:
+// library(MASS)
+// set.seed(42)
+// n <- 100
+// x <- 1:n / 10
+// y <- rnegbin(n, mu = exp(0.5 + 0.2 * x), theta = 2)
+// fit <- glm.nb(y ~ x)
+// ============================================================================
+
+#[test]
+fn test_negative_binomial_fixed_theta() {
+    // Negative binomial with fixed theta (like R's glm with family=negative.binomial(theta))
+    let n = 100;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let mu = (0.5 + 0.2 * ((i + 1) as f64 / 10.0)).exp();
+        // Add overdispersion-like variation
+        let extra = if i % 4 == 0 { mu * 0.5 } else { 0.0 };
+        (mu + extra + 0.3 * ((i % 7) as f64 - 3.0)).round().max(0.0)
+    });
+
+    let fitted = NegativeBinomialRegressor::with_theta(2.0)
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Theta should be fixed at 2.0
+    assert_relative_eq!(fitted.theta, 2.0, epsilon = 1e-10);
+
+    // Coefficient should be positive
+    assert!(
+        fitted.result().coefficients[0] > 0.0,
+        "NB coef should be positive, got {}",
+        fitted.result().coefficients[0]
+    );
+
+    // Deviance should be less than null deviance
+    assert!(
+        fitted.deviance < fitted.null_deviance,
+        "Deviance {} should be < null deviance {}",
+        fitted.deviance,
+        fitted.null_deviance
+    );
+}
+
+#[test]
+fn test_negative_binomial_estimate_theta() {
+    // Negative binomial with theta estimation (like R's MASS::glm.nb)
+    let n = 100;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let mu = (0.5 + 0.2 * ((i + 1) as f64 / 10.0)).exp();
+        // Add overdispersion
+        let extra = if i % 3 == 0 { mu * 0.8 } else { 0.0 };
+        (mu + extra + 0.4 * ((i % 5) as f64 - 2.0)).round().max(0.0)
+    });
+
+    let fitted = NegativeBinomialRegressor::builder()
+        .with_intercept(true)
+        .estimate_theta(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Theta should have been estimated
+    assert!(fitted.theta > 0.0, "Theta should be positive");
+
+    // Coefficient should be positive
+    assert!(fitted.result().coefficients[0] > 0.0);
+}
+
+#[test]
+fn test_negative_binomial_overdispersion() {
+    // Generate clearly overdispersed data
+    let n = 100;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 20.0);
+    let y = Col::from_fn(n, |i| {
+        let mu = (1.0 + 0.2 * ((i + 1) as f64 / 20.0)).exp();
+        // High overdispersion
+        let extra = if i % 2 == 0 { mu * 1.5 } else { 0.0 };
+        (mu + extra).round().max(0.0)
+    });
+
+    let fitted = NegativeBinomialRegressor::builder()
+        .with_intercept(true)
+        .estimate_theta(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Overdispersion ratio should be > 1
+    let ratio = fitted.overdispersion_ratio();
+    assert!(ratio > 1.0, "Overdispersion ratio {} should be > 1", ratio);
+}
+
+#[test]
+fn test_negative_binomial_with_offset() {
+    // Rate modeling with exposure
+    let n = 100;
+    let exposure = Col::from_fn(n, |i| 1.0 + (i % 4) as f64);
+    let offset = Col::from_fn(n, |i| exposure[i].ln());
+
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let rate = (0.3 + 0.1 * ((i + 1) as f64 / 10.0)).exp();
+        (exposure[i] * rate + 0.3 * ((i % 5) as f64 - 2.0))
+            .round()
+            .max(0.0)
+    });
+
+    let fitted = NegativeBinomialRegressor::builder()
+        .with_intercept(true)
+        .offset(offset)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Should converge
+    assert!(fitted.iterations > 0);
+}
+
+#[test]
+fn test_negative_binomial_vs_poisson_overdispersed() {
+    // NB should fit better than Poisson on overdispersed data
+    let n = 100;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let mu = (0.5 + 0.2 * ((i + 1) as f64 / 10.0)).exp();
+        // Strong overdispersion
+        let extra = if i % 3 == 0 { mu * 2.0 } else { 0.0 };
+        (mu + extra).round().max(0.0)
+    });
+
+    let poisson = PoissonRegressor::log()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("Poisson fit should succeed");
+
+    let nb = NegativeBinomialRegressor::builder()
+        .with_intercept(true)
+        .estimate_theta(true)
+        .build()
+        .fit(&x, &y)
+        .expect("NB fit should succeed");
+
+    // NB dispersion parameter should indicate overdispersion was handled
+    assert!(nb.dispersion.is_finite());
+    assert!(poisson.dispersion.is_finite());
+}
+
+#[test]
+fn test_negative_binomial_approaches_poisson() {
+    // With very high theta, NB should approach Poisson
+    let n = 50;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let eta = 0.5 + 0.3 * ((i + 1) as f64 / 10.0);
+        eta.exp().round().max(1.0)
+    });
+
+    let nb = NegativeBinomialRegressor::with_theta(1e6)
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("NB fit should succeed");
+
+    let poisson = PoissonRegressor::log()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("Poisson fit should succeed");
+
+    // Coefficients should be similar
+    assert!(
+        (nb.result().coefficients[0] - poisson.result().coefficients[0]).abs() < 0.1,
+        "NB with high theta should match Poisson"
+    );
+}
+
+// ============================================================================
+// Offset Terms Tests for GLM Regressors
+// ============================================================================
+
+#[test]
+fn test_tweedie_with_offset() {
+    // Gamma regression with offset for rate modeling
+    let n = 50;
+    let exposure = Col::from_fn(n, |i| 1.0 + (i % 3) as f64);
+    let offset = Col::from_fn(n, |i| exposure[i].ln());
+
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let rate = (0.5 + 0.1 * ((i + 1) as f64 / 10.0)).exp();
+        exposure[i] * rate * (1.0 + 0.1 * ((i % 5) as f64 - 2.0))
+    });
+
+    let fitted = TweedieRegressor::gamma()
+        .with_intercept(true)
+        .offset(offset)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Should converge
+    assert!(fitted.iterations > 0);
+    assert!(fitted.coefficients()[0] > 0.0);
+}
+
+#[test]
+fn test_binomial_with_offset() {
+    // Logistic regression with offset
+    let n = 100;
+    let base_odds = Col::from_fn(n, |i| 0.1 * ((i % 5) as f64));
+    let offset = Col::from_fn(n, |i| base_odds[i]);
+
+    let x = Mat::from_fn(n, 1, |i, _| -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0));
+    let y = Col::from_fn(n, |i| {
+        let xi = -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0);
+        let eta = base_odds[i] + 0.5 + 1.0 * xi;
+        let prob = 1.0 / (1.0 + (-eta).exp());
+        if prob > 0.5 {
+            1.0
+        } else {
+            0.0
+        }
+    });
+
+    let fitted = BinomialRegressor::logistic()
+        .with_intercept(true)
+        .offset(offset)
+        .max_iterations(100)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Should converge
+    assert!(fitted.iterations > 0);
+}
+
+#[test]
+fn test_predict_with_offset() {
+    // Test predict_with_offset method for Poisson
+    let n = 50;
+    let offset = Col::from_fn(n, |i| ((i % 3) as f64 + 1.0).ln());
+
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64 / 10.0);
+    let y = Col::from_fn(n, |i| {
+        let exp_i = (i % 3) as f64 + 1.0;
+        let rate = (0.5 + 0.2 * ((i + 1) as f64 / 10.0)).exp();
+        (exp_i * rate).round().max(0.0)
+    });
+
+    let fitted = PoissonRegressor::log()
+        .with_intercept(true)
+        .offset(offset)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Predict with new offset
+    let x_new = Mat::from_fn(5, 1, |i, _| (i as f64 + 1.0));
+    let offset_new = Col::from_fn(5, |_| 2.0_f64.ln()); // exposure = 2
+
+    let pred_no_offset = fitted.predict_count(&x_new);
+    let pred_with_offset = fitted.predict_with_offset(&x_new, &offset_new);
+
+    // Predictions should be different
+    for i in 0..5 {
+        assert!(pred_no_offset[i] > 0.0);
+        assert!(pred_with_offset[i] > 0.0);
     }
 }

@@ -28,7 +28,7 @@ use super::link::BinomialLink;
 ///
 /// # Variance Function
 ///
-/// For binomial data with μ = E[Y], the variance function is:
+/// For binomial data with μ = E\[Y\], the variance function is:
 /// V(μ) = μ(1 - μ)
 ///
 /// # Unit Deviance

@@ -35,8 +35,9 @@ pub mod utils;
 pub mod prelude {
     pub use crate::core::{
         BinomialFamily, BinomialLink, GlmFamily, IntervalType, LambdaScaling, NaAction, NaError,
-        NaHandler, NaInfo, PredictionResult, PredictionType, RegressionOptions,
-        RegressionOptionsBuilder, RegressionResult, TweedieFamily,
+        NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily, PoissonLink, PredictionResult,
+        PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
+        TweedieFamily,
     };
     pub use crate::diagnostics::{
         compute_leverage, cooks_distance, deviance_residuals, high_leverage_points,
@@ -44,15 +45,19 @@ pub mod prelude {
         variance_inflation_factor, working_residuals,
     };
     pub use crate::solvers::{
-        BinomialRegressor, BlsRegressor, ElasticNetRegressor, FittedBinomial, FittedRegressor,
-        FittedTweedie, OlsRegressor, Regressor, RidgeRegressor, RlsRegressor, TweedieRegressor,
-        WlsRegressor,
+        BinomialRegressor, BlsRegressor, ElasticNetRegressor, FittedBinomial,
+        FittedNegativeBinomial, FittedPoisson, FittedRegressor, FittedTweedie,
+        NegativeBinomialRegressor, OlsRegressor, PoissonRegressor, Regressor, RidgeRegressor,
+        RlsRegressor, TweedieRegressor, WlsRegressor,
     };
 }
 
 pub use crate::core::{
     BinomialFamily, BinomialLink, GlmFamily, IntervalType, LambdaScaling, NaAction, NaError,
-    NaHandler, NaInfo, PredictionResult, PredictionType, RegressionOptions,
-    RegressionOptionsBuilder, RegressionResult, TweedieFamily,
+    NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily, PoissonLink, PredictionResult,
+    PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult, TweedieFamily,
 };
-pub use crate::solvers::{BinomialRegressor, FittedBinomial, FittedRegressor, Regressor};
+pub use crate::solvers::{
+    BinomialRegressor, FittedBinomial, FittedNegativeBinomial, FittedPoisson, FittedRegressor,
+    NegativeBinomialRegressor, PoissonRegressor, Regressor,
+};

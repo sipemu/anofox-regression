@@ -20,6 +20,8 @@ This library provides sklearn-style regression estimators with full statistical 
   - Recursive Least Squares (RLS) with online learning
   - Bounded Least Squares (BLS/NNLS) with box constraints
   - Tweedie GLM (Gaussian, Poisson, Gamma, Inverse-Gaussian, Compound Poisson-Gamma)
+  - Poisson GLM (Log, Identity, Sqrt links) with offset support
+  - Negative Binomial GLM (overdispersed count data with theta estimation)
   - Binomial GLM (Logistic, Probit, Complementary log-log)
 
 - **Statistical Inference**
@@ -220,6 +222,82 @@ let model = TweedieRegressor::builder()
     .build();
 ```
 
+### Poisson GLM (Count Data)
+
+```rust
+use regress_rs::prelude::*;
+
+// Poisson regression with log link (count data)
+let model = PoissonRegressor::log()
+    .with_intercept(true)
+    .compute_inference(true)
+    .build();
+let fitted = model.fit(&x, &y).unwrap();
+
+println!("Deviance: {}", fitted.deviance);
+println!("Dispersion: {}", fitted.dispersion);
+
+// Predict counts
+let counts = fitted.predict_count(&x_new);
+
+// Poisson with identity link
+let model = PoissonRegressor::identity()
+    .with_intercept(true)
+    .build();
+
+// Poisson with sqrt link
+let model = PoissonRegressor::sqrt()
+    .with_intercept(true)
+    .build();
+
+// Rate modeling with offset (for exposure)
+// y_i ~ Poisson(exposure_i * rate), log(E[y]) = log(exposure) + Xβ
+let offset = Col::from_fn(n, |i| exposures[i].ln());
+let model = PoissonRegressor::log()
+    .with_intercept(true)
+    .offset(offset)
+    .build();
+let fitted = model.fit(&x, &y).unwrap();
+
+// Predict with new offset
+let new_offset = Col::from_fn(5, |_| 2.0_f64.ln());  // exposure = 2
+let rates = fitted.predict_with_offset(&x_new, &new_offset);
+```
+
+### Negative Binomial GLM (Overdispersed Count Data)
+
+```rust
+use regress_rs::prelude::*;
+
+// Negative binomial with automatic theta estimation (like MASS::glm.nb)
+let model = NegativeBinomialRegressor::builder()
+    .with_intercept(true)
+    .estimate_theta(true)  // Estimate dispersion parameter
+    .build();
+let fitted = model.fit(&x, &y).unwrap();
+
+println!("Estimated theta: {}", fitted.theta);
+println!("Overdispersion ratio: {}", fitted.overdispersion_ratio());
+println!("Deviance: {}", fitted.deviance);
+
+// Negative binomial with fixed theta
+let model = NegativeBinomialRegressor::with_theta(2.0)
+    .with_intercept(true)
+    .build();
+let fitted = model.fit(&x, &y).unwrap();
+
+// Rate modeling with offset
+let offset = Col::from_fn(n, |i| exposures[i].ln());
+let model = NegativeBinomialRegressor::builder()
+    .with_intercept(true)
+    .offset(offset)
+    .build();
+
+// GLM residuals
+let pearson = fitted.pearson_residuals();
+let deviance = fitted.deviance_residuals();
+```
+
 ### Binomial GLM (Logistic Regression)
 
 ```rust
@@ -365,6 +443,45 @@ let vif = variance_inflation_factor(&x);
 | 2 | Gamma | Positive continuous |
 | 3 | Inverse-Gaussian | Positive, right-skewed |
 
+### Poisson GLM Result Fields
+
+| Field | Description |
+|-------|-------------|
+| `deviance` | Total deviance of fitted model |
+| `null_deviance` | Deviance of intercept-only model |
+| `dispersion` | Estimated dispersion parameter |
+| `iterations` | Number of IRLS iterations |
+
+### Poisson Link Functions
+
+| Link | Function | Inverse | Use Case |
+|------|----------|---------|----------|
+| Log | ln(μ) | exp(η) | Canonical, most common |
+| Identity | μ | η | Linear relationships |
+| Sqrt | √μ | η² | Alternative for count data |
+
+### Negative Binomial GLM Result Fields
+
+| Field | Description |
+|-------|-------------|
+| `deviance` | Total deviance of fitted model |
+| `null_deviance` | Deviance of intercept-only model |
+| `theta` | Estimated or fixed dispersion parameter |
+| `dispersion` | Estimated dispersion parameter |
+| `iterations` | Number of iterations |
+
+### Negative Binomial Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `theta` | Dispersion parameter (size). Larger = less overdispersion. |
+| `estimate_theta` | If true, estimate theta via alternating ML. Default: true. |
+
+**When to use Negative Binomial vs Poisson:**
+- Use **Poisson** when Var(Y) ≈ E[Y]
+- Use **Negative Binomial** when Var(Y) > E[Y] (overdispersion)
+- NB variance: V(μ) = μ + μ²/θ (approaches Poisson as θ → ∞)
+
 ### Binomial GLM Result Fields
 
 | Field | Description |
@@ -421,7 +538,10 @@ This library is validated against R's statistical functions:
 - `glmnet::glmnet()` for Ridge and Elastic Net
 - `nnls::nnls()` for Non-negative Least Squares
 - `statmod::tweedie()` for Tweedie GLM
+- `glm(..., family=poisson)` for Poisson GLM (log, identity, sqrt links)
+- `MASS::glm.nb()` for Negative Binomial GLM with theta estimation
 - `glm(..., family=binomial)` for Binomial GLM (logit, probit, cloglog)
+- `glm(..., offset=...)` for rate modeling with offset terms
 - `residuals(..., type="pearson/deviance/working")` for GLM residuals
 - `predict(..., se.fit=TRUE)` for GLM predictions with standard errors
 - `na.omit()`, `na.exclude()`, `na.fail()`, `na.pass()` for NA handling

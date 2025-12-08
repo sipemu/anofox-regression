@@ -42,18 +42,23 @@ use statrs::distribution::{ContinuousCDF, FisherSnedecor, Normal};
 /// # Model
 ///
 /// The binomial GLM models:
-/// - `E[Y] = μ = g^(-1)(Xβ)` where g is the link function (logit, probit, or cloglog)
+/// - `E[Y] = μ = g^(-1)(Xβ + offset)` where g is the link function (logit, probit, or cloglog)
 /// - `Var[Y] = μ(1-μ)` (binomial variance)
 #[derive(Debug, Clone)]
 pub struct BinomialRegressor {
     options: RegressionOptions,
     family: BinomialFamily,
+    offset: Option<Col<f64>>,
 }
 
 impl BinomialRegressor {
     /// Create a new binomial regressor with the given options and family.
     pub fn new(options: RegressionOptions, family: BinomialFamily) -> Self {
-        Self { options, family }
+        Self {
+            options,
+            family,
+            offset: None,
+        }
     }
 
     /// Create a builder for logistic regression (logit link).
@@ -105,8 +110,19 @@ impl BinomialRegressor {
         let y_vec: Vec<f64> = (0..n_samples).map(|i| y[i]).collect();
         let mut mu: Vec<f64> = self.family.initialize_mu(&y_vec);
 
-        // Initialize η = g(μ)
-        let mut eta: Vec<f64> = mu.iter().map(|&m| self.family.link(m)).collect();
+        // Initialize η = g(μ) - offset (so that η + offset = g(μ))
+        let mut eta: Vec<f64> = mu
+            .iter()
+            .enumerate()
+            .map(|(i, &m)| {
+                let base_eta = self.family.link(m);
+                if let Some(ref offset) = self.offset {
+                    base_eta - offset[i]
+                } else {
+                    base_eta
+                }
+            })
+            .collect();
 
         let mut beta = Col::zeros(n_params);
 
@@ -142,8 +158,14 @@ impl BinomialRegressor {
                 for j in 0..n_params {
                     eta_i += x_design[(i, j)] * beta[j];
                 }
-                eta[i] = eta_i;
-                mu[i] = self.family.link_inverse(eta_i);
+                // Add offset if present
+                let eta_with_offset = if let Some(ref offset) = self.offset {
+                    eta_i + offset[i]
+                } else {
+                    eta_i
+                };
+                eta[i] = eta_i; // Store η without offset for working response
+                mu[i] = self.family.link_inverse(eta_with_offset);
             }
 
             if max_change < tol {
@@ -158,7 +180,17 @@ impl BinomialRegressor {
             });
         }
 
-        self.build_result(x, y, &x_design, &beta, &mu, &eta, n_params, iterations)
+        self.build_result(
+            x,
+            y,
+            &x_design,
+            &beta,
+            &mu,
+            &eta,
+            n_params,
+            iterations,
+            self.offset.clone(),
+        )
     }
 
     fn compute_irls_quantities(&self, y: &[f64], mu: &[f64], eta: &[f64]) -> (Vec<f64>, Vec<f64>) {
@@ -234,6 +266,7 @@ impl BinomialRegressor {
         _eta: &[f64],
         n_params: usize,
         iterations: usize,
+        offset: Option<Col<f64>>,
     ) -> Result<FittedBinomial, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
@@ -384,6 +417,7 @@ impl BinomialRegressor {
             iterations,
             y_values: y.clone(),
             xtwx_inverse,
+            offset,
         })
     }
 
@@ -472,6 +506,16 @@ impl Regressor for BinomialRegressor {
             });
         }
 
+        // Check offset length if provided
+        if let Some(ref offset) = self.offset {
+            if offset.nrows() != n_samples {
+                return Err(RegressionError::DimensionMismatch {
+                    x_rows: n_samples,
+                    y_len: offset.nrows(),
+                });
+            }
+        }
+
         // Validate y values are in [0, 1]
         for i in 0..n_samples {
             if !(0.0..=1.0).contains(&y[i]) {
@@ -504,6 +548,9 @@ pub struct FittedBinomial {
     y_values: Col<f64>,
     /// (X'WX)⁻¹ matrix for prediction SE.
     xtwx_inverse: Option<Mat<f64>>,
+    /// Offset used in fitting (stored for potential residual calculations).
+    #[allow(dead_code)]
+    offset: Option<Col<f64>>,
 }
 
 impl FittedBinomial {
@@ -539,6 +586,24 @@ impl FittedBinomial {
     pub fn working_residuals(&self) -> Col<f64> {
         let mu = &self.result.fitted_values;
         working_residuals(&self.y_values, mu, &self.family)
+    }
+
+    /// Predict with a new offset.
+    ///
+    /// The offset enters the linear predictor: η = Xβ + offset.
+    pub fn predict_with_offset(&self, x: &Mat<f64>, offset: &Col<f64>) -> Col<f64> {
+        let n_samples = x.nrows();
+        let n_features = x.ncols();
+        let intercept = self.result.intercept.unwrap_or(0.0);
+
+        Col::from_fn(n_samples, |i| {
+            let mut eta = intercept;
+            for j in 0..n_features {
+                eta += x[(i, j)] * self.result.coefficients[j];
+            }
+            eta += offset[i];
+            self.family.link_inverse(eta)
+        })
     }
 
     /// Compute predictions with standard errors and optional confidence intervals.
@@ -692,6 +757,7 @@ impl FittedRegressor for FittedBinomial {
 pub struct BinomialRegressorBuilder {
     options_builder: RegressionOptionsBuilder,
     link: BinomialLink,
+    offset: Option<Col<f64>>,
 }
 
 impl BinomialRegressorBuilder {
@@ -731,11 +797,20 @@ impl BinomialRegressorBuilder {
         self
     }
 
+    /// Set the offset term.
+    ///
+    /// The offset enters the linear predictor: η = Xβ + offset.
+    pub fn offset(mut self, offset: Col<f64>) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
     /// Build the regressor.
     pub fn build(self) -> BinomialRegressor {
         BinomialRegressor {
             options: self.options_builder.build_unchecked(),
             family: BinomialFamily::new(self.link),
+            offset: self.offset,
         }
     }
 }
