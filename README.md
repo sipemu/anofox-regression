@@ -252,15 +252,17 @@ let model = PoissonRegressor::sqrt()
 
 // Rate modeling with offset (for exposure)
 // y_i ~ Poisson(exposure_i * rate), log(E[y]) = log(exposure) + Xβ
-let offset = Col::from_fn(n, |i| exposures[i].ln());
+let exposures = Col::from_fn(100, |i| (i + 1) as f64);
+let offset = Col::from_fn(100, |i| exposures[i].ln());
 let model = PoissonRegressor::log()
     .with_intercept(true)
     .offset(offset)
     .build();
 let fitted = model.fit(&x, &y).unwrap();
 
-// Predict with new offset
-let new_offset = Col::from_fn(5, |_| 2.0_f64.ln());  // exposure = 2
+// Predict with new offset (exposure = 2 for all new observations)
+let x_new = Mat::from_fn(5, 2, |i, j| (i + j) as f64);
+let new_offset = Col::from_fn(5, |_| 2.0_f64.ln());
 let rates = fitted.predict_with_offset(&x_new, &new_offset);
 ```
 
@@ -287,11 +289,13 @@ let model = NegativeBinomialRegressor::with_theta(2.0)
 let fitted = model.fit(&x, &y).unwrap();
 
 // Rate modeling with offset
-let offset = Col::from_fn(n, |i| exposures[i].ln());
+let exposures = Col::from_fn(100, |i| (i + 1) as f64);
+let offset = Col::from_fn(100, |i| exposures[i].ln());
 let model = NegativeBinomialRegressor::builder()
     .with_intercept(true)
     .offset(offset)
     .build();
+let fitted = model.fit(&x, &y).unwrap();
 
 // GLM residuals
 let pearson = fitted.pearson_residuals();
