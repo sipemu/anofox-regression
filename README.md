@@ -20,6 +20,7 @@ This library provides sklearn-style regression estimators with full statistical 
   - Recursive Least Squares (RLS) with online learning
   - Bounded Least Squares (BLS/NNLS) with box constraints
   - Tweedie GLM (Gaussian, Poisson, Gamma, Inverse-Gaussian, Compound Poisson-Gamma)
+  - Binomial GLM (Logistic, Probit, Complementary log-log)
 
 - **Statistical Inference**
   - Coefficient standard errors, t-statistics, and p-values
@@ -32,6 +33,7 @@ This library provides sklearn-style regression estimators with full statistical 
   - F-statistic and p-value
   - AIC, AICc, BIC, Log-likelihood
   - Residual analysis (standardized, studentized)
+  - GLM residuals (Pearson, deviance, working)
   - Leverage and influence measures (Cook's distance, DFFITS)
   - Variance Inflation Factor (VIF) for multicollinearity detection
 
@@ -218,6 +220,48 @@ let model = TweedieRegressor::builder()
     .build();
 ```
 
+### Binomial GLM (Logistic Regression)
+
+```rust
+use regress_rs::prelude::*;
+
+// Logistic regression (binary classification)
+let model = BinomialRegressor::logistic()
+    .with_intercept(true)
+    .compute_inference(true)
+    .build();
+let fitted = model.fit(&x, &y).unwrap();
+
+// Predict probabilities
+let probs = fitted.predict_probability(&x_new);
+
+// Predict with standard errors and confidence intervals
+let pred = fitted.predict_with_se(
+    &x_new,
+    PredictionType::Response,  // Probability scale
+    Some(IntervalType::Confidence),
+    0.95,
+);
+println!("Predicted probability: {:?}", pred.fit);
+println!("Standard error: {:?}", pred.se);
+println!("95% CI: [{:?}, {:?}]", pred.lower, pred.upper);
+
+// Probit regression
+let model = BinomialRegressor::probit()
+    .with_intercept(true)
+    .build();
+
+// Complementary log-log regression
+let model = BinomialRegressor::cloglog()
+    .with_intercept(true)
+    .build();
+
+// GLM residuals
+let pearson = fitted.pearson_residuals();
+let deviance = fitted.deviance_residuals();
+let working = fitted.working_residuals();
+```
+
 ### NA Handling
 
 ```rust
@@ -321,6 +365,37 @@ let vif = variance_inflation_factor(&x);
 | 2 | Gamma | Positive continuous |
 | 3 | Inverse-Gaussian | Positive, right-skewed |
 
+### Binomial GLM Result Fields
+
+| Field | Description |
+|-------|-------------|
+| `deviance` | Total deviance of fitted model |
+| `null_deviance` | Deviance of intercept-only model |
+| `iterations` | Number of IRLS iterations |
+
+### Binomial Link Functions
+
+| Link | Function | Inverse | Use Case |
+|------|----------|---------|----------|
+| Logit | log(p/(1-p)) | 1/(1+exp(-η)) | Standard logistic regression |
+| Probit | Φ⁻¹(p) | Φ(η) | Dose-response, bioassay |
+| Cloglog | log(-log(1-p)) | 1-exp(-exp(η)) | Asymmetric, extreme events |
+
+### GLM Residual Types
+
+| Type | Formula | Use Case |
+|------|---------|----------|
+| Pearson | (y - μ) / √V(μ) | Outlier detection, overdispersion |
+| Deviance | sign(y - μ) × √d_i | Model fit assessment |
+| Working | (y - μ) × (dη/dμ) | IRLS algorithm diagnostics |
+
+### Prediction Types (GLM)
+
+| Type | Description |
+|------|-------------|
+| `PredictionType::Response` | Predictions on response scale (probabilities for binomial) |
+| `PredictionType::Link` | Predictions on link scale (log-odds for logit) |
+
 ### Interval Types
 
 - `IntervalType::Prediction` - Prediction interval for new observations (wider)
@@ -346,6 +421,9 @@ This library is validated against R's statistical functions:
 - `glmnet::glmnet()` for Ridge and Elastic Net
 - `nnls::nnls()` for Non-negative Least Squares
 - `statmod::tweedie()` for Tweedie GLM
+- `glm(..., family=binomial)` for Binomial GLM (logit, probit, cloglog)
+- `residuals(..., type="pearson/deviance/working")` for GLM residuals
+- `predict(..., se.fit=TRUE)` for GLM predictions with standard errors
 - `na.omit()`, `na.exclude()`, `na.fail()`, `na.pass()` for NA handling
 - `predict(..., interval="prediction")` for prediction intervals
 - `cooks.distance()`, `hatvalues()`, `rstandard()` for diagnostics

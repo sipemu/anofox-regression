@@ -1,120 +1,93 @@
-//! Tweedie Generalized Linear Model regression solver.
+//! Binomial (Logistic/Probit) regression solver.
 //!
-//! Implements GLM with Tweedie family using Iteratively Reweighted Least Squares (IRLS).
+//! Implements GLM with binomial family using Iteratively Reweighted Least Squares (IRLS).
 //!
-//! # Reference
+//! # Supported Link Functions
 //!
-//! - R package `statmod`: <https://cran.r-project.org/web/packages/statmod/index.html>
-//! - Dunn, P.K. and Smyth, G.K. (2018). "Generalized linear models with examples in R".
-//!   Springer, New York, NY.
+//! - Logit (logistic regression) - canonical link
+//! - Probit (probit regression)
+//! - Complementary log-log (cloglog)
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use regress_rs::solvers::{BinomialRegressor, Regressor, FittedRegressor};
+//! use faer::{Mat, Col};
+//!
+//! let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
+//! let y = Col::from_fn(100, |i| if i % 2 == 0 { 0.0 } else { 1.0 });
+//!
+//! // Logistic regression
+//! let fitted = BinomialRegressor::logistic()
+//!     .build()
+//!     .fit(&x, &y)?;
+//!
+//! let probs = fitted.predict_probability(&x);
+//! ```
 
 use crate::core::{
-    IntervalType, PredictionResult, PredictionType, RegressionOptions, RegressionOptionsBuilder,
-    RegressionResult, TweedieFamily,
+    BinomialFamily, BinomialLink, GlmFamily, IntervalType, PredictionResult, PredictionType,
+    RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
 use crate::diagnostics::{deviance_residuals, pearson_residuals, working_residuals};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor, Normal};
 
-/// Tweedie GLM regression estimator.
+/// Binomial GLM regression estimator.
 ///
-/// Fits a generalized linear model with Tweedie family using IRLS
+/// Fits a generalized linear model with binomial family using IRLS
 /// (Iteratively Reweighted Least Squares).
 ///
 /// # Model
 ///
-/// The Tweedie GLM models:
-/// - `E[Y] = μ = g^(-1)(Xβ)` where g is the link function
-/// - `Var[Y] = φ * V(μ)` where `V(μ) = μ^var_power`
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use regress_rs::solvers::{TweedieRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
-///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| (i as f64 + 0.1).max(0.0));
-///
-/// // Gamma regression with log link
-/// let fitted = TweedieRegressor::gamma()
-///     .build()
-///     .fit(&x, &y)?;
-///
-/// // Compound Poisson-Gamma for zero-inflated data
-/// let fitted = TweedieRegressor::builder()
-///     .var_power(1.5)
-///     .link_power(0.0)  // log link
-///     .build()
-///     .fit(&x, &y)?;
-/// ```
+/// The binomial GLM models:
+/// - `E[Y] = μ = g^(-1)(Xβ)` where g is the link function (logit, probit, or cloglog)
+/// - `Var[Y] = μ(1-μ)` (binomial variance)
 #[derive(Debug, Clone)]
-pub struct TweedieRegressor {
+pub struct BinomialRegressor {
     options: RegressionOptions,
-    family: TweedieFamily,
+    family: BinomialFamily,
 }
 
-impl TweedieRegressor {
-    /// Create a new Tweedie regressor with the given options and family.
-    pub fn new(options: RegressionOptions, family: TweedieFamily) -> Self {
+impl BinomialRegressor {
+    /// Create a new binomial regressor with the given options and family.
+    pub fn new(options: RegressionOptions, family: BinomialFamily) -> Self {
         Self { options, family }
     }
 
-    /// Create a builder for configuring the regressor.
-    pub fn builder() -> TweedieRegressorBuilder {
-        TweedieRegressorBuilder::default()
+    /// Create a builder for logistic regression (logit link).
+    pub fn logistic() -> BinomialRegressorBuilder {
+        BinomialRegressorBuilder::default().link(BinomialLink::Logit)
     }
 
-    /// Create a builder for Gaussian (Normal) regression.
-    pub fn gaussian() -> TweedieRegressorBuilder {
-        TweedieRegressorBuilder::default()
-            .var_power(0.0)
-            .link_power(1.0)
+    /// Create a builder for probit regression.
+    pub fn probit() -> BinomialRegressorBuilder {
+        BinomialRegressorBuilder::default().link(BinomialLink::Probit)
     }
 
-    /// Create a builder for Poisson regression with log link.
-    pub fn poisson() -> TweedieRegressorBuilder {
-        TweedieRegressorBuilder::default()
-            .var_power(1.0)
-            .link_power(0.0)
+    /// Create a builder for complementary log-log regression.
+    pub fn cloglog() -> BinomialRegressorBuilder {
+        BinomialRegressorBuilder::default().link(BinomialLink::Cloglog)
     }
 
-    /// Create a builder for Gamma regression with log link.
-    pub fn gamma() -> TweedieRegressorBuilder {
-        TweedieRegressorBuilder::default()
-            .var_power(2.0)
-            .link_power(0.0)
-    }
-
-    /// Create a builder for Inverse-Gaussian regression with log link.
-    pub fn inverse_gaussian() -> TweedieRegressorBuilder {
-        TweedieRegressorBuilder::default()
-            .var_power(3.0)
-            .link_power(0.0)
+    /// Create a general builder.
+    pub fn builder() -> BinomialRegressorBuilder {
+        BinomialRegressorBuilder::default()
     }
 
     /// Fit the GLM using IRLS (Iteratively Reweighted Least Squares).
-    ///
-    /// IRLS Algorithm:
-    /// 1. Initialize μ and compute η = g(μ)
-    /// 2. Compute working weights W = 1 / (V(μ) * (dη/dμ)²)
-    /// 3. Compute working response z = η + (y - μ) * (dη/dμ)
-    /// 4. Solve weighted least squares: β = (X'WX)^(-1) X'Wz
-    /// 5. Update η = Xβ, μ = g^(-1)(η)
-    /// 6. Check convergence, repeat until done
-    fn fit_irls(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedTweedie, RegressionError> {
+    fn fit_irls(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedBinomial, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
-        // Determine number of parameters
         let n_params = if self.options.with_intercept {
             n_features + 1
         } else {
             n_features
         };
 
-        // Build design matrix (with intercept if needed)
+        // Build design matrix
         let x_design = if self.options.with_intercept {
             let mut x_aug = Mat::zeros(n_samples, n_features + 1);
             for i in 0..n_samples {
@@ -135,7 +108,6 @@ impl TweedieRegressor {
         // Initialize η = g(μ)
         let mut eta: Vec<f64> = mu.iter().map(|&m| self.family.link(m)).collect();
 
-        // Initialize β (will be updated in IRLS)
         let mut beta = Col::zeros(n_params);
 
         let max_iter = self.options.max_iterations;
@@ -149,10 +121,10 @@ impl TweedieRegressor {
             // Compute working weights and response
             let (weights, z) = self.compute_irls_quantities(&y_vec, &mu, &eta);
 
-            // Solve weighted least squares: min_β Σ wᵢ (zᵢ - xᵢ'β)²
+            // Solve weighted least squares
             let beta_new = self.solve_weighted_ls(&x_design, &z, &weights)?;
 
-            // Check convergence: max|β_new - β_old| < tol
+            // Check convergence
             let max_change: f64 = beta_new
                 .iter()
                 .zip(beta.iter())
@@ -172,11 +144,6 @@ impl TweedieRegressor {
                 }
                 eta[i] = eta_i;
                 mu[i] = self.family.link_inverse(eta_i);
-
-                // Ensure μ > 0 for var_power > 0
-                if self.family.var_power > 0.0 && mu[i] <= 0.0 {
-                    mu[i] = 1e-6;
-                }
             }
 
             if max_change < tol {
@@ -191,28 +158,22 @@ impl TweedieRegressor {
             });
         }
 
-        // Build result
         self.build_result(x, y, &x_design, &beta, &mu, &eta, n_params, iterations)
     }
 
-    /// Compute IRLS working weights and working response.
     fn compute_irls_quantities(&self, y: &[f64], mu: &[f64], eta: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let n = y.len();
         let mut weights = vec![0.0; n];
         let mut z = vec![0.0; n];
 
         for i in 0..n {
-            // Weight = 1 / (V(μ) * (dη/dμ)²)
             weights[i] = self.family.irls_weight(mu[i]);
-
-            // Working response z = η + (y - μ) * (dη/dμ)
             z[i] = self.family.working_response(y[i], mu[i], eta[i]);
         }
 
         (weights, z)
     }
 
-    /// Solve weighted least squares: min_β Σ wᵢ (zᵢ - xᵢ'β)²
     fn solve_weighted_ls(
         &self,
         x: &Mat<f64>,
@@ -222,7 +183,6 @@ impl TweedieRegressor {
         let n_samples = x.nrows();
         let n_params = x.ncols();
 
-        // Transform: X_w = sqrt(W) * X, z_w = sqrt(W) * z
         let mut x_weighted = Mat::zeros(n_samples, n_params);
         let mut z_weighted = Col::zeros(n_samples);
 
@@ -234,16 +194,13 @@ impl TweedieRegressor {
             z_weighted[i] = sqrt_w * z[i];
         }
 
-        // Solve via QR decomposition
         let qr = x_weighted.col_piv_qr();
         let q = qr.compute_q();
         let r = qr.compute_r();
         let perm = qr.col_permutation();
 
-        // Compute Q'z
         let qtz = q.transpose() * z_weighted;
 
-        // Back substitution
         let mut beta_perm = Col::zeros(n_params);
         for i in (0..n_params).rev() {
             let mut sum = qtz[i];
@@ -257,7 +214,6 @@ impl TweedieRegressor {
             }
         }
 
-        // Unpermute
         let mut beta = Col::zeros(n_params);
         for i in 0..n_params {
             use faer::Index;
@@ -267,7 +223,6 @@ impl TweedieRegressor {
         Ok(beta)
     }
 
-    /// Build the regression result from fitted values.
     #[allow(clippy::too_many_arguments)]
     fn build_result(
         &self,
@@ -279,11 +234,10 @@ impl TweedieRegressor {
         _eta: &[f64],
         n_params: usize,
         iterations: usize,
-    ) -> Result<FittedTweedie, RegressionError> {
+    ) -> Result<FittedBinomial, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
-        // Extract intercept and coefficients
         let (intercept, coefficients) = if self.options.with_intercept {
             let int = Some(beta[0]);
             let coefs = Col::from_fn(n_features, |j| beta[j + 1]);
@@ -292,31 +246,23 @@ impl TweedieRegressor {
             (None, beta.clone())
         };
 
-        // Compute fitted values and residuals
         let fitted_values = Col::from_fn(n_samples, |i| mu[i]);
         let residuals = Col::from_fn(n_samples, |i| y[i] - mu[i]);
 
-        // Compute deviance
         let y_vec: Vec<f64> = (0..n_samples).map(|i| y[i]).collect();
         let deviance = self.family.deviance(&y_vec, mu);
         let null_deviance = self.family.null_deviance(&y_vec);
 
-        // Estimate dispersion parameter φ
-        // φ = D / (n - p) where D is deviance
-        let df_resid = (n_samples.saturating_sub(n_params)) as f64;
-        let dispersion = if df_resid > 0.0 {
-            deviance / df_resid
-        } else {
-            1.0
-        };
+        // For binomial, dispersion is typically fixed at 1
+        let dispersion = 1.0;
 
-        // Compute R² (using deviance-based definition for GLM)
         let r_squared = if null_deviance > 0.0 {
             1.0 - deviance / null_deviance
         } else {
             f64::NAN
         };
 
+        let df_resid = (n_samples.saturating_sub(n_params)) as f64;
         let df_total = (n_samples - 1) as f64;
         let adj_r_squared = if df_resid > 0.0 && df_total > 0.0 {
             1.0 - (1.0 - r_squared) * df_total / df_resid
@@ -324,7 +270,6 @@ impl TweedieRegressor {
             f64::NAN
         };
 
-        // MSE approximation for GLM
         let rss: f64 = residuals.iter().map(|&r| r.powi(2)).sum();
         let mse = if df_resid > 0.0 {
             rss / df_resid
@@ -333,9 +278,8 @@ impl TweedieRegressor {
         };
         let rmse = mse.sqrt();
 
-        // F-statistic (approximate)
         let df_model = (n_params - if intercept.is_some() { 1 } else { 0 }) as f64;
-        let f_statistic = if df_model > 0.0 && df_resid > 0.0 && dispersion > 0.0 {
+        let f_statistic = if df_model > 0.0 && df_resid > 0.0 {
             ((null_deviance - deviance) / df_model) / dispersion
         } else {
             f64::NAN
@@ -349,12 +293,9 @@ impl TweedieRegressor {
             f64::NAN
         };
 
-        // Information criteria
-        // For GLM: log-likelihood ≈ -D / (2φ) + constant
         let n = n_samples as f64;
         let k = n_params as f64;
-        let log_likelihood = -deviance / (2.0 * dispersion)
-            - n * (2.0 * std::f64::consts::PI * dispersion).ln() / 2.0;
+        let log_likelihood = -deviance / 2.0;
 
         let aic = 2.0 * k - 2.0 * log_likelihood;
         let aicc = if (n - k - 1.0) > 0.0 {
@@ -364,8 +305,7 @@ impl TweedieRegressor {
         };
         let bic = k * n.ln() - 2.0 * log_likelihood;
 
-        // Determine rank
-        let rank = n_params; // Full rank assumed for converged model
+        let rank = n_params;
 
         let mut result = RegressionResult::empty(n_features, n_samples);
         result.coefficients = coefficients;
@@ -388,10 +328,9 @@ impl TweedieRegressor {
         result.log_likelihood = log_likelihood;
         result.confidence_level = self.options.confidence_level;
 
-        // GLM-specific: compute standard errors and (X'WX)⁻¹
+        // Compute standard errors and (X'WX)⁻¹
         let mut xtwx_inverse = None;
         if self.options.compute_inference {
-            // Standard errors from Fisher information: SE = sqrt(diag(φ * (X'WX)^(-1)))
             if let Ok((se, xtwx_inv)) =
                 self.compute_standard_errors_and_covariance(x_design, mu, dispersion)
             {
@@ -405,11 +344,37 @@ impl TweedieRegressor {
                     result.intercept_std_error = Some(se[0]);
                 }
 
+                // Compute z-statistics and p-values
+                let t_stats = Col::from_fn(n_params, |j| beta[j] / se[j]);
+                let p_vals = Col::from_fn(n_params, |j| {
+                    let z = t_stats[j].abs();
+                    2.0 * Normal::new(0.0, 1.0)
+                        .map(|d| 1.0 - d.cdf(z))
+                        .unwrap_or(f64::NAN)
+                });
+
+                result.t_statistics = Some(if self.options.with_intercept {
+                    Col::from_fn(n_features, |j| t_stats[j + 1])
+                } else {
+                    t_stats.clone()
+                });
+
+                result.p_values = Some(if self.options.with_intercept {
+                    Col::from_fn(n_features, |j| p_vals[j + 1])
+                } else {
+                    p_vals.clone()
+                });
+
+                if self.options.with_intercept {
+                    result.intercept_t_statistic = Some(t_stats[0]);
+                    result.intercept_p_value = Some(p_vals[0]);
+                }
+
                 xtwx_inverse = Some(xtwx_inv);
             }
         }
 
-        Ok(FittedTweedie {
+        Ok(FittedBinomial {
             result,
             options: self.options.clone(),
             family: self.family,
@@ -422,7 +387,6 @@ impl TweedieRegressor {
         })
     }
 
-    /// Compute standard errors and (X'WX)⁻¹ covariance matrix.
     fn compute_standard_errors_and_covariance(
         &self,
         x: &Mat<f64>,
@@ -432,7 +396,6 @@ impl TweedieRegressor {
         let n_samples = x.nrows();
         let n_params = x.ncols();
 
-        // Compute X'WX
         let mut xtwx: Mat<f64> = Mat::zeros(n_params, n_params);
         for i in 0..n_samples {
             let w = self.family.irls_weight(mu[i]);
@@ -443,12 +406,10 @@ impl TweedieRegressor {
             }
         }
 
-        // Invert via QR
         let qr = xtwx.qr();
         let q = qr.compute_q();
         let r: Mat<f64> = qr.compute_r();
 
-        // Compute inverse column by column
         let mut xtwx_inv: Mat<f64> = Mat::zeros(n_params, n_params);
         for col in 0..n_params {
             let mut e = Col::zeros(n_params);
@@ -471,21 +432,19 @@ impl TweedieRegressor {
             }
         }
 
-        // SE = sqrt(φ * diag((X'WX)^(-1)))
         let se = Col::from_fn(n_params, |j| (dispersion * xtwx_inv[(j, j)]).sqrt());
 
         Ok((se, xtwx_inv))
     }
 }
 
-impl Regressor for TweedieRegressor {
-    type Fitted = FittedTweedie;
+impl Regressor for BinomialRegressor {
+    type Fitted = FittedBinomial;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
-        // Validate dimensions
         if x.nrows() != y.nrows() {
             return Err(RegressionError::DimensionMismatch {
                 x_rows: x.nrows(),
@@ -493,7 +452,6 @@ impl Regressor for TweedieRegressor {
             });
         }
 
-        // Need at least 2 observations
         if n_samples < 2 {
             return Err(RegressionError::InsufficientObservations {
                 needed: 2,
@@ -501,7 +459,6 @@ impl Regressor for TweedieRegressor {
             });
         }
 
-        // Minimum observations
         let n_params = if self.options.with_intercept {
             n_features + 1
         } else {
@@ -515,18 +472,11 @@ impl Regressor for TweedieRegressor {
             });
         }
 
-        // Validate family
-        if !self.family.is_valid() {
-            return Err(RegressionError::NumericalError(
-                "var_power in (0, 1) is not allowed".to_string(),
-            ));
-        }
-
-        // Check for valid y values based on family
+        // Validate y values are in [0, 1]
         for i in 0..n_samples {
-            if self.family.var_power > 0.0 && y[i] < 0.0 {
+            if !(0.0..=1.0).contains(&y[i]) {
                 return Err(RegressionError::NumericalError(format!(
-                    "y values must be non-negative for var_power > 0, got y[{}] = {}",
+                    "y values must be in [0, 1] for binomial, got y[{}] = {}",
                     i, y[i]
                 )));
             }
@@ -536,39 +486,39 @@ impl Regressor for TweedieRegressor {
     }
 }
 
-/// Fitted Tweedie GLM model.
+/// Fitted Binomial GLM model.
 #[derive(Debug, Clone)]
-pub struct FittedTweedie {
+pub struct FittedBinomial {
     result: RegressionResult,
     options: RegressionOptions,
-    family: TweedieFamily,
+    family: BinomialFamily,
     /// Total deviance.
     pub deviance: f64,
     /// Null deviance (intercept-only model).
     pub null_deviance: f64,
-    /// Estimated dispersion parameter.
+    /// Dispersion parameter (typically 1 for binomial).
     pub dispersion: f64,
     /// Number of IRLS iterations.
     pub iterations: usize,
-    /// Original y values (for residual calculation).
+    /// Original y values.
     y_values: Col<f64>,
-    /// (X'WX)⁻¹ matrix (for prediction standard errors).
+    /// (X'WX)⁻¹ matrix for prediction SE.
     xtwx_inverse: Option<Mat<f64>>,
 }
 
-impl FittedTweedie {
-    /// Get the Tweedie family used for this model.
-    pub fn family(&self) -> &TweedieFamily {
+impl FittedBinomial {
+    /// Get the binomial family used for this model.
+    pub fn family(&self) -> &BinomialFamily {
         &self.family
     }
 
-    /// Compute predicted μ values on the response scale.
-    pub fn predict_mu(&self, x: &Mat<f64>) -> Col<f64> {
+    /// Compute predicted probabilities (response scale).
+    pub fn predict_probability(&self, x: &Mat<f64>) -> Col<f64> {
         self.predict(x)
     }
 
-    /// Compute predicted η values on the linear predictor scale.
-    pub fn predict_eta(&self, x: &Mat<f64>) -> Col<f64> {
+    /// Compute predicted log-odds (logit) or equivalent on linear predictor scale.
+    pub fn predict_linear(&self, x: &Mat<f64>) -> Col<f64> {
         let mu = self.predict(x);
         Col::from_fn(mu.nrows(), |i| self.family.link(mu[i]))
     }
@@ -592,20 +542,6 @@ impl FittedTweedie {
     }
 
     /// Compute predictions with standard errors and optional confidence intervals.
-    ///
-    /// # Arguments
-    ///
-    /// * `x` - New data matrix for prediction
-    /// * `pred_type` - Whether to predict on response or link scale
-    /// * `interval` - Type of interval to compute (None for no intervals)
-    /// * `level` - Confidence level (default 0.95)
-    ///
-    /// # Details
-    ///
-    /// Standard error on link scale: `SE(η) = sqrt(x' · (X'WX)⁻¹ · x · φ)`
-    /// Standard error on response scale: `SE(μ) = SE(η) · |dμ/dη|`
-    ///
-    /// Confidence intervals are computed on the link scale and transformed.
     pub fn predict_with_se(
         &self,
         x: &Mat<f64>,
@@ -616,20 +552,17 @@ impl FittedTweedie {
         let n_new = x.nrows();
         let n_features = x.ncols();
 
-        // Check if we have (X'WX)⁻¹
         let xtwx_inv = match &self.xtwx_inverse {
             Some(inv) => inv,
             None => {
-                // Fallback to point predictions only
                 let predictions = match pred_type {
                     PredictionType::Response => self.predict(x),
-                    PredictionType::Link => self.predict_eta(x),
+                    PredictionType::Link => self.predict_linear(x),
                 };
                 return PredictionResult::point_only(predictions);
             }
         };
 
-        // Build design matrix for new data
         let x_design = if self.options.with_intercept {
             let mut x_aug = Mat::zeros(n_new, n_features + 1);
             for i in 0..n_new {
@@ -643,13 +576,11 @@ impl FittedTweedie {
             x.clone()
         };
 
-        // Compute predictions and standard errors on link scale
         let n_params = xtwx_inv.nrows();
         let mut eta = Col::zeros(n_new);
         let mut se_eta = Col::zeros(n_new);
 
         for i in 0..n_new {
-            // Compute η = x'β
             let mut eta_i = 0.0;
             for j in 0..n_params {
                 eta_i += x_design[(i, j)]
@@ -670,7 +601,6 @@ impl FittedTweedie {
             }
             eta[i] = eta_i;
 
-            // Compute SE(η) = sqrt(x' · (X'WX)⁻¹ · x · φ)
             let mut var_eta = 0.0;
             for j in 0..n_params {
                 for k in 0..n_params {
@@ -680,21 +610,18 @@ impl FittedTweedie {
             se_eta[i] = (var_eta * self.dispersion).sqrt();
         }
 
-        // Transform to desired scale
         let (fit, se) = match pred_type {
             PredictionType::Link => (eta.clone(), se_eta.clone()),
             PredictionType::Response => {
                 let mu = Col::from_fn(n_new, |i| self.family.link_inverse(eta[i]));
-                // SE(μ) = SE(η) * |dμ/dη| (delta method)
                 let se_mu = Col::from_fn(n_new, |i| {
-                    let dmu_deta = self.family.link_inverse_derivative(eta[i]);
+                    let dmu_deta = self.family.link.link_inverse_derivative(eta[i]);
                     se_eta[i] * dmu_deta.abs()
                 });
                 (mu, se_mu)
             }
         };
 
-        // Compute intervals if requested
         match interval {
             None => PredictionResult::with_intervals(
                 fit.clone(),
@@ -702,14 +629,12 @@ impl FittedTweedie {
                 Col::zeros(n_new),
                 se,
             ),
-            Some(_interval_type) => {
-                // Get critical value
+            Some(_) => {
                 let alpha = 1.0 - level;
                 let z = Normal::new(0.0, 1.0)
                     .map(|d| d.inverse_cdf(1.0 - alpha / 2.0))
                     .unwrap_or(1.96);
 
-                // Compute CI on link scale, then transform
                 let (lower, upper) = match pred_type {
                     PredictionType::Link => {
                         let lower = Col::from_fn(n_new, |i| eta[i] - z * se_eta[i]);
@@ -717,7 +642,6 @@ impl FittedTweedie {
                         (lower, upper)
                     }
                     PredictionType::Response => {
-                        // CI on link scale, then transform
                         let lower = Col::from_fn(n_new, |i| {
                             self.family.link_inverse(eta[i] - z * se_eta[i])
                         });
@@ -734,7 +658,7 @@ impl FittedTweedie {
     }
 }
 
-impl FittedRegressor for FittedTweedie {
+impl FittedRegressor for FittedBinomial {
     fn predict(&self, x: &Mat<f64>) -> Col<f64> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
@@ -757,46 +681,20 @@ impl FittedRegressor for FittedTweedie {
         &self,
         x: &Mat<f64>,
         interval: Option<IntervalType>,
-        _level: f64,
+        level: f64,
     ) -> PredictionResult {
-        let predictions = self.predict(x);
-
-        // GLM prediction intervals are complex due to non-constant variance
-        // Return NaN for now (full implementation would need simulation or delta method)
-        match interval {
-            None => PredictionResult::point_only(predictions),
-            Some(_) => {
-                let n = x.nrows();
-                let nan_vec = Col::from_fn(n, |_| f64::NAN);
-                PredictionResult::with_intervals(
-                    predictions,
-                    nan_vec.clone(),
-                    nan_vec.clone(),
-                    nan_vec,
-                )
-            }
-        }
+        self.predict_with_se(x, PredictionType::Response, interval, level)
     }
 }
 
-/// Builder for `TweedieRegressor`.
+/// Builder for `BinomialRegressor`.
 #[derive(Debug, Clone, Default)]
-pub struct TweedieRegressorBuilder {
+pub struct BinomialRegressorBuilder {
     options_builder: RegressionOptionsBuilder,
-    var_power: f64,
-    link_power: Option<f64>,
+    link: BinomialLink,
 }
 
-impl TweedieRegressorBuilder {
-    /// Create a new builder with default options.
-    pub fn new() -> Self {
-        Self {
-            options_builder: RegressionOptionsBuilder::default(),
-            var_power: 1.5, // Default: compound Poisson-Gamma
-            link_power: None,
-        }
-    }
-
+impl BinomialRegressorBuilder {
     /// Set whether to include an intercept term.
     pub fn with_intercept(mut self, include: bool) -> Self {
         self.options_builder = self.options_builder.with_intercept(include);
@@ -827,38 +725,17 @@ impl TweedieRegressorBuilder {
         self
     }
 
-    /// Set the variance power for the Tweedie family.
-    ///
-    /// Common values:
-    /// - 0: Normal (Gaussian)
-    /// - 1: Poisson
-    /// - 1.5: Compound Poisson-Gamma
-    /// - 2: Gamma
-    /// - 3: Inverse-Gaussian
-    pub fn var_power(mut self, p: f64) -> Self {
-        self.var_power = p;
-        self
-    }
-
-    /// Set the link power for the link function.
-    ///
-    /// - 0: Log link (most common)
-    /// - 1: Identity link
-    /// - -1: Inverse link
-    /// - None: Use canonical link (1 - var_power)
-    pub fn link_power(mut self, q: f64) -> Self {
-        self.link_power = Some(q);
+    /// Set the link function.
+    pub fn link(mut self, link: BinomialLink) -> Self {
+        self.link = link;
         self
     }
 
     /// Build the regressor.
-    pub fn build(self) -> TweedieRegressor {
-        let link_power = self.link_power.unwrap_or(1.0 - self.var_power);
-        let family = TweedieFamily::new(self.var_power, link_power);
-
-        TweedieRegressor {
+    pub fn build(self) -> BinomialRegressor {
+        BinomialRegressor {
             options: self.options_builder.build_unchecked(),
-            family,
+            family: BinomialFamily::new(self.link),
         }
     }
 }
@@ -867,142 +744,115 @@ impl TweedieRegressorBuilder {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_gaussian_regression() {
-        // Simple linear regression
-        let x = Mat::from_fn(20, 1, |i, _| i as f64);
-        let y = Col::from_fn(20, |i| 2.0 + 3.0 * i as f64);
-
-        let fitted = TweedieRegressor::gaussian()
-            .with_intercept(true)
-            .build()
-            .fit(&x, &y)
-            .unwrap();
-
-        // Should be close to true values
-        assert!((fitted.result.intercept.unwrap() - 2.0).abs() < 0.5);
-        assert!((fitted.result.coefficients[0] - 3.0).abs() < 0.1);
-    }
-
-    #[test]
-    fn test_poisson_regression() {
-        // Poisson-like data: y = exp(0.1 + 0.2*x)
-        let x = Mat::from_fn(50, 1, |i, _| i as f64 / 10.0);
-        let y = Col::from_fn(50, |i| {
-            let eta = 0.1 + 0.2 * (i as f64 / 10.0);
-            eta.exp().max(0.1)
-        });
-
-        let fitted = TweedieRegressor::poisson()
-            .with_intercept(true)
-            .build()
-            .fit(&x, &y)
-            .unwrap();
-
-        assert!(fitted.result.r_squared > 0.5);
-        assert!(fitted.deviance < fitted.null_deviance);
-    }
-
-    #[test]
-    fn test_gamma_regression() {
-        // Gamma-like data
-        let x = Mat::from_fn(30, 1, |i, _| (i + 1) as f64);
-        let y = Col::from_fn(30, |i| {
-            let eta = 1.0 + 0.05 * (i + 1) as f64;
-            eta.exp()
-        });
-
-        let fitted = TweedieRegressor::gamma()
-            .with_intercept(true)
-            .build()
-            .fit(&x, &y)
-            .unwrap();
-
-        assert!(fitted.result.r_squared > 0.5);
-    }
-
-    #[test]
-    fn test_compound_poisson_gamma() {
-        // Data with zeros
-        let x = Mat::from_fn(30, 1, |i, _| i as f64);
-        let y = Col::from_fn(30, |i| {
-            if i % 5 == 0 {
-                0.0
+    // Helper function to create test data with overlap (not perfectly separable)
+    fn create_test_data(n: usize) -> (Mat<f64>, Col<f64>) {
+        // Data with overlapping classes - probabilistic relationship
+        let x = Mat::from_fn(n, 1, |i, _| (i as f64) / (n as f64) * 4.0 - 2.0);
+        // y is probabilistic: P(y=1) increases with x but not perfectly
+        let y = Col::from_fn(n, |i| {
+            let xi = (i as f64) / (n as f64) * 4.0 - 2.0;
+            // Use logistic probability with some "noise" from deterministic pattern
+            let prob = 1.0 / (1.0 + (-xi).exp());
+            if prob > 0.5 + 0.1 * ((i % 5) as f64 - 2.0) / 2.0 {
+                1.0
             } else {
-                (1.0 + 0.1 * i as f64).exp()
+                0.0
             }
         });
-
-        let fitted = TweedieRegressor::builder()
-            .var_power(1.5)
-            .link_power(0.0)
-            .with_intercept(true)
-            .build()
-            .fit(&x, &y)
-            .unwrap();
-
-        assert!(fitted.iterations > 0);
-        assert!(fitted.dispersion > 0.0);
+        (x, y)
     }
 
     #[test]
-    fn test_deviance_decrease() {
-        // Generate data from known log-linear model: y = exp(1 + 0.1*x)
-        // Use non-collinear predictor
-        let x = Mat::from_fn(30, 1, |i, _| i as f64);
-        let y = Col::from_fn(30, |i| (1.0 + 0.1 * i as f64).exp());
+    fn test_logistic_regression() {
+        let (x, y) = create_test_data(100);
 
-        let fitted = TweedieRegressor::gamma()
+        let fitted = BinomialRegressor::logistic()
             .with_intercept(true)
+            .max_iterations(100)
             .build()
             .fit(&x, &y)
             .unwrap();
 
-        // Deviance should be less than null deviance for a good model
-        assert!(
-            fitted.deviance <= fitted.null_deviance * 1.01,
-            "Deviance {} should be <= null deviance {}",
-            fitted.deviance,
-            fitted.null_deviance
-        );
+        // Coefficient should be positive (higher x -> higher probability of 1)
+        assert!(fitted.result.coefficients[0] > 0.0);
+
+        // Deviance should be less than null deviance
+        assert!(fitted.deviance <= fitted.null_deviance);
     }
 
     #[test]
-    fn test_predict() {
-        let x = Mat::from_fn(20, 1, |i, _| i as f64);
-        let y = Col::from_fn(20, |i| (1.0 + 0.1 * i as f64).exp());
+    fn test_probit_regression() {
+        let (x, y) = create_test_data(100);
 
-        let fitted = TweedieRegressor::gamma()
+        let fitted = BinomialRegressor::probit()
+            .with_intercept(true)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+
+        assert!(fitted.result.coefficients[0] > 0.0);
+    }
+
+    #[test]
+    fn test_cloglog_regression() {
+        let (x, y) = create_test_data(100);
+
+        let fitted = BinomialRegressor::cloglog()
+            .with_intercept(true)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+
+        assert!(fitted.result.coefficients[0] > 0.0);
+    }
+
+    #[test]
+    fn test_predict_probability() {
+        let (x, y) = create_test_data(100);
+
+        let fitted = BinomialRegressor::logistic()
             .with_intercept(true)
             .build()
             .fit(&x, &y)
             .unwrap();
 
-        let x_new = Mat::from_fn(5, 1, |i, _| (i + 20) as f64);
-        let pred = fitted.predict(&x_new);
+        let probs = fitted.predict_probability(&x);
 
-        // Predictions should be positive
-        for i in 0..5 {
-            assert!(pred[i] > 0.0);
+        // Probabilities should be in (0, 1)
+        for i in 0..x.nrows() {
+            assert!(probs[i] > 0.0 && probs[i] < 1.0);
         }
+
+        // Probabilities should generally increase with x (check first vs last)
+        assert!(probs[x.nrows() - 1] > probs[0]);
     }
 
     #[test]
-    fn test_negative_y_error() {
-        let x = Mat::from_fn(10, 1, |i, _| i as f64);
-        let y = Col::from_fn(10, |i| if i < 5 { i as f64 } else { -1.0 });
+    fn test_residual_types() {
+        let (x, y) = create_test_data(100);
 
-        let result = TweedieRegressor::gamma().build().fit(&x, &y);
+        let fitted = BinomialRegressor::logistic()
+            .with_intercept(true)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
 
-        assert!(matches!(result, Err(RegressionError::NumericalError(_))));
+        let pearson = fitted.pearson_residuals();
+        let deviance = fitted.deviance_residuals();
+        let working = fitted.working_residuals();
+
+        assert_eq!(pearson.nrows(), 100);
+        assert_eq!(deviance.nrows(), 100);
+        assert_eq!(working.nrows(), 100);
     }
 
     #[test]
     fn test_standard_errors() {
-        let x = Mat::from_fn(30, 1, |i, _| i as f64);
-        let y = Col::from_fn(30, |i| (1.0 + 0.1 * i as f64).exp());
+        let (x, y) = create_test_data(100);
 
-        let fitted = TweedieRegressor::gamma()
+        let fitted = BinomialRegressor::logistic()
             .with_intercept(true)
             .compute_inference(true)
             .build()
@@ -1012,5 +862,43 @@ mod tests {
         assert!(fitted.result.std_errors.is_some());
         let se = fitted.result.std_errors.as_ref().unwrap();
         assert!(se[0] > 0.0);
+    }
+
+    #[test]
+    fn test_invalid_y_values() {
+        let x = Mat::from_fn(10, 1, |i, _| i as f64);
+        let y = Col::from_fn(10, |i| if i < 5 { 0.5 } else { 2.0 }); // Invalid: > 1
+
+        let result = BinomialRegressor::logistic().build().fit(&x, &y);
+
+        assert!(matches!(result, Err(RegressionError::NumericalError(_))));
+    }
+
+    #[test]
+    fn test_predict_with_se() {
+        let (x, y) = create_test_data(100);
+
+        let fitted = BinomialRegressor::logistic()
+            .with_intercept(true)
+            .compute_inference(true)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+
+        let x_new = Mat::from_fn(5, 1, |i, _| (i as f64 - 2.0) / 2.0);
+        let pred = fitted.predict_with_se(
+            &x_new,
+            PredictionType::Response,
+            Some(IntervalType::Confidence),
+            0.95,
+        );
+
+        // Check that SE is computed
+        for i in 0..5 {
+            assert!(pred.se[i] > 0.0);
+            // CI should contain the prediction
+            assert!(pred.lower[i] <= pred.fit[i]);
+            assert!(pred.upper[i] >= pred.fit[i]);
+        }
     }
 }

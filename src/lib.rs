@@ -34,21 +34,25 @@ pub mod utils;
 /// Prelude module for convenient imports.
 pub mod prelude {
     pub use crate::core::{
-        IntervalType, LambdaScaling, NaAction, NaError, NaHandler, NaInfo, PredictionResult,
-        RegressionOptions, RegressionOptionsBuilder, RegressionResult, TweedieFamily,
+        BinomialFamily, BinomialLink, GlmFamily, IntervalType, LambdaScaling, NaAction, NaError,
+        NaHandler, NaInfo, PredictionResult, PredictionType, RegressionOptions,
+        RegressionOptionsBuilder, RegressionResult, TweedieFamily,
     };
     pub use crate::diagnostics::{
-        compute_leverage, cooks_distance, high_leverage_points, influential_cooks,
-        standardized_residuals, studentized_residuals, variance_inflation_factor,
+        compute_leverage, cooks_distance, deviance_residuals, high_leverage_points,
+        influential_cooks, pearson_residuals, standardized_residuals, studentized_residuals,
+        variance_inflation_factor, working_residuals,
     };
     pub use crate::solvers::{
-        BlsRegressor, ElasticNetRegressor, FittedRegressor, OlsRegressor, Regressor,
-        RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
+        BinomialRegressor, BlsRegressor, ElasticNetRegressor, FittedBinomial, FittedRegressor,
+        FittedTweedie, OlsRegressor, Regressor, RidgeRegressor, RlsRegressor, TweedieRegressor,
+        WlsRegressor,
     };
 }
 
 pub use crate::core::{
-    IntervalType, LambdaScaling, NaAction, NaError, NaHandler, NaInfo, PredictionResult,
-    RegressionOptions, RegressionOptionsBuilder, RegressionResult, TweedieFamily,
+    BinomialFamily, BinomialLink, GlmFamily, IntervalType, LambdaScaling, NaAction, NaError,
+    NaHandler, NaInfo, PredictionResult, PredictionType, RegressionOptions,
+    RegressionOptionsBuilder, RegressionResult, TweedieFamily,
 };
-pub use crate::solvers::{FittedRegressor, Regressor};
+pub use crate::solvers::{BinomialRegressor, FittedBinomial, FittedRegressor, Regressor};

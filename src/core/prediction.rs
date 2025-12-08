@@ -2,6 +2,20 @@
 
 use faer::Col;
 
+/// Type of prediction scale for GLM models.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PredictionType {
+    /// Predictions on the response scale (μ).
+    /// For binomial: probabilities in (0, 1).
+    /// For Poisson: counts > 0.
+    #[default]
+    Response,
+
+    /// Predictions on the link scale (η = g(μ)).
+    /// The linear predictor: η = Xβ.
+    Link,
+}
+
 /// Type of interval to compute for predictions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IntervalType {

@@ -1,5 +1,6 @@
 //! Regression solvers implementing various estimation methods.
 
+mod binomial;
 mod bls;
 mod elastic_net;
 mod ols;
@@ -9,6 +10,7 @@ mod traits;
 mod tweedie;
 mod wls;
 
+pub use binomial::{BinomialRegressor, FittedBinomial};
 pub use bls::{BlsRegressor, FittedBls};
 pub use elastic_net::{ElasticNetRegressor, FittedElasticNet};
 pub use ols::{FittedOls, OlsRegressor};

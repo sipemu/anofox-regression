@@ -4,6 +4,7 @@
 //!
 //! - **Leverage**: Identifies observations with unusual predictor values
 //! - **Residuals**: Standardized and studentized residuals for outlier detection
+//! - **GLM Residuals**: Pearson, deviance, and working residuals for GLMs
 //! - **Influence**: Cook's distance and DFFITS for influential point detection
 //! - **VIF**: Variance Inflation Factor for multicollinearity detection
 //!
@@ -23,12 +24,18 @@
 //! let collinear = high_vif_predictors(&vif, 5.0);
 //! ```
 
+mod glm_residuals;
 mod influence;
 mod leverage;
 mod residuals;
 mod vif;
 
 // Re-export main functions
+pub use glm_residuals::{
+    deviance_residuals, estimate_dispersion_deviance, estimate_dispersion_pearson,
+    pearson_chi_squared, pearson_residuals, response_residuals, standardized_deviance_residuals,
+    standardized_pearson_residuals, working_residuals,
+};
 pub use influence::{cooks_distance, dffits, influential_cooks, influential_dffits};
 pub use leverage::{compute_leverage, high_leverage_points};
 pub use residuals::{

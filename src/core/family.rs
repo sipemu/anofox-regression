@@ -1,13 +1,77 @@
 //! GLM family definitions for generalized linear models.
 //!
-//! This module provides variance and link functions for the Tweedie family
-//! of distributions, following R's `statmod::tweedie()` implementation.
+//! This module provides variance and link functions for GLM families,
+//! following R's `glm()` implementation.
 //!
 //! # Reference
 //!
 //! - Dunn, P.K. and Smyth, G.K. (2018). "Generalized linear models with examples in R".
 //!   Springer, New York, NY. Chapter 12.
 //! - R package `statmod`: <https://cran.r-project.org/web/packages/statmod/index.html>
+
+/// Trait for GLM family definitions.
+///
+/// A GLM family specifies:
+/// - A variance function V(μ) relating variance to the mean
+/// - A link function g(μ) = η relating the mean to the linear predictor
+/// - Methods for IRLS (Iteratively Reweighted Least Squares) fitting
+pub trait GlmFamily {
+    /// Compute the variance function V(μ).
+    ///
+    /// The variance of Y given μ is `Var[Y] = φ * V(μ)` where φ is the dispersion.
+    fn variance(&self, mu: f64) -> f64;
+
+    /// Compute the link function g(μ) = η.
+    fn link(&self, mu: f64) -> f64;
+
+    /// Compute the inverse link function g⁻¹(η) = μ.
+    fn link_inverse(&self, eta: f64) -> f64;
+
+    /// Compute derivative of link function dη/dμ.
+    fn link_derivative(&self, mu: f64) -> f64;
+
+    /// Compute IRLS weight for observation.
+    ///
+    /// Weight = 1 / (V(μ) * (dη/dμ)²)
+    fn irls_weight(&self, mu: f64) -> f64 {
+        let v = self.variance(mu);
+        let link_deriv = self.link_derivative(mu);
+
+        if v.abs() < 1e-14 || link_deriv.abs() < 1e-14 {
+            return 1e-10;
+        }
+
+        1.0 / (v * link_deriv * link_deriv)
+    }
+
+    /// Compute working response (adjusted dependent variable) for IRLS.
+    ///
+    /// z = η + (y - μ) * (dη/dμ)
+    fn working_response(&self, y: f64, mu: f64, eta: f64) -> f64 {
+        let link_deriv = self.link_derivative(mu);
+        eta + (y - mu) * link_deriv
+    }
+
+    /// Compute unit deviance d(y, μ) for a single observation.
+    fn unit_deviance(&self, y: f64, mu: f64) -> f64;
+
+    /// Compute total deviance: D = Σ d(yᵢ, μᵢ).
+    fn deviance(&self, y: &[f64], mu: &[f64]) -> f64 {
+        y.iter()
+            .zip(mu.iter())
+            .map(|(&yi, &mui)| self.unit_deviance(yi, mui))
+            .sum()
+    }
+
+    /// Initialize μ values for IRLS iteration.
+    fn initialize_mu(&self, y: &[f64]) -> Vec<f64>;
+
+    /// Compute null deviance (deviance of intercept-only model).
+    fn null_deviance(&self, y: &[f64]) -> f64 {
+        let y_mean: f64 = y.iter().sum::<f64>() / y.len() as f64;
+        y.iter().map(|&yi| self.unit_deviance(yi, y_mean)).sum()
+    }
+}
 
 /// Tweedie family for generalized linear models.
 ///
@@ -347,6 +411,32 @@ impl TweedieFamily {
     /// Check if the current link is the canonical link.
     pub fn is_canonical_link(&self) -> bool {
         (self.link_power - self.canonical_link_power()).abs() < 1e-10
+    }
+}
+
+impl GlmFamily for TweedieFamily {
+    fn variance(&self, mu: f64) -> f64 {
+        TweedieFamily::variance(self, mu)
+    }
+
+    fn link(&self, mu: f64) -> f64 {
+        TweedieFamily::link(self, mu)
+    }
+
+    fn link_inverse(&self, eta: f64) -> f64 {
+        TweedieFamily::link_inverse(self, eta)
+    }
+
+    fn link_derivative(&self, mu: f64) -> f64 {
+        TweedieFamily::link_derivative(self, mu)
+    }
+
+    fn unit_deviance(&self, y: f64, mu: f64) -> f64 {
+        TweedieFamily::unit_deviance(self, y, mu)
+    }
+
+    fn initialize_mu(&self, y: &[f64]) -> Vec<f64> {
+        TweedieFamily::initialize_mu(self, y)
     }
 }
 

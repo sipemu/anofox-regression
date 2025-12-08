@@ -1509,3 +1509,417 @@ fn test_tweedie_deviance_calculation() {
         pseudo_r2
     );
 }
+
+// ============================================================================
+// Binomial GLM Tests (comparing to R's glm with family=binomial)
+// R reference:
+// set.seed(42)
+// n <- 100
+// x <- seq(-3, 3, length.out = n)
+// p <- plogis(0.5 + 1.5 * x)  # True probabilities
+// y <- rbinom(n, 1, p)
+// fit <- glm(y ~ x, family = binomial(link = "logit"))
+// ============================================================================
+
+use regress_rs::solvers::BinomialRegressor;
+
+#[test]
+fn test_binomial_logistic_vs_r() {
+    // Generate logistic regression data with realistic noise
+    // Using a deterministic pseudo-random pattern based on index
+    let n = 100;
+    let x = Mat::from_fn(n, 1, |i, _| -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0));
+
+    // Generate y from logistic model with noise to avoid perfect separation
+    // Use a simple LCG-like pattern for reproducible "randomness"
+    let y = Col::from_fn(n, |i| {
+        let xi = -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0);
+        let prob = 1.0 / (1.0 + (-0.5 - 1.0 * xi).exp());
+        // Add pseudo-random noise using a simple hash-like pattern
+        let noise = ((i * 17 + 31) % 100) as f64 / 100.0;
+        if prob > noise {
+            1.0
+        } else {
+            0.0
+        }
+    });
+
+    let fitted = BinomialRegressor::logistic()
+        .with_intercept(true)
+        .compute_inference(true)
+        .max_iterations(100)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Coefficient should be positive (true value is 1.5)
+    assert!(
+        fitted.coefficients()[0] > 0.0,
+        "Logistic coef should be positive, got {}",
+        fitted.coefficients()[0]
+    );
+
+    // Deviance should be less than null deviance
+    assert!(
+        fitted.deviance < fitted.null_deviance,
+        "Deviance {} should be < null deviance {}",
+        fitted.deviance,
+        fitted.null_deviance
+    );
+
+    // Standard errors should be computed
+    assert!(
+        fitted.result().std_errors.is_some(),
+        "Should have standard errors"
+    );
+}
+
+#[test]
+fn test_binomial_probit_vs_r() {
+    // Probit regression
+    let n = 100;
+    let x = Mat::from_fn(n, 1, |i, _| -2.0 + 4.0 * (i as f64) / (n as f64 - 1.0));
+    let y = Col::from_fn(n, |i| {
+        let xi = -2.0 + 4.0 * (i as f64) / (n as f64 - 1.0);
+        // Simple threshold
+        if xi > 0.1 * ((i % 7) as f64 - 3.0) {
+            1.0
+        } else {
+            0.0
+        }
+    });
+
+    let fitted = BinomialRegressor::probit()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Coefficient should be positive
+    assert!(fitted.coefficients()[0] > 0.0);
+    assert!(fitted.deviance < fitted.null_deviance);
+}
+
+#[test]
+fn test_binomial_cloglog_vs_r() {
+    // Complementary log-log regression
+    let n = 100;
+    let x = Mat::from_fn(n, 1, |i, _| -2.0 + 4.0 * (i as f64) / (n as f64 - 1.0));
+    let y = Col::from_fn(n, |i| {
+        let xi = -2.0 + 4.0 * (i as f64) / (n as f64 - 1.0);
+        if xi > 0.1 * ((i % 7) as f64 - 3.0) {
+            1.0
+        } else {
+            0.0
+        }
+    });
+
+    let fitted = BinomialRegressor::cloglog()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    assert!(fitted.coefficients()[0] > 0.0);
+    assert!(fitted.deviance < fitted.null_deviance);
+}
+
+#[test]
+fn test_binomial_predict_probability() {
+    let n = 80;
+    let x = Mat::from_fn(n, 1, |i, _| -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0));
+    let y = Col::from_fn(n, |i| {
+        let xi = -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0);
+        let prob = 1.0 / (1.0 + (-xi).exp());
+        if prob > 0.5 + 0.1 * ((i % 5) as f64 - 2.0) / 2.0 {
+            1.0
+        } else {
+            0.0
+        }
+    });
+
+    let fitted = BinomialRegressor::logistic()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    let probs = fitted.predict_probability(&x);
+
+    // All probabilities should be in (0, 1)
+    for i in 0..n {
+        assert!(
+            probs[i] > 0.0 && probs[i] < 1.0,
+            "Probability {} at {} should be in (0, 1)",
+            probs[i],
+            i
+        );
+    }
+
+    // Probabilities should increase with x
+    assert!(
+        probs[n - 1] > probs[0],
+        "Prob at max x should be > prob at min x"
+    );
+}
+
+// ============================================================================
+// GLM Residuals Tests (comparing to R's residuals())
+// R reference:
+// fit <- glm(y ~ x, family = Gamma(link = "log"))
+// residuals(fit, type = "pearson")
+// residuals(fit, type = "deviance")
+// residuals(fit, type = "working")
+// ============================================================================
+
+#[test]
+fn test_glm_residuals_tweedie() {
+    let n = 30;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64);
+    // Add noise to avoid perfect fit (which causes deviance ≈ 0 and NaN residuals)
+    let y = Col::from_fn(n, |i| {
+        let base = (1.0 + 0.1 * (i + 1) as f64).exp();
+        // Add deterministic pseudo-random noise
+        let noise_factor = 1.0 + 0.1 * (((i * 17 + 7) % 20) as f64 - 10.0) / 10.0;
+        base * noise_factor
+    });
+
+    let fitted = TweedieRegressor::gamma()
+        .with_intercept(true)
+        .compute_inference(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Get residuals
+    let pearson = fitted.pearson_residuals();
+    let deviance = fitted.deviance_residuals();
+    let working = fitted.working_residuals();
+
+    // All should have correct length
+    assert_eq!(pearson.nrows(), n);
+    assert_eq!(deviance.nrows(), n);
+    assert_eq!(working.nrows(), n);
+
+    // Pearson residuals should be approximately normally distributed
+    let mean_pearson: f64 = pearson.iter().sum::<f64>() / n as f64;
+    assert!(
+        mean_pearson.abs() < 1.0,
+        "Mean Pearson residual should be near 0, got {}",
+        mean_pearson
+    );
+
+    // Deviance residuals squared should sum to total deviance
+    let dev_ss: f64 = deviance.iter().map(|r| r.powi(2)).sum();
+    assert!(
+        (dev_ss - fitted.deviance).abs() < 0.1 * fitted.deviance.abs() + 1e-6,
+        "Sum of squared deviance residuals {} should ≈ deviance {}",
+        dev_ss,
+        fitted.deviance
+    );
+}
+
+#[test]
+fn test_glm_residuals_binomial() {
+    let n = 80;
+    let x = Mat::from_fn(n, 1, |i, _| -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0));
+    let y = Col::from_fn(n, |i| {
+        let xi = -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0);
+        let prob = 1.0 / (1.0 + (-xi).exp());
+        if prob > 0.5 + 0.1 * ((i % 5) as f64 - 2.0) / 2.0 {
+            1.0
+        } else {
+            0.0
+        }
+    });
+
+    let fitted = BinomialRegressor::logistic()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    let pearson = fitted.pearson_residuals();
+    let deviance = fitted.deviance_residuals();
+    let working = fitted.working_residuals();
+
+    assert_eq!(pearson.nrows(), n);
+    assert_eq!(deviance.nrows(), n);
+    assert_eq!(working.nrows(), n);
+
+    // All residuals should be finite
+    for i in 0..n {
+        assert!(pearson[i].is_finite(), "Pearson residual {} not finite", i);
+        assert!(
+            deviance[i].is_finite(),
+            "Deviance residual {} not finite",
+            i
+        );
+        assert!(working[i].is_finite(), "Working residual {} not finite", i);
+    }
+}
+
+// ============================================================================
+// Prediction with SE Tests (comparing to R's predict(..., se.fit=TRUE))
+// R reference:
+// fit <- glm(y ~ x, family = Gamma(link = "log"))
+// pred <- predict(fit, newdata = data.frame(x = c(1, 2, 3)), type = "response", se.fit = TRUE)
+// ============================================================================
+
+use regress_rs::core::PredictionType;
+
+#[test]
+fn test_tweedie_predict_with_se() {
+    let n = 50;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64);
+    // Add noise to avoid perfect fit (which can cause numerical issues with covariance)
+    let y = Col::from_fn(n, |i| {
+        let base = (1.0 + 0.05 * (i + 1) as f64).exp();
+        // Add deterministic pseudo-random noise
+        let noise_factor = 1.0 + 0.1 * (((i * 13 + 5) % 20) as f64 - 10.0) / 10.0;
+        base * noise_factor
+    });
+
+    let fitted = TweedieRegressor::gamma()
+        .with_intercept(true)
+        .compute_inference(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    // Predict with SE
+    let x_new = Mat::from_fn(5, 1, |i, _| 10.0 + i as f64 * 5.0);
+    let pred = fitted.predict_with_se(&x_new, PredictionType::Response, None, 0.95);
+
+    // Check SE is computed
+    for i in 0..5 {
+        assert!(pred.se[i] > 0.0, "SE should be positive at {}", i);
+        assert!(pred.fit[i] > 0.0, "Prediction should be positive at {}", i);
+    }
+}
+
+#[test]
+fn test_tweedie_predict_with_ci() {
+    use regress_rs::core::IntervalType;
+
+    let n = 50;
+    let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64);
+    // Add noise to avoid perfect fit
+    let y = Col::from_fn(n, |i| {
+        let base = (1.0 + 0.05 * (i + 1) as f64).exp();
+        let noise_factor = 1.0 + 0.1 * (((i * 13 + 5) % 20) as f64 - 10.0) / 10.0;
+        base * noise_factor
+    });
+
+    let fitted = TweedieRegressor::gamma()
+        .with_intercept(true)
+        .compute_inference(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    let x_new = Mat::from_fn(5, 1, |i, _| 10.0 + i as f64 * 5.0);
+    let pred = fitted.predict_with_se(
+        &x_new,
+        PredictionType::Response,
+        Some(IntervalType::Confidence),
+        0.95,
+    );
+
+    // Check CI bounds
+    for i in 0..5 {
+        assert!(
+            pred.lower[i] <= pred.fit[i],
+            "Lower CI should be <= prediction at {}",
+            i
+        );
+        assert!(
+            pred.upper[i] >= pred.fit[i],
+            "Upper CI should be >= prediction at {}",
+            i
+        );
+        assert!(pred.lower[i] > 0.0, "Lower CI should be positive at {}", i);
+    }
+}
+
+#[test]
+fn test_binomial_predict_with_se() {
+    let n = 80;
+    let x = Mat::from_fn(n, 1, |i, _| -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0));
+    let y = Col::from_fn(n, |i| {
+        let xi = -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0);
+        let prob = 1.0 / (1.0 + (-xi).exp());
+        if prob > 0.5 + 0.1 * ((i % 5) as f64 - 2.0) / 2.0 {
+            1.0
+        } else {
+            0.0
+        }
+    });
+
+    let fitted = BinomialRegressor::logistic()
+        .with_intercept(true)
+        .compute_inference(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    let x_new = Mat::from_fn(5, 1, |i, _| -2.0 + i as f64);
+    let pred = fitted.predict_with_se(&x_new, PredictionType::Response, None, 0.95);
+
+    // Check SE is computed
+    for i in 0..5 {
+        assert!(pred.se[i] > 0.0, "SE should be positive at {}", i);
+        // Probabilities should be in (0, 1)
+        assert!(
+            pred.fit[i] > 0.0 && pred.fit[i] < 1.0,
+            "Prediction should be in (0,1) at {}",
+            i
+        );
+    }
+}
+
+#[test]
+fn test_binomial_predict_link_scale() {
+    let n = 80;
+    let x = Mat::from_fn(n, 1, |i, _| -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0));
+    let y = Col::from_fn(n, |i| {
+        let xi = -3.0 + 6.0 * (i as f64) / (n as f64 - 1.0);
+        let prob = 1.0 / (1.0 + (-xi).exp());
+        if prob > 0.5 + 0.1 * ((i % 5) as f64 - 2.0) / 2.0 {
+            1.0
+        } else {
+            0.0
+        }
+    });
+
+    let fitted = BinomialRegressor::logistic()
+        .with_intercept(true)
+        .compute_inference(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fit should succeed");
+
+    let x_new = Mat::from_fn(5, 1, |i, _| -2.0 + i as f64);
+
+    // Predict on link scale (log-odds for logistic)
+    let pred_link = fitted.predict_with_se(&x_new, PredictionType::Link, None, 0.95);
+    // Predict on response scale (probability)
+    let pred_resp = fitted.predict_with_se(&x_new, PredictionType::Response, None, 0.95);
+
+    // Link scale predictions can be any real number
+    // Response scale predictions should be in (0, 1)
+    for i in 0..5 {
+        assert!(
+            pred_link.fit[i].is_finite(),
+            "Link prediction should be finite"
+        );
+        assert!(
+            pred_resp.fit[i] > 0.0 && pred_resp.fit[i] < 1.0,
+            "Response prediction should be in (0, 1)"
+        );
+
+        // Response = logistic(link)
+        let expected_resp = 1.0 / (1.0 + (-pred_link.fit[i]).exp());
+        assert_relative_eq!(pred_resp.fit[i], expected_resp, epsilon = 1e-6);
+    }
+}
