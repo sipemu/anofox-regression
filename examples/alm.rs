@@ -59,10 +59,7 @@ fn normal_distribution() {
     let fitted = model.fit(&x, &y).expect("fit should succeed");
 
     println!("True model: y = 2 + 1.5*x1 - 0.8*x2 + N(0, 0.5) noise\n");
-    println!(
-        "Intercept: {:.4}",
-        fitted.intercept().unwrap_or(0.0)
-    );
+    println!("Intercept: {:.4}", fitted.intercept().unwrap_or(0.0));
     println!("Coefficient x1: {:.4}", fitted.coefficients()[0]);
     println!("Coefficient x2: {:.4}", fitted.coefficients()[1]);
     println!("Scale (sigma): {:.4}", fitted.scale());
@@ -103,17 +100,9 @@ fn laplace_robust() {
 
     println!("True model: y = 1 + 2*x + noise (with outliers)\n");
 
-    println!(
-        "{:<12} {:>12} {:>12}",
-        "Distribution", "Intercept", "Slope"
-    );
+    println!("{:<12} {:>12} {:>12}", "Distribution", "Intercept", "Slope");
     println!("{}", "-".repeat(40));
-    println!(
-        "{:<12} {:>12.4} {:>12.4}",
-        "True",
-        1.0,
-        2.0
-    );
+    println!("{:<12} {:>12.4} {:>12.4}", "True", 1.0, 2.0);
     println!(
         "{:<12} {:>12.4} {:>12.4}",
         "Normal",
@@ -226,10 +215,7 @@ fn gamma_positive_data() {
         "Intercept: {:.4} (true: 0.5)",
         fitted.intercept().unwrap_or(0.0)
     );
-    println!(
-        "Coefficient: {:.4} (true: 0.3)",
-        fitted.coefficients()[0]
-    );
+    println!("Coefficient: {:.4} (true: 0.3)", fitted.coefficients()[0]);
     println!("Scale: {:.4}", fitted.scale());
     println!("AIC: {:.4}", fitted.result().aic);
 
@@ -291,12 +277,7 @@ fn loss_functions() {
         "Loss Function", "Intercept", "Slope"
     );
     println!("{}", "-".repeat(48));
-    println!(
-        "{:<20} {:>12.4} {:>12.4}",
-        "True",
-        1.0,
-        1.5
-    );
+    println!("{:<20} {:>12.4} {:>12.4}", "True", 1.0, 1.5);
     println!(
         "{:<20} {:>12.4} {:>12.4}",
         "Likelihood (MLE)",

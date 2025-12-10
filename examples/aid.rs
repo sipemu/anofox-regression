@@ -43,14 +43,14 @@ fn regular_demand() {
         (base + trend + seasonal + noise).round().max(1.0)
     });
 
-    let classifier = AidClassifier::builder()
-        .intermittent_threshold(0.3)
-        .build();
+    let classifier = AidClassifier::builder().intermittent_threshold(0.3).build();
 
     let result = classifier.classify(&demand);
 
-    println!("Demand sample (first 10): {:?}",
-        (0..10).map(|i| demand[i] as i64).collect::<Vec<_>>());
+    println!(
+        "Demand sample (first 10): {:?}",
+        (0..10).map(|i| demand[i] as i64).collect::<Vec<_>>()
+    );
 
     println!("\nClassification result:");
     println!("  Demand type: {:?}", result.demand_type);
@@ -91,14 +91,14 @@ fn intermittent_demand() {
         }
     });
 
-    let classifier = AidClassifier::builder()
-        .intermittent_threshold(0.3)
-        .build();
+    let classifier = AidClassifier::builder().intermittent_threshold(0.3).build();
 
     let result = classifier.classify(&demand);
 
-    println!("Demand sample (first 15): {:?}",
-        (0..15).map(|i| demand[i] as i64).collect::<Vec<_>>());
+    println!(
+        "Demand sample (first 15): {:?}",
+        (0..15).map(|i| demand[i] as i64).collect::<Vec<_>>()
+    );
 
     println!("\nClassification result:");
     println!("  Demand type: {:?}", result.demand_type);
@@ -144,13 +144,16 @@ fn distribution_classification() {
         let result = classifier.classify(&demand);
 
         let mean: f64 = demand.iter().sum::<f64>() / demand.nrows() as f64;
-        let variance: f64 = demand.iter()
-            .map(|&d| (d - mean).powi(2))
-            .sum::<f64>() / (demand.nrows() - 1) as f64;
+        let variance: f64 =
+            demand.iter().map(|&d| (d - mean).powi(2)).sum::<f64>() / (demand.nrows() - 1) as f64;
 
         println!("{} demand:", name);
-        println!("  Mean: {:.2}, Variance: {:.2}, Var/Mean: {:.2}",
-            mean, variance, variance / mean.max(0.001));
+        println!(
+            "  Mean: {:.2}, Variance: {:.2}, Var/Mean: {:.2}",
+            mean,
+            variance,
+            variance / mean.max(0.001)
+        );
         println!("  Fitted distribution: {:?}", result.distribution);
         if let Some(ic) = result.ic_values.get(&result.distribution) {
             println!("  AIC for best distribution: {:.2}", ic);
@@ -181,9 +184,7 @@ fn anomaly_detection() {
         }
     });
 
-    let classifier = AidClassifier::builder()
-        .detect_anomalies(true)
-        .build();
+    let classifier = AidClassifier::builder().detect_anomalies(true).build();
 
     let result = classifier.classify(&demand);
 
@@ -193,10 +194,22 @@ fn anomaly_detection() {
     println!("  - Declining demand (t=56+)\n");
 
     println!("Demand sample:");
-    println!("  First 5:  {:?}", (0..5).map(|i| demand[i] as i64).collect::<Vec<_>>());
-    println!("  Normal:   {:?}", (25..30).map(|i| demand[i] as i64).collect::<Vec<_>>());
-    println!("  Stockout: {:?}", (50..55).map(|i| demand[i] as i64).collect::<Vec<_>>());
-    println!("  Decline:  {:?}", (55..60).map(|i| demand[i] as i64).collect::<Vec<_>>());
+    println!(
+        "  First 5:  {:?}",
+        (0..5).map(|i| demand[i] as i64).collect::<Vec<_>>()
+    );
+    println!(
+        "  Normal:   {:?}",
+        (25..30).map(|i| demand[i] as i64).collect::<Vec<_>>()
+    );
+    println!(
+        "  Stockout: {:?}",
+        (50..55).map(|i| demand[i] as i64).collect::<Vec<_>>()
+    );
+    println!(
+        "  Decline:  {:?}",
+        (55..60).map(|i| demand[i] as i64).collect::<Vec<_>>()
+    );
 
     println!("\nClassification: {:?}", result.demand_type);
     println!("Distribution: {:?}", result.distribution);

@@ -79,9 +79,7 @@ fn lowess_1d(x: &[f64], y: &[f64], k: usize) -> Vec<f64> {
 
     for i in 0..n {
         // Find k nearest neighbors
-        let mut distances: Vec<(usize, f64)> = (0..n)
-            .map(|j| (j, (x[j] - x[i]).abs()))
-            .collect();
+        let mut distances: Vec<(usize, f64)> = (0..n).map(|j| (j, (x[j] - x[i]).abs())).collect();
         distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Get the k nearest
@@ -120,7 +118,7 @@ fn lowess_1d(x: &[f64], y: &[f64], k: usize) -> Vec<f64> {
 
 /// Tricube weight function: (1 - u³)³ for u in [0, 1], 0 otherwise
 fn tricube(u: f64) -> f64 {
-    if u >= 0.0 && u < 1.0 {
+    if (0.0..1.0).contains(&u) {
         let v = 1.0 - u.powi(3);
         v.powi(3)
     } else {

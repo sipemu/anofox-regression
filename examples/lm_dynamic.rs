@@ -137,10 +137,7 @@ fn time_varying_coefficients() {
             f64::NAN
         };
 
-        println!(
-            "{:>8} {:>15.4} {:>15.4}",
-            i, true_coef, est_coef
-        );
+        println!("{:>8} {:>15.4} {:>15.4}", i, true_coef, est_coef);
     }
 
     println!("\nNote: The dynamic model detects the structural break");

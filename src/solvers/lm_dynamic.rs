@@ -183,10 +183,7 @@ impl LmDynamicRegressor {
         let p = x.ncols();
 
         if n < 3 {
-            return Err(RegressionError::InsufficientObservations {
-                needed: 3,
-                got: n,
-            });
+            return Err(RegressionError::InsufficientObservations { needed: 3, got: n });
         }
 
         // Generate candidate models
@@ -194,10 +191,7 @@ impl LmDynamicRegressor {
         let n_models = model_specs.len();
 
         if n_models == 0 {
-            return Err(RegressionError::InsufficientObservations {
-                needed: 1,
-                got: 0,
-            });
+            return Err(RegressionError::InsufficientObservations { needed: 1, got: 0 });
         }
 
         // Fit all candidate models and compute pointwise IC
@@ -274,7 +268,9 @@ impl LmDynamicRegressor {
         }
 
         // Optional LOWESS smoothing
-        let smoothed_weights = self.lowess_span.map(|span| lowess_smooth_weights(&model_weights, span));
+        let smoothed_weights = self
+            .lowess_span
+            .map(|span| lowess_smooth_weights(&model_weights, span));
 
         // Compute dynamic coefficients
         let weights_to_use = smoothed_weights.as_ref().unwrap_or(&model_weights);
@@ -420,7 +416,11 @@ impl LmDynamicRegressor {
             f64::NAN
         };
 
-        let mse = if df_resid > 0.0 { rss / df_resid } else { f64::NAN };
+        let mse = if df_resid > 0.0 {
+            rss / df_resid
+        } else {
+            f64::NAN
+        };
         let rmse = mse.sqrt();
 
         let aliased = vec![false; p];
@@ -745,7 +745,9 @@ impl FittedRegressor for FittedLmDynamic {
 
         match interval {
             None => PredictionResult::point_only(predictions),
-            Some(interval_type) => self.compute_dynamic_intervals(x, &predictions, interval_type, level),
+            Some(interval_type) => {
+                self.compute_dynamic_intervals(x, &predictions, interval_type, level)
+            }
         }
     }
 }
@@ -902,7 +904,12 @@ mod tests {
             let row_sum: f64 = (0..fitted.model_weights().ncols())
                 .map(|j| fitted.model_weights()[(i, j)])
                 .sum();
-            assert!((row_sum - 1.0).abs() < 1e-6, "Row {} weights sum to {}", i, row_sum);
+            assert!(
+                (row_sum - 1.0).abs() < 1e-6,
+                "Row {} weights sum to {}",
+                i,
+                row_sum
+            );
         }
     }
 
@@ -962,9 +969,7 @@ mod tests {
         let x = Mat::from_fn(30, 1, |i, _| i as f64);
         let y = Col::from_fn(30, |i| i as f64 + 0.1);
 
-        let model = LmDynamicRegressor::builder()
-            .lowess_span(0.3)
-            .build();
+        let model = LmDynamicRegressor::builder().lowess_span(0.3).build();
 
         let fitted = model.fit(&x, &y).expect("Should fit");
 

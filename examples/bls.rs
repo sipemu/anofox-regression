@@ -54,12 +54,18 @@ fn non_negative_least_squares() {
     println!("True model: y = 1 + 2*x1 - 0.5*x2 + 1.5*x3 + noise");
     println!("NNLS constraint: all coefficients >= 0\n");
     println!("Intercept: {:.4}", fitted.intercept().unwrap_or(0.0));
-    println!("Coefficient x1: {:.4} (true: 2.0)", fitted.coefficients()[0]);
+    println!(
+        "Coefficient x1: {:.4} (true: 2.0)",
+        fitted.coefficients()[0]
+    );
     println!(
         "Coefficient x2: {:.4} (true: -0.5, constrained to 0)",
         fitted.coefficients()[1]
     );
-    println!("Coefficient x3: {:.4} (true: 1.5)", fitted.coefficients()[2]);
+    println!(
+        "Coefficient x3: {:.4} (true: 1.5)",
+        fitted.coefficients()[2]
+    );
     println!("R-squared: {:.4}", fitted.r_squared());
 
     println!("\nNote: x2 coefficient is forced to 0 (or positive) due to NNLS constraint.");
@@ -216,11 +222,7 @@ fn compare_constrained_unconstrained() {
 
     println!(
         "{:<15} {:>10.4} {:>10.4} {:>10.4} {:>12.4}",
-        "True",
-        1.5,
-        -0.8,
-        0.3,
-        1.0
+        "True", 1.5, -0.8, 0.3, 1.0
     );
     println!(
         "{:<15} {:>10.4} {:>10.4} {:>10.4} {:>12.4}",

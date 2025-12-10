@@ -23,12 +23,12 @@ pub use aid::{
 pub use alm::{
     AlmDistribution, AlmLoss, AlmRegressor, AlmRegressorBuilder, FittedAlm, LinkFunction,
 };
-pub use lm_dynamic::{
-    FittedLmDynamic, InformationCriterion, LmDynamicRegressor, LmDynamicRegressorBuilder, ModelSpec,
-};
 pub use binomial::{BinomialRegressor, FittedBinomial};
 pub use bls::{BlsRegressor, FittedBls};
 pub use elastic_net::{ElasticNetRegressor, FittedElasticNet};
+pub use lm_dynamic::{
+    FittedLmDynamic, InformationCriterion, LmDynamicRegressor, LmDynamicRegressorBuilder, ModelSpec,
+};
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
 pub use ols::{FittedOls, OlsRegressor};
 pub use poisson::{FittedPoisson, PoissonRegressor};

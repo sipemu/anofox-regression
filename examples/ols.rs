@@ -70,9 +70,9 @@ fn multiple_regression() {
     // Use independent predictors to avoid collinearity
     let n = 100;
     let x = Mat::from_fn(n, 3, |i, j| match j {
-        0 => (i as f64) * 0.1,                       // x1: linear trend
-        1 => ((i as f64) * 0.3).sin() * 2.0,         // x2: oscillating (different frequency)
-        2 => ((i as f64) * 0.7).cos() * 3.0 + 1.5,   // x3: different oscillation, offset
+        0 => (i as f64) * 0.1,                     // x1: linear trend
+        1 => ((i as f64) * 0.3).sin() * 2.0,       // x2: oscillating (different frequency)
+        2 => ((i as f64) * 0.7).cos() * 3.0 + 1.5, // x3: different oscillation, offset
         _ => 0.0,
     });
 
@@ -197,7 +197,11 @@ fn model_diagnostics() {
 
     // Generate data with known properties
     let n = 50;
-    let x = Mat::from_fn(n, 2, |i, j| if j == 0 { i as f64 } else { (i as f64).sqrt() });
+    let x = Mat::from_fn(
+        n,
+        2,
+        |i, j| if j == 0 { i as f64 } else { (i as f64).sqrt() },
+    );
 
     let y = Col::from_fn(n, |i| {
         let noise = ((i as f64 * 1.7).sin()) * 0.5;

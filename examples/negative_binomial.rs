@@ -187,10 +187,7 @@ fn overdispersion_detection() {
     );
 
     println!("\nModel comparison:");
-    println!(
-        "{:<20} {:>12} {:>12}",
-        "Model", "AIC", "Deviance/df"
-    );
+    println!("{:<20} {:>12} {:>12}", "Model", "AIC", "Deviance/df");
     println!("{}", "-".repeat(48));
 
     let poisson_dev = poisson_fit.result().log_likelihood * -2.0;
@@ -241,10 +238,7 @@ fn compare_poisson_negbin() {
     let negbin_fit = negbin.fit(&x, &y).expect("negbin");
 
     println!("Coefficient comparison:\n");
-    println!(
-        "{:<15} {:>12} {:>12}",
-        "Model", "Intercept", "Slope"
-    );
+    println!("{:<15} {:>12} {:>12}", "Model", "Intercept", "Slope");
     println!("{}", "-".repeat(42));
     println!(
         "{:<15} {:>12.4} {:>12.4}",
@@ -262,8 +256,7 @@ fn compare_poisson_negbin() {
     // Prediction comparison
     let x_new = Mat::from_fn(5, 1, |i, _| (5 + i * 2) as f64);
 
-    let pois_pred =
-        poisson_fit.predict_with_interval(&x_new, Some(IntervalType::Confidence), 0.95);
+    let pois_pred = poisson_fit.predict_with_interval(&x_new, Some(IntervalType::Confidence), 0.95);
     let nb_pred = negbin_fit.predict_with_interval(&x_new, Some(IntervalType::Confidence), 0.95);
 
     println!("\nPredictions with 95% CI:\n");

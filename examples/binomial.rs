@@ -48,7 +48,11 @@ fn logistic_regression() {
         let p = 1.0 / (1.0 + (-eta).exp());
         // Deterministic threshold with noise
         let threshold = 0.5 + ((i as f64 * 0.7).sin()) * 0.2;
-        if p > threshold { 1.0 } else { 0.0 }
+        if p > threshold {
+            1.0
+        } else {
+            0.0
+        }
     });
 
     let model = BinomialRegressor::logistic().build();
@@ -92,7 +96,11 @@ fn link_function_comparison() {
     let y = Col::from_fn(n, |i| {
         let p = 1.0 / (1.0 + (-0.3 - 0.8 * x[(i, 0)]).exp());
         let threshold = 0.5 + ((i as f64 * 0.9).sin()) * 0.15;
-        if p > threshold { 1.0 } else { 0.0 }
+        if p > threshold {
+            1.0
+        } else {
+            0.0
+        }
     });
 
     // Logit link (logistic regression)
@@ -152,7 +160,11 @@ fn predict_probabilities() {
     let y = Col::from_fn(n, |i| {
         let p = 1.0 / (1.0 + (-(0.2 + 0.5 * x[(i, 0)])).exp());
         let threshold = 0.5 + ((i as f64 * 1.1).sin()) * 0.2;
-        if p > threshold { 1.0 } else { 0.0 }
+        if p > threshold {
+            1.0
+        } else {
+            0.0
+        }
     });
 
     let model = BinomialRegressor::logistic().build();
@@ -207,7 +219,11 @@ fn classification_example() {
     let y = Col::from_fn(n, |i| {
         let score = 0.5 * x[(i, 0)] + 0.3 * x[(i, 1)];
         let noise = ((i as f64 * 0.8).sin()) * 0.5;
-        if score + noise > 0.0 { 1.0 } else { 0.0 }
+        if score + noise > 0.0 {
+            1.0
+        } else {
+            0.0
+        }
     });
 
     // Split into train/test

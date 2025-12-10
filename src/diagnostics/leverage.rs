@@ -351,7 +351,11 @@ mod tests {
     #[test]
     fn test_compute_xtx_inverse_basic() {
         // Tests lines 52-68: basic inverse computation
-        let x = Mat::from_fn(20, 2, |i, j| if j == 0 { i as f64 } else { (i as f64).sin() });
+        let x = Mat::from_fn(
+            20,
+            2,
+            |i, j| if j == 0 { i as f64 } else { (i as f64).sin() },
+        );
         let design = build_design_matrix(&x, true);
         let xtx = compute_xtx(&design);
         let inv = compute_xtx_inverse(&xtx);
@@ -467,7 +471,11 @@ mod tests {
     #[test]
     fn test_compute_leverage_with_aliased_no_aliased() {
         // Tests lines 147-148: when no columns are aliased, falls back to compute_leverage
-        let x = Mat::from_fn(20, 2, |i, j| if j == 0 { i as f64 } else { (i as f64).sin() });
+        let x = Mat::from_fn(
+            20,
+            2,
+            |i, j| if j == 0 { i as f64 } else { (i as f64).sin() },
+        );
         let aliased = vec![false, false];
 
         let lev_aliased = compute_leverage_with_aliased(&x, &aliased, true);
@@ -633,7 +641,11 @@ mod tests {
     #[test]
     fn test_leverage_n_equals_p() {
         // Edge case: n = p exactly
-        let x = Mat::from_fn(3, 2, |i, j| if j == 0 { i as f64 } else { (i as f64).cos() });
+        let x = Mat::from_fn(
+            3,
+            2,
+            |i, j| if j == 0 { i as f64 } else { (i as f64).cos() },
+        );
         let leverage = compute_leverage(&x, true); // 3 params for 3 observations
 
         // When n = p, all observations should have leverage = 1.0
@@ -664,7 +676,13 @@ mod tests {
     #[test]
     fn test_leverage_without_intercept() {
         // Test leverage computation without intercept
-        let x = Mat::from_fn(20, 2, |i, j| if j == 0 { (i + 1) as f64 } else { (i as f64).sin() });
+        let x = Mat::from_fn(20, 2, |i, j| {
+            if j == 0 {
+                (i + 1) as f64
+            } else {
+                (i as f64).sin()
+            }
+        });
         let leverage = compute_leverage(&x, false);
 
         // Sum should equal number of features (no intercept)

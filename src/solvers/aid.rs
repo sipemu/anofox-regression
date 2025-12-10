@@ -144,7 +144,7 @@ pub struct DemandClassification {
 impl DemandClassification {
     /// Check if any stockouts were detected.
     pub fn has_stockouts(&self) -> bool {
-        self.anomalies.iter().any(|a| *a == AnomalyType::Stockout)
+        self.anomalies.contains(&AnomalyType::Stockout)
     }
 
     /// Count the number of anomalies of each type.
@@ -158,14 +158,12 @@ impl DemandClassification {
 
     /// Check if product appears to be new (leading zeros).
     pub fn is_new_product(&self) -> bool {
-        self.anomalies.iter().any(|a| *a == AnomalyType::NewProduct)
+        self.anomalies.contains(&AnomalyType::NewProduct)
     }
 
     /// Check if product appears to be obsolete (trailing zeros).
     pub fn is_obsolete_product(&self) -> bool {
-        self.anomalies
-            .iter()
-            .any(|a| *a == AnomalyType::ObsoleteProduct)
+        self.anomalies.contains(&AnomalyType::ObsoleteProduct)
     }
 }
 
@@ -448,8 +446,8 @@ impl AidClassifier {
 
         // If more than 20% are leading zeros, mark as new product
         if leading_zeros > 0 && (leading_zeros as f64 / n as f64) > 0.1 {
-            for i in 0..leading_zeros {
-                anomalies[i] = AnomalyType::NewProduct;
+            for anomaly in anomalies.iter_mut().take(leading_zeros) {
+                *anomaly = AnomalyType::NewProduct;
             }
         }
 
@@ -465,9 +463,9 @@ impl AidClassifier {
 
         // If more than 20% are trailing zeros, mark as obsolete
         if trailing_zeros > 0 && (trailing_zeros as f64 / n as f64) > 0.1 {
-            for i in (n - trailing_zeros)..n {
-                if anomalies[i] == AnomalyType::None {
-                    anomalies[i] = AnomalyType::ObsoleteProduct;
+            for anomaly in anomalies.iter_mut().skip(n - trailing_zeros) {
+                if *anomaly == AnomalyType::None {
+                    *anomaly = AnomalyType::ObsoleteProduct;
                 }
             }
         }
@@ -741,7 +739,9 @@ mod tests {
         let counts = result.anomaly_counts();
 
         // Should have some stockouts detected
-        assert!(counts.get(&AnomalyType::Stockout).unwrap_or(&0) > &0
-            || counts.get(&AnomalyType::HighOutlier).unwrap_or(&0) > &0);
+        assert!(
+            counts.get(&AnomalyType::Stockout).unwrap_or(&0) > &0
+                || counts.get(&AnomalyType::HighOutlier).unwrap_or(&0) > &0
+        );
     }
 }

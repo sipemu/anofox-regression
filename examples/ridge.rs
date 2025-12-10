@@ -198,7 +198,9 @@ fn compare_ols_ridge() {
 
     // Fit OLS
     let ols_model = OlsRegressor::builder().with_intercept(true).build();
-    let ols_fitted = ols_model.fit(&x_train, &y_train).expect("OLS fit should succeed");
+    let ols_fitted = ols_model
+        .fit(&x_train, &y_train)
+        .expect("OLS fit should succeed");
 
     // Fit Ridge with different lambdas
     let lambdas = [0.1, 1.0, 10.0];
@@ -206,10 +208,7 @@ fn compare_ols_ridge() {
     println!("Small sample (n=20) with many predictors (p=10)");
     println!("True model uses only x1, x2, x3\n");
 
-    println!(
-        "{:<15} {:>12} {:>12}",
-        "Method", "Train R2", "Test MSE"
-    );
+    println!("{:<15} {:>12} {:>12}", "Method", "Train R2", "Test MSE");
     println!("{}", "-".repeat(42));
 
     // OLS performance
@@ -220,7 +219,10 @@ fn compare_ols_ridge() {
         .sum::<f64>()
         / y_test.nrows() as f64;
 
-    println!("{:<15} {:>12.4} {:>12.4}", "OLS", ols_train_r2, ols_test_mse);
+    println!(
+        "{:<15} {:>12.4} {:>12.4}",
+        "OLS", ols_train_r2, ols_test_mse
+    );
 
     // Ridge performance
     for &lambda in &lambdas {

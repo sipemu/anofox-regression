@@ -60,7 +60,10 @@ fn basic_elastic_net() {
     println!("Intercept: {:.4}", fitted.intercept().unwrap_or(0.0));
     println!("Coefficient x1: {:.4}", fitted.coefficients()[0]);
     println!("Coefficient x2: {:.4}", fitted.coefficients()[1]);
-    println!("Coefficient x3: {:.4} (should be ~0)", fitted.coefficients()[2]);
+    println!(
+        "Coefficient x3: {:.4} (should be ~0)",
+        fitted.coefficients()[2]
+    );
     println!("R-squared: {:.4}", fitted.r_squared());
     println!();
 }
@@ -120,12 +123,7 @@ fn lasso_vs_ridge_vs_elastic() {
 
     println!(
         "{:<15} {:>8.4} {:>8.4} {:>8.4} {:>8.4} {:>10.4}",
-        "True",
-        2.0,
-        -1.0,
-        0.0,
-        0.5,
-        1.0
+        "True", 2.0, -1.0, 0.0, 0.5, 1.0
     );
     println!(
         "{:<15} {:>8.4} {:>8.4} {:>8.4} {:>8.4} {:>10.4}",
@@ -156,9 +154,8 @@ fn lasso_vs_ridge_vs_elastic() {
     );
 
     // Count non-zero coefficients
-    let count_nonzero = |coefs: &Col<f64>| -> usize {
-        coefs.iter().filter(|&&c| c.abs() > 1e-6).count()
-    };
+    let count_nonzero =
+        |coefs: &Col<f64>| -> usize { coefs.iter().filter(|&&c| c.abs() > 1e-6).count() };
 
     println!("\nNon-zero coefficients:");
     println!("  Lasso:       {}", count_nonzero(lasso_fit.coefficients()));
@@ -178,9 +175,9 @@ fn feature_selection() {
     let n = 100;
     // 8 predictors, but only 3 are relevant
     let x = Mat::from_fn(n, 8, |i, j| match j {
-        0 => (i as f64) * 0.1,           // Relevant
-        1 => ((i as f64) * 0.2).sin(),   // Relevant
-        2 => ((i as f64) * 0.15).cos(),  // Relevant
+        0 => (i as f64) * 0.1,                      // Relevant
+        1 => ((i as f64) * 0.2).sin(),              // Relevant
+        2 => ((i as f64) * 0.15).cos(),             // Relevant
         _ => ((i as f64 * (j as f64)).sin()) * 0.5, // Noise predictors
     });
 

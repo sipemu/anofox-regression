@@ -16,7 +16,13 @@ mod common;
 // =============================================================================
 
 /// Generate simple linear data: y = intercept + slope * x + noise
-fn generate_linear_data(n: usize, intercept: f64, slope: f64, noise_sd: f64, seed: u64) -> (Mat<f64>, Col<f64>) {
+fn generate_linear_data(
+    n: usize,
+    intercept: f64,
+    slope: f64,
+    noise_sd: f64,
+    seed: u64,
+) -> (Mat<f64>, Col<f64>) {
     // Simple deterministic "random" based on seed
     let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64);
     let y = Col::from_fn(n, |i| {
@@ -264,7 +270,11 @@ fn test_role_trims_outlier_contributions() {
 
     // ROLE should produce reasonable coefficients despite outliers
     let coef = fitted_role.result().coefficients[0];
-    assert!(coef > 0.5 && coef < 2.5, "ROLE coefficient should be reasonable: {}", coef);
+    assert!(
+        coef > 0.5 && coef < 2.5,
+        "ROLE coefficient should be reasonable: {}",
+        coef
+    );
 }
 
 // =============================================================================
@@ -276,7 +286,12 @@ fn test_loss_functions_with_laplace_distribution() {
     let (x, y) = generate_linear_data(30, 2.0, 1.5, 2.0, 789);
 
     // Test that loss functions work with non-Normal distributions
-    for loss in [AlmLoss::Likelihood, AlmLoss::MSE, AlmLoss::MAE, AlmLoss::HAM] {
+    for loss in [
+        AlmLoss::Likelihood,
+        AlmLoss::MSE,
+        AlmLoss::MAE,
+        AlmLoss::HAM,
+    ] {
         let model = AlmRegressor::builder()
             .distribution(AlmDistribution::Laplace)
             .loss(loss)
@@ -284,7 +299,11 @@ fn test_loss_functions_with_laplace_distribution() {
             .build();
 
         let result = model.fit(&x, &y);
-        assert!(result.is_ok(), "Loss {:?} should work with Laplace distribution", loss);
+        assert!(
+            result.is_ok(),
+            "Loss {:?} should work with Laplace distribution",
+            loss
+        );
     }
 }
 
@@ -301,7 +320,11 @@ fn test_loss_functions_with_student_t_distribution() {
             .build();
 
         let result = model.fit(&x, &y);
-        assert!(result.is_ok(), "Loss {:?} should work with Student-t distribution", loss);
+        assert!(
+            result.is_ok(),
+            "Loss {:?} should work with Student-t distribution",
+            loss
+        );
     }
 }
 
@@ -329,7 +352,12 @@ fn test_loss_functions_without_intercept() {
     let x = Mat::from_fn(20, 1, |i, _| (i + 1) as f64);
     let y = Col::from_fn(20, |i| 1.5 * (i + 1) as f64 + 0.1 * (i as f64).sin());
 
-    for loss in [AlmLoss::Likelihood, AlmLoss::MSE, AlmLoss::MAE, AlmLoss::HAM] {
+    for loss in [
+        AlmLoss::Likelihood,
+        AlmLoss::MSE,
+        AlmLoss::MAE,
+        AlmLoss::HAM,
+    ] {
         let model = AlmRegressor::builder()
             .distribution(AlmDistribution::Normal)
             .loss(loss)
@@ -337,7 +365,11 @@ fn test_loss_functions_without_intercept() {
             .build();
 
         let result = model.fit(&x, &y);
-        assert!(result.is_ok(), "Loss {:?} should work without intercept", loss);
+        assert!(
+            result.is_ok(),
+            "Loss {:?} should work without intercept",
+            loss
+        );
     }
 }
 

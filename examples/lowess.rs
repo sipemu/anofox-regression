@@ -99,10 +99,7 @@ fn span_comparison() {
             })
             .sum();
 
-        println!(
-            "Span = {:.1}: roughness = {:.6}",
-            span, roughness
-        );
+        println!("Span = {:.1}: roughness = {:.6}", span, roughness);
     }
 
     println!("\nNote: Larger span produces smoother output (lower roughness).");
@@ -126,7 +123,7 @@ fn weight_smoothing() {
         let base = match j {
             0 => 0.5 - (i as f64 / n as f64) * 0.3, // Decreasing
             1 => 0.3 + (i as f64 / n as f64) * 0.2, // Increasing
-            2 => 0.2,                                // Constant
+            2 => 0.2,                               // Constant
             _ => 0.0,
         };
         // Add noise

@@ -51,10 +51,7 @@ fn basic_wls() {
     let fitted = model.fit(&x, &y).expect("fit should succeed");
 
     println!("Model: y = 2 + 1.5*x + noise (later observations weighted more)");
-    println!(
-        "Intercept: {:.4}",
-        fitted.intercept().unwrap_or(0.0)
-    );
+    println!("Intercept: {:.4}", fitted.intercept().unwrap_or(0.0));
     println!("Slope:     {:.4}", fitted.coefficients()[0]);
     println!("R-squared: {:.4}", fitted.r_squared());
     println!();
@@ -93,10 +90,7 @@ fn heteroscedastic_data() {
     println!("Using inverse variance weights: w_i = 1/x_i\n");
 
     println!("WLS estimates:");
-    println!(
-        "  Intercept: {:.4}",
-        wls_fitted.intercept().unwrap_or(0.0)
-    );
+    println!("  Intercept: {:.4}", wls_fitted.intercept().unwrap_or(0.0));
     println!("  Slope:     {:.4}", wls_fitted.coefficients()[0]);
     println!("  R-squared: {:.4}", wls_fitted.r_squared());
     println!();
@@ -116,11 +110,7 @@ fn inverse_variance_weighting() {
     let mut w_data = Vec::with_capacity(n);
 
     let mut idx = 0;
-    for (group, (&size, &var)) in group_sizes
-        .iter()
-        .zip(group_variances.iter())
-        .enumerate()
-    {
+    for (group, (&size, &var)) in group_sizes.iter().zip(group_variances.iter()).enumerate() {
         for _ in 0..size {
             let xi = (idx as f64) * 0.1;
             // Noise scaled by sqrt(variance)
@@ -206,13 +196,7 @@ fn compare_ols_wls() {
         "Method", "Intercept", "x1", "x2"
     );
     println!("{}", "-".repeat(50));
-    println!(
-        "{:<12} {:>12.4} {:>12.4} {:>12.4}",
-        "True",
-        3.0,
-        2.0,
-        -1.0
-    );
+    println!("{:<12} {:>12.4} {:>12.4} {:>12.4}", "True", 3.0, 2.0, -1.0);
     println!(
         "{:<12} {:>12.4} {:>12.4} {:>12.4}",
         "OLS",
@@ -233,13 +217,7 @@ fn compare_ols_wls() {
     println!("  WLS R-squared: {:.4}", wls_fitted.r_squared());
 
     // Prediction comparison
-    let x_new = Mat::from_fn(3, 2, |i, j| {
-        if j == 0 {
-            5.0 + (i as f64)
-        } else {
-            0.5
-        }
-    });
+    let x_new = Mat::from_fn(3, 2, |i, j| if j == 0 { 5.0 + (i as f64) } else { 0.5 });
 
     let ols_pred = ols_fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
     let wls_pred = wls_fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);

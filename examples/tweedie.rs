@@ -85,7 +85,7 @@ fn gamma_tweedie() {
     let y = Col::from_fn(n, |i| {
         let eta = 0.5 + 0.3 * x[(i, 0)];
         let mu = eta.exp(); // Log link inverse
-        // Gamma-like noise: CV roughly constant
+                            // Gamma-like noise: CV roughly constant
         let noise = ((i as f64 * 0.9).sin()) * (mu * 0.2);
         (mu + noise).max(0.1)
     });
@@ -99,19 +99,13 @@ fn gamma_tweedie() {
         "Intercept: {:.4} (true: 0.5)",
         fitted.intercept().unwrap_or(0.0)
     );
-    println!(
-        "Coefficient: {:.4} (true: 0.3)",
-        fitted.coefficients()[0]
-    );
+    println!("Coefficient: {:.4} (true: 0.3)", fitted.coefficients()[0]);
     println!("AIC: {:.4}", result.aic);
 
     // Interpretation
     println!("\nInterpretation (multiplicative effects):");
     let effect = fitted.coefficients()[0].exp();
-    println!(
-        "  1 unit increase in x multiplies mu by {:.4}",
-        effect
-    );
+    println!("  1 unit increase in x multiplies mu by {:.4}", effect);
     println!();
 }
 
@@ -165,10 +159,7 @@ fn compound_poisson_gamma() {
     let result = fitted.result();
 
     println!("\nCompound Poisson-Gamma model (var_power = 1.5):");
-    println!(
-        "  Intercept: {:.4}",
-        fitted.intercept().unwrap_or(0.0)
-    );
+    println!("  Intercept: {:.4}", fitted.intercept().unwrap_or(0.0));
     println!("  Risk factor 1: {:.4}", fitted.coefficients()[0]);
     println!("  Risk factor 2: {:.4}", fitted.coefficients()[1]);
     println!("  AIC: {:.4}", result.aic);

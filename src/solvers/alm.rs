@@ -61,11 +61,12 @@ use std::f64::consts::PI;
 /// The loss function determines how the model measures fit quality during
 /// the iterative optimization process. Different loss functions provide
 /// different trade-offs between efficiency and robustness.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AlmLoss {
     /// Maximum Likelihood Estimation (default).
     /// Uses log-likelihood for convergence criterion.
     /// Most efficient when distributional assumptions are met.
+    #[default]
     Likelihood,
 
     /// Mean Squared Error: mean((y - fitted)²)
@@ -87,12 +88,6 @@ pub enum AlmLoss {
         /// Fraction of observations to trim (0.0 to 0.5)
         trim: f64,
     },
-}
-
-impl Default for AlmLoss {
-    fn default() -> Self {
-        AlmLoss::Likelihood
-    }
 }
 
 impl AlmLoss {
@@ -984,8 +979,14 @@ impl AlmRegressor {
         let mut scale = estimate_scale(y, &mu, self.distribution, df.max(1.0));
 
         // Initial loss value (using selected loss function)
-        let mut prev_loss =
-            compute_loss(y, &mu, self.loss, self.distribution, scale, self.extra_parameter);
+        let mut prev_loss = compute_loss(
+            y,
+            &mu,
+            self.loss,
+            self.distribution,
+            scale,
+            self.extra_parameter,
+        );
 
         for iter in 0..self.max_iterations {
             // Compute weights and working response for IRLS
@@ -1002,8 +1003,14 @@ impl AlmRegressor {
             scale = estimate_scale(y, &mu, self.distribution, df.max(1.0));
 
             // Check convergence using selected loss function
-            let loss =
-                compute_loss(y, &mu, self.loss, self.distribution, scale, self.extra_parameter);
+            let loss = compute_loss(
+                y,
+                &mu,
+                self.loss,
+                self.distribution,
+                scale,
+                self.extra_parameter,
+            );
 
             // Convergence criterion: relative change in loss is small
             // (loss is always in minimization form, so we check if it decreased or stabilized)
