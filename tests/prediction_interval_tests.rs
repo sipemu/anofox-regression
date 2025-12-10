@@ -369,3 +369,327 @@ fn test_ridge_prediction_interval() {
     let ci_width = ci.upper[0] - ci.lower[0];
     assert!(pi_width > ci_width);
 }
+
+// ============================================================================
+// Tests for Prediction Intervals with Aliased (Collinear/Constant) Columns
+// ============================================================================
+
+/// Test OLS prediction intervals with collinear features.
+/// The implementation should handle aliased columns and still compute valid intervals.
+#[test]
+fn test_ols_prediction_interval_collinear_features() {
+    // Generate data with collinear features (x1 = 2*x0)
+    let (x, y) = common::generate_collinear_data(20);
+
+    let model = OlsRegressor::builder().with_intercept(true).build();
+    let fitted = model
+        .fit(&x, &y)
+        .expect("fit should succeed with collinear data");
+
+    // Verify collinearity is detected
+    let result = fitted.result();
+    assert!(
+        result.has_aliased(),
+        "Should detect collinearity in the data"
+    );
+
+    // Create new data for prediction (same structure: 3 features)
+    let x_new = Mat::from_fn(3, 3, |i, j| {
+        let base = (i + 25) as f64;
+        match j {
+            0 => base,
+            1 => 2.0 * base, // Maintain collinearity pattern
+            2 => base * base,
+            _ => 0.0,
+        }
+    });
+
+    // Prediction intervals should still be computed and finite
+    let pi = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+
+    for i in 0..3 {
+        assert!(
+            pi.fit[i].is_finite(),
+            "fit[{}] should be finite, got {}",
+            i,
+            pi.fit[i]
+        );
+        assert!(
+            pi.lower[i].is_finite(),
+            "lower[{}] should be finite, got {}",
+            i,
+            pi.lower[i]
+        );
+        assert!(
+            pi.upper[i].is_finite(),
+            "upper[{}] should be finite, got {}",
+            i,
+            pi.upper[i]
+        );
+        assert!(
+            pi.lower[i] < pi.fit[i],
+            "lower[{}] ({}) should be < fit[{}] ({})",
+            i,
+            pi.lower[i],
+            i,
+            pi.fit[i]
+        );
+        assert!(
+            pi.upper[i] > pi.fit[i],
+            "upper[{}] ({}) should be > fit[{}] ({})",
+            i,
+            pi.upper[i],
+            i,
+            pi.fit[i]
+        );
+    }
+
+    // Confidence intervals should also work
+    let ci = fitted.predict_with_interval(&x_new, Some(IntervalType::Confidence), 0.95);
+    for i in 0..3 {
+        assert!(ci.lower[i].is_finite(), "CI lower[{}] should be finite", i);
+        assert!(ci.upper[i].is_finite(), "CI upper[{}] should be finite", i);
+    }
+}
+
+/// Test OLS prediction intervals with a constant column.
+#[test]
+fn test_ols_prediction_interval_constant_column() {
+    // Generate data with a constant column
+    let (x, y) = common::generate_constant_column_data(20);
+
+    let model = OlsRegressor::builder().with_intercept(true).build();
+    let fitted = model
+        .fit(&x, &y)
+        .expect("fit should succeed with constant column");
+
+    // The constant column (index 1) should be aliased when there's an intercept
+    let result = fitted.result();
+    assert!(
+        result.aliased[1],
+        "Constant column should be aliased with intercept"
+    );
+
+    // Create new data for prediction
+    let x_new = Mat::from_fn(3, 3, |i, j| {
+        let base = (i + 25) as f64;
+        match j {
+            0 => base,
+            1 => 5.0, // Same constant value
+            2 => base * 2.0,
+            _ => 0.0,
+        }
+    });
+
+    // Intervals should be computed correctly
+    let pi = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+
+    for i in 0..3 {
+        assert!(pi.fit[i].is_finite(), "fit[{}] should be finite", i);
+        assert!(pi.lower[i].is_finite(), "lower[{}] should be finite", i);
+        assert!(pi.upper[i].is_finite(), "upper[{}] should be finite", i);
+        assert!(pi.lower[i] < pi.fit[i], "lower should be < fit");
+        assert!(pi.upper[i] > pi.fit[i], "upper should be > fit");
+    }
+}
+
+/// Test WLS prediction intervals with collinear features.
+#[test]
+fn test_wls_prediction_interval_collinear_features() {
+    let (x, y) = common::generate_collinear_data(20);
+    let weights = Col::from_fn(20, |i| 1.0 / ((i + 1) as f64).sqrt());
+
+    let model = WlsRegressor::builder()
+        .with_intercept(true)
+        .weights(weights)
+        .build();
+    let fitted = model.fit(&x, &y).expect("WLS fit should succeed");
+
+    // Create new data for prediction
+    let x_new = Mat::from_fn(3, 3, |i, j| {
+        let base = (i + 25) as f64;
+        match j {
+            0 => base,
+            1 => 2.0 * base,
+            2 => base * base,
+            _ => 0.0,
+        }
+    });
+
+    let pi = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+
+    for i in 0..3 {
+        assert!(
+            pi.fit[i].is_finite(),
+            "WLS fit[{}] should be finite with collinear data",
+            i
+        );
+        assert!(
+            pi.lower[i].is_finite(),
+            "WLS lower[{}] should be finite with collinear data",
+            i
+        );
+        assert!(
+            pi.upper[i].is_finite(),
+            "WLS upper[{}] should be finite with collinear data",
+            i
+        );
+    }
+}
+
+/// Test ElasticNet prediction intervals with constant column.
+/// Note: ElasticNet detects constant columns but not general collinearity.
+#[test]
+fn test_elastic_net_prediction_interval_constant_column() {
+    // Create data with a constant column but NO collinearity between other columns
+    let n = 30;
+    let mut x = Mat::zeros(n, 3);
+    let mut y = Col::zeros(n);
+    for i in 0..n {
+        x[(i, 0)] = i as f64;
+        x[(i, 1)] = 5.0; // Constant column
+        x[(i, 2)] = (i as f64).sin() * 10.0; // Non-collinear with x0
+        y[i] = 1.0 + 2.0 * x[(i, 0)] + 3.0 * x[(i, 2)] + 0.1 * (i as f64);
+    }
+
+    let model = ElasticNetRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .alpha(0.5)
+        .build();
+    let fitted = model.fit(&x, &y).expect("ElasticNet fit should succeed");
+
+    let x_new = Mat::from_fn(3, 3, |i, j| {
+        let base = (i + 35) as f64;
+        match j {
+            0 => base,
+            1 => 5.0, // Same constant
+            2 => base.sin() * 10.0,
+            _ => 0.0,
+        }
+    });
+
+    let pi = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+
+    for i in 0..3 {
+        assert!(
+            pi.fit[i].is_finite(),
+            "ElasticNet fit[{}] should be finite with constant column",
+            i
+        );
+        assert!(
+            pi.lower[i].is_finite(),
+            "ElasticNet lower[{}] should be finite with constant column",
+            i
+        );
+        assert!(
+            pi.upper[i].is_finite(),
+            "ElasticNet upper[{}] should be finite with constant column",
+            i
+        );
+    }
+}
+
+/// Test Ridge prediction intervals with collinear features.
+/// Ridge regularization helps with collinearity, but the fix should still work.
+#[test]
+fn test_ridge_prediction_interval_collinear_features() {
+    let (x, y) = common::generate_collinear_data(20);
+
+    let model = RidgeRegressor::builder()
+        .with_intercept(true)
+        .lambda(0.1)
+        .build();
+    let fitted = model.fit(&x, &y).expect("Ridge fit should succeed");
+
+    let x_new = Mat::from_fn(3, 3, |i, j| {
+        let base = (i + 25) as f64;
+        match j {
+            0 => base,
+            1 => 2.0 * base,
+            2 => base * base,
+            _ => 0.0,
+        }
+    });
+
+    let pi = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+    let ci = fitted.predict_with_interval(&x_new, Some(IntervalType::Confidence), 0.95);
+
+    for i in 0..3 {
+        assert!(pi.fit[i].is_finite(), "Ridge fit[{}] should be finite", i);
+        assert!(
+            pi.lower[i].is_finite(),
+            "Ridge PI lower[{}] should be finite",
+            i
+        );
+        assert!(
+            pi.upper[i].is_finite(),
+            "Ridge PI upper[{}] should be finite",
+            i
+        );
+        assert!(
+            ci.lower[i].is_finite(),
+            "Ridge CI lower[{}] should be finite",
+            i
+        );
+        assert!(
+            ci.upper[i].is_finite(),
+            "Ridge CI upper[{}] should be finite",
+            i
+        );
+    }
+}
+
+/// Test that both interval types work with aliased columns
+/// and prediction intervals are still wider than confidence intervals.
+#[test]
+fn test_interval_types_with_aliased_columns() {
+    // Create collinear data with noise (so MSE > 0)
+    let n = 30;
+    let mut x = Mat::zeros(n, 3);
+    let mut y = Col::zeros(n);
+    for i in 0..n {
+        x[(i, 0)] = i as f64;
+        x[(i, 1)] = 2.0 * i as f64; // Perfectly collinear with x0
+        x[(i, 2)] = (i * i) as f64;
+        // Add noise so MSE > 0
+        let noise = if i % 2 == 0 { 0.5 } else { -0.5 };
+        y[i] = 1.0 + 2.0 * x[(i, 0)] + 3.0 * x[(i, 2)] + noise;
+    }
+
+    let model = OlsRegressor::builder().with_intercept(true).build();
+    let fitted = model.fit(&x, &y).expect("fit should succeed");
+
+    // Verify we have aliased columns
+    assert!(fitted.result().has_aliased(), "Should have aliased columns");
+
+    let x_new = Mat::from_fn(5, 3, |i, j| {
+        let base = (i + 35) as f64;
+        match j {
+            0 => base,
+            1 => 2.0 * base,
+            2 => base * base,
+            _ => 0.0,
+        }
+    });
+
+    let pi = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+    let ci = fitted.predict_with_interval(&x_new, Some(IntervalType::Confidence), 0.95);
+
+    // Both interval types should produce finite results
+    for i in 0..5 {
+        assert!(pi.lower[i].is_finite() && pi.upper[i].is_finite());
+        assert!(ci.lower[i].is_finite() && ci.upper[i].is_finite());
+
+        // Prediction intervals should still be wider than confidence intervals
+        let pi_width = pi.upper[i] - pi.lower[i];
+        let ci_width = ci.upper[i] - ci.lower[i];
+
+        assert!(
+            pi_width > ci_width,
+            "PI width ({}) should be > CI width ({}) even with aliased columns",
+            pi_width,
+            ci_width
+        );
+    }
+}
