@@ -3,7 +3,7 @@
 [![CI](https://github.com/sipemu/anofox-regression/actions/workflows/ci.yml/badge.svg)](https://github.com/sipemu/anofox-regression/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/anofox-regression.svg)](https://crates.io/crates/anofox-regression)
 [![Documentation](https://docs.rs/anofox-regression/badge.svg)](https://docs.rs/anofox-regression)
-[![codecov](https://codecov.io/gh/sipemu/anofox-regression/branch/main/graph/badge.svg)](https://codecov.io/gh/sipemu/regress-rs)
+[![codecov](https://codecov.io/gh/sipemu/anofox-regression/branch/main/graph/badge.svg)](https://codecov.io/gh/sipemu/anofox-regression)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 A robust statistics library for regression analysis in Rust.
