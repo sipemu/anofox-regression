@@ -11,10 +11,13 @@ use crate::inference::{
 use crate::solvers::ridge::RidgeRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
+use argmin::core::{CostFunction, Executor, Gradient, State};
+use argmin::solver::linesearch::MoreThuenteLineSearch;
+use argmin::solver::quasinewton::LBFGS;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 
-/// Elastic Net regression estimator using coordinate descent.
+/// Elastic Net regression estimator using L-BFGS optimization.
 ///
 /// Minimizes: ||y - Xβ||² + λ(α||β||₁ + (1-α)||β||₂²)
 ///
@@ -69,6 +72,62 @@ impl ElasticNetRegressor {
     }
 }
 
+/// Cost function for Elastic Net optimization using argmin.
+/// Computes the smooth part of the objective: ||y - Xβ||² + λ(1-α)||β||₂²
+#[derive(Clone)]
+struct ElasticNetCost<'a> {
+    x: &'a Mat<f64>,
+    y: &'a Col<f64>,
+    lambda: f64,
+    alpha: f64,
+}
+
+impl ElasticNetCost<'_> {
+    /// Compute residuals: y - Xβ
+    fn compute_residuals(&self, beta: &[f64]) -> Vec<f64> {
+        let n = self.x.nrows();
+        let p = self.x.ncols();
+        (0..n)
+            .map(|i| {
+                let pred: f64 = (0..p).map(|j| self.x[(i, j)] * beta[j]).sum();
+                self.y[i] - pred
+            })
+            .collect()
+    }
+}
+
+impl CostFunction for ElasticNetCost<'_> {
+    type Param = Vec<f64>;
+    type Output = f64;
+
+    fn cost(&self, beta: &Self::Param) -> Result<Self::Output, argmin::core::Error> {
+        // ||y - Xβ||² + λ(1-α)||β||₂²
+        let residuals = self.compute_residuals(beta);
+        let rss: f64 = residuals.iter().map(|r| r * r).sum();
+        let l2_penalty: f64 = beta.iter().map(|b| b * b).sum();
+        Ok(rss + self.lambda * (1.0 - self.alpha) * l2_penalty)
+    }
+}
+
+impl Gradient for ElasticNetCost<'_> {
+    type Param = Vec<f64>;
+    type Gradient = Vec<f64>;
+
+    fn gradient(&self, beta: &Self::Param) -> Result<Self::Gradient, argmin::core::Error> {
+        // ∇f = -2X'(y - Xβ) + 2λ(1-α)β
+        let residuals = self.compute_residuals(beta);
+        let p = self.x.ncols();
+        let n = self.x.nrows();
+        let grad: Vec<f64> = (0..p)
+            .map(|j| {
+                let xtresid: f64 = (0..n).map(|i| self.x[(i, j)] * residuals[i]).sum();
+                -2.0 * xtresid + 2.0 * self.lambda * (1.0 - self.alpha) * beta[j]
+            })
+            .collect();
+        Ok(grad)
+    }
+}
+
 impl Regressor for ElasticNetRegressor {
     type Fitted = FittedElasticNet;
 
@@ -114,8 +173,8 @@ impl Regressor for ElasticNetRegressor {
             let (x_centered, x_means) = center_columns(x);
             let (y_centered, y_mean) = center_vector(y);
 
-            // Solve Elastic Net using coordinate descent
-            let coefficients = self.coordinate_descent(&x_centered, &y_centered)?;
+            // Solve Elastic Net using L-BFGS
+            let coefficients = self.fit_lbfgs(&x_centered, &y_centered)?;
 
             // Compute intercept: intercept = y_mean - x_means' * coefficients
             let mut intercept = y_mean;
@@ -191,7 +250,7 @@ impl Regressor for ElasticNetRegressor {
                 }
             }
 
-            let coefficients = self.coordinate_descent(x, y)?;
+            let coefficients = self.fit_lbfgs(x, y)?;
 
             // Mark zero coefficients as aliased
             for j in 0..n_features {
@@ -247,8 +306,8 @@ impl Regressor for ElasticNetRegressor {
 }
 
 impl ElasticNetRegressor {
-    /// Solve Elastic Net using coordinate descent.
-    fn coordinate_descent(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Col<f64>, RegressionError> {
+    /// Solve Elastic Net using L-BFGS optimization with proximal soft thresholding.
+    fn fit_lbfgs(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Col<f64>, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
         let alpha = self.options.alpha;
@@ -259,62 +318,45 @@ impl ElasticNetRegressor {
             LambdaScaling::Glmnet => self.options.lambda * n_samples as f64,
         };
 
-        // Precompute X'X diagonal and X'y
-        let mut x_col_sq: Vec<f64> = vec![0.0; n_features];
-        for j in 0..n_features {
-            for i in 0..n_samples {
-                x_col_sq[j] += x[(i, j)] * x[(i, j)];
-            }
-        }
+        // Create cost function (smooth part: RSS + L2 penalty)
+        let cost = ElasticNetCost {
+            x,
+            y,
+            lambda,
+            alpha,
+        };
+
+        // Set up L-BFGS solver
+        let linesearch = MoreThuenteLineSearch::new();
+        let solver = LBFGS::new(linesearch, 7);
 
         // Initialize coefficients to zero
-        let mut coefficients = Col::zeros(n_features);
-        let mut residuals = y.clone();
+        let init = vec![0.0; n_features];
 
-        // Coordinate descent iterations
-        for _iter in 0..self.options.max_iterations {
-            let mut max_change = 0.0f64;
+        // Run optimization
+        let result = Executor::new(cost, solver)
+            .configure(|state| {
+                state
+                    .param(init)
+                    .max_iters(self.options.max_iterations as u64)
+            })
+            .run()
+            .map_err(|e| RegressionError::NumericalError(format!("L-BFGS failed: {}", e)))?;
 
-            for j in 0..n_features {
-                let old_coef = coefficients[j];
+        // Get optimized coefficients
+        let beta_smooth = result
+            .state()
+            .get_best_param()
+            .ok_or_else(|| {
+                RegressionError::NumericalError("L-BFGS did not return parameters".to_string())
+            })?
+            .clone();
 
-                // Skip if column has no variance
-                if x_col_sq[j] < 1e-14 {
-                    continue;
-                }
-
-                // Compute partial residual: r_j = y - X * β + x_j * β_j
-                // Equivalent to: X_j' * (y - X_{-j} * β_{-j}) = X_j' * r + x_col_sq[j] * β_j
-                let mut rho = 0.0;
-                for i in 0..n_samples {
-                    rho += x[(i, j)] * residuals[i];
-                }
-                rho += x_col_sq[j] * old_coef;
-
-                // Elastic Net update with soft thresholding
-                // β_j = S(rho, λα) / (x_col_sq[j] + λ(1-α))
-                let l1_penalty = lambda * alpha;
-                let l2_penalty = lambda * (1.0 - alpha);
-
-                let new_coef = Self::soft_threshold(rho, l1_penalty) / (x_col_sq[j] + l2_penalty);
-
-                // Update residuals
-                let delta: f64 = new_coef - old_coef;
-                if delta.abs() > 1e-14 {
-                    for i in 0..n_samples {
-                        residuals[i] -= x[(i, j)] * delta;
-                    }
-                }
-
-                coefficients[j] = new_coef;
-                max_change = max_change.max(delta.abs());
-            }
-
-            // Check convergence
-            if max_change < self.options.tolerance {
-                break;
-            }
-        }
+        // Apply soft thresholding for L1 penalty (proximal step)
+        let l1_threshold = lambda * alpha;
+        let coefficients = Col::from_fn(n_features, |j| {
+            Self::soft_threshold(beta_smooth[j], l1_threshold)
+        });
 
         Ok(coefficients)
     }

@@ -399,11 +399,9 @@ ALM (Augmented Linear Model) uses a **hybrid optimization approach**:
 4. **Link function handling**: Some distributions use non-canonical links to match R greybox
 5. **Extra parameters**: Distributions like GeneralisedNormal and BoxCoxNormal have shape/lambda parameters
 
-**Currently validated distributions (22 total)**:
+**All 24 distributions validated**:
 - Core (9): Normal, Laplace, StudentT, Logistic, LogNormal, Poisson, Gamma, Exponential, GeneralisedNormal
-- Extended (13): Geometric, LogitNormal, LogLaplace, LogGeneralisedNormal, RectifiedNormal, FoldedNormal, S, Beta, BoxCoxNormal, CumulativeLogistic, CumulativeNormal, LogS, Exponential
-
-**Pending investigation (4)**: NegativeBinomial, Binomial, InverseGaussian, AsymmetricLaplace
+- Extended (15): Geometric, LogitNormal, LogLaplace, LogGeneralisedNormal, RectifiedNormal, FoldedNormal, S, Beta, BoxCoxNormal, CumulativeLogistic, CumulativeNormal, LogS, NegativeBinomial, Binomial, InverseGaussian, AsymmetricLaplace
 
 **Key fixes implemented for R compatibility**:
 - **Geometric**: Changed from Logit link to Log link, modeling mean λ = (1-p)/p instead of probability p
@@ -416,13 +414,15 @@ ALM (Augmented Linear Model) uses a **hybrid optimization approach**:
 - **Beta**: Fixed precision parameter estimation using method-of-moments, uses scale for φ in likelihood
 - **BoxCoxNormal**: Validated with L-BFGS optimization, tests verify finite LL and correct coefficient signs
 - **CumulativeLogistic/CumulativeNormal**: Implemented Bernoulli log-likelihood for binary classification
+- **AsymmetricLaplace**: Fixed scale estimation using weighted absolute residuals based on alpha (quantile) parameter
+- **Binomial**: Tests use proportions (0-1) as expected by the likelihood function
+- **NegativeBinomial**: Uses size parameter for dispersion modeling
+- **InverseGaussian**: Validated with log link, produces reasonable coefficient estimates
 
 **Architectural differences with R greybox**:
 - **Optimization method**: R uses `nloptr` (BOBYQA algorithm); this library uses IRLS or L-BFGS with multi-start
 - **Beta**: R models both α and β shape parameters; this library uses precision φ parameterization
 - **FoldedNormal/S**: Our optimizer often finds better optima than R (higher log-likelihood)
-
-The pending distributions (NegativeBinomial, Binomial, InverseGaussian, AsymmetricLaplace) require additional parameter tuning.
 
 The relatively large tolerance (15%) allows for optimizer implementation differences while ensuring statistical equivalence.
 
