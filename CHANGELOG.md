@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-12-12
+
+### Added
+
+- R validation tests for all 24 ALM extended distributions
+- R validation tests for AID (Automatic Identification of Demand)
+- CI/CD workflow for automatic publishing to crates.io on release
+
+### Changed
+
+- Elastic Net now uses argmin L-BFGS optimization instead of custom coordinate descent
+- Unified optimization framework: both ALM and Elastic Net now use argmin
+
+### Fixed
+
+- All 24 ALM distributions validated against R greybox package:
+  - AsymmetricLaplace: Fixed scale estimation using weighted absolute residuals
+  - Binomial: Fixed to use proportions (0-1) as expected by likelihood function
+  - NegativeBinomial: Uses size parameter for dispersion modeling
+  - InverseGaussian: Validated with log link
+  - FoldedNormal: Fixed scale estimation using second-moment method
+  - S distribution: Added starting points with negative intercepts
+  - Beta: Fixed precision parameter estimation using method-of-moments
+  - BoxCoxNormal: Validated with L-BFGS optimization
+  - CumulativeLogistic/CumulativeNormal: Implemented Bernoulli log-likelihood
+  - Geometric: Changed to Log link, modeling mean λ = (1-p)/p
+  - LogitNormal: Changed to Identity link on logit-scale location parameter
+  - LogLaplace/LogGeneralisedNormal: Fixed scale estimation for log-space residuals
+
 ## [0.3.2] - 2025-12-10
 
 ### Added
