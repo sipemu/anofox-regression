@@ -46,9 +46,10 @@ pub mod prelude {
     };
     pub use crate::solvers::{
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
-        FittedAlm, FittedBinomial, FittedNegativeBinomial, FittedPoisson, FittedRegressor,
-        FittedTweedie, LinkFunction, NegativeBinomialRegressor, OlsRegressor, PoissonRegressor,
-        Regressor, RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
+        FittedAlm, FittedBinomial, FittedNegativeBinomial, FittedPls, FittedPoisson,
+        FittedRegressor, FittedTweedie, LinkFunction, NegativeBinomialRegressor, OlsRegressor,
+        PlsRegressor, PoissonRegressor, Regressor, RidgeRegressor, RlsRegressor, TweedieRegressor,
+        WlsRegressor,
     };
 }
 

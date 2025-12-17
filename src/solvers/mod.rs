@@ -9,6 +9,7 @@ pub mod lm_dynamic;
 pub mod lowess;
 mod negative_binomial;
 mod ols;
+mod pls;
 mod poisson;
 mod ridge;
 mod rls;
@@ -31,6 +32,7 @@ pub use lm_dynamic::{
 };
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
 pub use ols::{FittedOls, OlsRegressor};
+pub use pls::{FittedPls, PlsRegressor};
 pub use poisson::{FittedPoisson, PoissonRegressor};
 pub use ridge::{FittedRidge, RidgeRegressor};
 pub use rls::{FittedRls, RlsRegressor};
