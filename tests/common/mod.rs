@@ -74,3 +74,83 @@ pub fn generate_constant_column_data(n_samples: usize) -> (Mat<f64>, Col<f64>) {
 pub fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
     (a - b).abs() < epsilon
 }
+
+// ============================================================================
+// DuckDB Scenario Data Generators
+// ============================================================================
+
+/// Generate alternating dummy variables: [[1,0],[0,1],[1,0],[0,1],...]
+/// With intercept, this creates rank deficiency since col1 + col2 = 1 (intercept)
+pub fn generate_alternating_dummies(n_samples: usize) -> (Mat<f64>, Col<f64>) {
+    let mut x = Mat::zeros(n_samples, 2);
+    let mut y = Col::zeros(n_samples);
+
+    for i in 0..n_samples {
+        if i % 2 == 0 {
+            x[(i, 0)] = 1.0;
+            x[(i, 1)] = 0.0;
+        } else {
+            x[(i, 0)] = 0.0;
+            x[(i, 1)] = 1.0;
+        }
+        y[i] = (i + 1) as f64;
+    }
+
+    (x, y)
+}
+
+/// Generate data with specified zero-variance columns.
+/// `zero_cols` contains indices of columns that should be all zeros.
+pub fn generate_zero_variance_columns(
+    n_samples: usize,
+    n_features: usize,
+    zero_cols: &[usize],
+) -> (Mat<f64>, Col<f64>) {
+    let mut x = Mat::zeros(n_samples, n_features);
+    let mut y = Col::zeros(n_samples);
+
+    for i in 0..n_samples {
+        let mut yi = 0.0;
+        for j in 0..n_features {
+            if zero_cols.contains(&j) {
+                x[(i, j)] = 0.0;
+            } else {
+                x[(i, j)] = (i + j + 1) as f64;
+                yi += x[(i, j)] * ((j + 1) as f64);
+            }
+        }
+        y[i] = yi;
+    }
+
+    (x, y)
+}
+
+/// Generate changepoint-like production data.
+/// 11 month dummies (rotating) + 11 changepoint segments (9 are all zeros).
+pub fn generate_changepoint_data(n_samples: usize) -> (Mat<f64>, Col<f64>) {
+    let n_features = 22; // 11 month dummies + 11 changepoint segments
+    let mut x = Mat::zeros(n_samples, n_features);
+    let mut y = Col::zeros(n_samples);
+
+    for i in 0..n_samples {
+        // Month dummies (rotating, indices 0-10)
+        for m in 0..11 {
+            x[(i, m)] = if i % 12 == (m + 1) { 1.0 } else { 0.0 };
+        }
+
+        // Changepoint segments (indices 11-21)
+        // Only first 2 have variance, rest are zeros
+        x[(i, 11)] = if i >= n_samples / 3 { 1.0 } else { 0.0 }; // seg_1: has variance
+        x[(i, 12)] = if i >= 2 * n_samples / 3 { 1.0 } else { 0.0 }; // seg_2: has variance
+        for seg in 13..22 {
+            x[(i, seg)] = 0.0; // seg_3 to seg_11: all zeros
+        }
+
+        // y based on month dummies and first changepoint
+        let month_effect = (i % 12) as f64;
+        let changepoint_effect = if i >= n_samples / 3 { 10.0 } else { 0.0 };
+        y[i] = 100.0 + month_effect * 5.0 + changepoint_effect;
+    }
+
+    (x, y)
+}
