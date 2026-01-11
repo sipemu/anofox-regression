@@ -656,3 +656,56 @@ These tests verify robustness rather than exact numerical agreement with a refer
 For the R code used to generate validation data, see:
 - `validation/generate_validation_data.R`
 - `tests/r_scripts/*.R`
+
+## Validation Enhancements (January 2026)
+
+Additional validation tests added in `tests/validation_enhancements.rs` address gaps identified during external review.
+
+### Quantile Regression Enhancements
+
+| Test Category | Tests | Description |
+|---------------|-------|-------------|
+| **Weighted observations** | 4 | Survey weights, heteroscedastic data, extreme weight ratios (1000:1) |
+| **Quantile crossing** | 2 | Multiple τ values, documents that IRLS does not enforce monotonicity across quantiles |
+| **High-dimensional** | 2 | p=50 with n=200; p=80 with n=100 (near-singular designs) |
+| **Extrapolation** | 1 | Predictions outside training range, verifies linear extrapolation |
+| **Sparse X regions** | 1 | Gaps in predictor space (clusters at extremes) |
+
+### Isotonic Regression Enhancements
+
+| Test Category | Tests | Description |
+|---------------|-------|-------------|
+| **Tie-breaking** | 2 | Documents weighted and unweighted averaging for duplicate X values |
+| **Interpolation method** | 2 | Documents step function (not linear) interpolation between knots |
+| **Extrapolation modes** | 1 | Tests Clip and NaN out-of-bounds behavior |
+| **Sparse X regions** | 1 | Step function behavior in gaps |
+| **Strict vs non-decreasing** | 1 | Documents that output allows ties (non-decreasing, not strictly increasing) |
+
+### General Robustness Enhancements
+
+| Test Category | Tests | Description |
+|---------------|-------|-------------|
+| **NaN/Inf handling** | 5 | NaN in X, NaN in y, Inf in y for both methods |
+| **NaN propagation** | 1 | Single NaN in y vector behavior |
+| **All-zero weights** | 3 | Edge case for weighted regression (both methods) |
+| **Determinism** | 3 | Bitwise identical output across runs (IRLS and PAVA) |
+
+### Key Documented Behaviors
+
+1. **Quantile crossing**: IRLS algorithm does not enforce monotonicity across τ values. Fitted quantile lines may cross.
+
+2. **Isotonic interpolation**: Uses step function, NOT linear interpolation. `predict(15)` between knots at x=10 and x=20 returns the value at x=10.
+
+3. **Isotonic tie-breaking**: Duplicate X values with different Y values are averaged (weighted average if weights provided) before PAVA.
+
+4. **All-zero weights**: Quantile regression produces degenerate solution (coef=0); Isotonic regression produces NaN. Neither crashes.
+
+5. **Determinism**: Both methods are deterministic - same input produces bitwise identical output. PAVA is exact; IRLS converges to same point given same initialization.
+
+### Total Test Count
+
+| File | Tests | Purpose |
+|------|-------|---------|
+| `validation_enhancements.rs` | 29 | Validation gaps identified in external review |
+
+This brings the total quantile + isotonic test count to **102+ tests** across all test files.
