@@ -309,6 +309,71 @@ Validates isotonic regression against R's base `isoreg()` function.
 - Matrix interface (multi-column support)
 - R² calculation and bounds
 
+### 16. Stress Tests
+
+Numerical stress tests and API edge cases beyond standard R validation.
+
+**Test file**: `tests/stress_tests.rs` (19 tests)
+
+#### Scale Invariance (Quantile)
+
+Tests IRLS algorithm behavior relative to the smoothing parameter (epsilon = 1e-6).
+
+| Test | Scale Factor | Expected Behavior |
+|------|--------------|-------------------|
+| Baseline | 1x | Coefficients match true values |
+| Macro-scale | 1e8 | Coefficients scale proportionally |
+| Micro-scale | 1e-8 | Requires smaller epsilon to avoid OLS degradation |
+| Micro-default | 1e-8 (default ε) | Documents epsilon dominance effect |
+
+#### Sawtooth PAVA Stress (Isotonic)
+
+Worst-case input for PAVA block-merging with alternating pattern [10, 0, 10, 0, ...].
+
+| Test | n | Constraint | Expected Result |
+|------|---|------------|-----------------|
+| Standard | 100 | Increasing | Flat line at mean (5.0) |
+| Decreasing | 100 | Decreasing | Monotonic non-increasing |
+| Large | 1000 | Increasing | Flat line at mean (50.0) |
+
+#### Unsorted Input Handling (Isotonic)
+
+Verifies API sorts X internally and returns results in original order.
+
+| Test | Input | Verification |
+|------|-------|--------------|
+| Simple | x=[3,1,2], y=[30,10,20] | Predictions match original order |
+| Matches sorted | Random permutation | Same predictions as pre-sorted |
+| With violations | Unsorted + PAVA needed | Correct merging after sort |
+
+#### Singular Matrix Safety (Quantile)
+
+Ensures graceful handling of rank-deficient design matrices.
+
+| Test | Deficiency Type | Expected Behavior |
+|------|-----------------|-------------------|
+| Zero-variance feature | Column of zeros | Error or finite coefficients |
+| Collinear with intercept | Column of ones | Error or finite coefficients |
+| Perfect collinearity | x₂ = 2x₁ | Error or finite predictions |
+| Near-singular | x₂ ≈ x₁ + ε | Finite predictions |
+
+#### f32/f64 Precision (Both)
+
+Documents that the crate uses f64 exclusively; tests f32-range values work correctly.
+
+| Test | Description | Tolerance |
+|------|-------------|-----------|
+| Quantile f32-range | Values cast from f32 | 1e-2 |
+| Isotonic f32-range | Values cast from f32 | 1e-5 |
+| Documentation | Compile-time API check | N/A |
+
+#### Additional Stress Tests
+
+| Test | Description |
+|------|-------------|
+| Difficult convergence | Heavy outliers (±500, ±1000) |
+| Many ties | 10 unique x with 50 reps each (n=500) |
+
 ## Test Coverage
 
 | Category | Tests | Tolerance |
@@ -328,7 +393,8 @@ Validates isotonic regression against R's base `isoreg()` function.
 | AID | 12+ | - |
 | Quantile | 39+ | 0.01 |
 | Isotonic | 34+ | 1e-6 |
-| **Total** | **437+** | - |
+| Stress Tests | 19 | Varies |
+| **Total** | **456+** | - |
 
 ## Reproducibility
 
@@ -546,6 +612,18 @@ Isotonic regression uses the **Pool Adjacent Violators Algorithm (PAVA)**, a **d
 
 The tight tolerance (1e-6) reflects that PAVA is deterministic and numerically stable.
 
+#### Stress Tests (Tolerance: Varies)
+
+Stress tests verify numerical robustness and API behavior under extreme conditions:
+
+1. **Scale invariance**: Tests IRLS behavior when data scale approaches or falls below the smoothing parameter (epsilon). Macro-scale (1e8) should scale proportionally; micro-scale (1e-8) may require smaller epsilon
+2. **Sawtooth PAVA**: Worst-case alternating pattern [10, 0, 10, 0, ...] forces maximum block merging. Result must be monotonic
+3. **Unsorted input**: API sorts X internally; results must match sorted input and preserve original order
+4. **Singular matrices**: Rank-deficient designs should return Error or finite values, never panic
+5. **f32 precision**: Crate uses f64 only; f32-range values must work correctly with appropriate tolerance (1e-2)
+
+These tests verify robustness rather than exact numerical agreement with a reference implementation.
+
 ### Summary Table
 
 | Method | Solution Type | Key Challenge | Tolerance |
@@ -565,6 +643,7 @@ The tight tolerance (1e-6) reflects that PAVA is deterministic and numerically s
 | AID | Classification | Zero proportion threshold | Classification |
 | Quantile | Iterative (IRLS) | Check function non-differentiability | 0.01 |
 | Isotonic | Deterministic (PAVA) | Exact monotonic solution | 1e-6 |
+| Stress Tests | Mixed | Numerical robustness, API edge cases | Varies |
 
 ### Known Differences from R
 
