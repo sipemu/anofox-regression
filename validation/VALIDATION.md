@@ -28,6 +28,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_alm_loss_validation.R` | Validates ALM loss function implementations |
 | `tests/r_scripts/generate_aid_validation.R` | Validates AID demand classification |
 | `tests/r_scripts/generate_quantile_validation.R` | Validates Quantile Regression using `quantreg` package |
+| `tests/r_scripts/generate_quantile_extended_validation.R` | Extended Quantile validation with Engel/Stackloss datasets |
 | `tests/r_scripts/generate_isotonic_validation.R` | Validates Isotonic Regression using base R `isoreg()` |
 
 ### R Packages Used
@@ -235,6 +236,11 @@ Validates quantile regression against R's `quantreg::rq()` function.
 
 **Tolerance**: `0.01` for coefficients
 
+**Test files**:
+- `tests/r_validation_quantile.rs`: Core R validation (6 tests)
+- `tests/r_validation_quantile_extended.rs`: Extended R validation with classic datasets (11 tests)
+- `tests/quantile_edge_cases.rs`: Edge cases and input validation (22 tests)
+
 **Test cases**:
 - Median regression (τ = 0.5) - robust alternative to OLS
 - Multiple quantiles (τ = 0.1, 0.25, 0.5, 0.75, 0.9) on same dataset
@@ -243,11 +249,24 @@ Validates quantile regression against R's `quantreg::rq()` function.
 - Real-world heteroscedastic data (variance increasing with x)
 - Upper quantile regression (τ = 0.9)
 
+**Classic R datasets validated**:
+- Engel food expenditure dataset (n=235, Koenker & Bassett 1982)
+- Stackloss multivariate dataset (n=21, 3 predictors)
+
+**Edge cases**:
+- Input validation (dimension mismatch, invalid tau, negative weights)
+- Collinearity handling (constant features, perfect collinearity)
+- Convergence stability (large/small coefficients, extreme tau values)
+- Special data patterns (constant y, alternating values)
+- Minimum sample sizes (2-3 observations)
+
 **Features validated**:
 - Coefficient estimation for different quantile levels
 - Fitted values at specified quantiles
 - Weighted observations support
 - Intercept/no-intercept modes
+- Outlier robustness vs OLS
+- Heavy-tailed distribution handling
 
 ### 15. Isotonic Regression
 
@@ -256,6 +275,10 @@ Validates isotonic regression against R's base `isoreg()` function.
 **Algorithm**: Pool Adjacent Violators Algorithm (PAVA) for monotonic constraint fitting.
 
 **Tolerance**: `1e-6` for fitted values (closed-form solution)
+
+**Test files**:
+- `tests/r_validation_isotonic.rs`: Core R validation (7 tests)
+- `tests/isotonic_edge_cases.rs`: Edge cases and input validation (27 tests)
 
 **Test cases**:
 - Simple increasing constraint (n=10)
@@ -266,12 +289,25 @@ Validates isotonic regression against R's base `isoreg()` function.
 - Two observations edge case
 - All equal values (constant output)
 
+**Edge cases**:
+- Input validation (dimension mismatch, negative weights, zero weights)
+- PAVA ties handling (averaging, many ties, mixed with non-ties)
+- Weighted PAVA with extreme weight ratios
+- Out-of-bounds prediction modes (Clip, Nan)
+- Monotonicity preservation verification
+- Large dataset performance (n=10,000)
+- Floating point edge cases (very small differences, large values)
+- Special data patterns (step functions, mixed signs)
+- R² bounds validation
+
 **Features validated**:
 - Fitted values under monotonic constraint
 - Increasing vs decreasing modes
 - Weighted PAVA algorithm
 - Out-of-bounds handling (clip, nan, error)
 - Prediction/interpolation for new x values
+- Matrix interface (multi-column support)
+- R² calculation and bounds
 
 ## Test Coverage
 
@@ -290,9 +326,9 @@ Validates isotonic regression against R's base `isoreg()` function.
 | Diagnostics | 10+ | 1e-6 |
 | ALM | 21+ | 0.15 |
 | AID | 12+ | - |
-| Quantile | 6+ | 0.01 |
-| Isotonic | 7+ | 1e-6 |
-| **Total** | **377+** | - |
+| Quantile | 39+ | 0.01 |
+| Isotonic | 34+ | 1e-6 |
+| **Total** | **437+** | - |
 
 ## Reproducibility
 
