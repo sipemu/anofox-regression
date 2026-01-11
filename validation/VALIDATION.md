@@ -27,14 +27,17 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_alm_validation_extended.R` | Validates ALM extended distributions (14 additional) |
 | `tests/r_scripts/generate_alm_loss_validation.R` | Validates ALM loss function implementations |
 | `tests/r_scripts/generate_aid_validation.R` | Validates AID demand classification |
+| `tests/r_scripts/generate_quantile_validation.R` | Validates Quantile Regression using `quantreg` package |
+| `tests/r_scripts/generate_isotonic_validation.R` | Validates Isotonic Regression using base R `isoreg()` |
 
 ### R Packages Used
 
-- **base stats**: `lm()`, `glm()` for core regression and GLM
+- **base stats**: `lm()`, `glm()`, `isoreg()` for core regression, GLM, and isotonic regression
 - **MASS**: `glm.nb()` for negative binomial regression
 - **glmnet**: Ridge regression, Elastic Net, Lasso with coordinate descent
 - **statmod**: Tweedie family distributions, inverse Gaussian
 - **greybox**: `alm()` for augmented linear models, `aid()` for demand identification
+- **quantreg**: `rq()` for quantile regression
 
 ## Validation Categories
 
@@ -224,6 +227,52 @@ Validates demand classification against R's `greybox::aid()` function.
 - Skewed positive (Gamma/LogNormal)
 - IC comparison (AIC vs BIC vs AICc)
 
+### 14. Quantile Regression
+
+Validates quantile regression against R's `quantreg::rq()` function.
+
+**Algorithm**: Iteratively Reweighted Least Squares (IRLS) with asymmetric weights based on the check function ρ_τ(u) = u(τ - I(u < 0)).
+
+**Tolerance**: `0.01` for coefficients
+
+**Test cases**:
+- Median regression (τ = 0.5) - robust alternative to OLS
+- Multiple quantiles (τ = 0.1, 0.25, 0.5, 0.75, 0.9) on same dataset
+- Weighted quantile regression (heteroscedastic data)
+- No-intercept model
+- Real-world heteroscedastic data (variance increasing with x)
+- Upper quantile regression (τ = 0.9)
+
+**Features validated**:
+- Coefficient estimation for different quantile levels
+- Fitted values at specified quantiles
+- Weighted observations support
+- Intercept/no-intercept modes
+
+### 15. Isotonic Regression
+
+Validates isotonic regression against R's base `isoreg()` function.
+
+**Algorithm**: Pool Adjacent Violators Algorithm (PAVA) for monotonic constraint fitting.
+
+**Tolerance**: `1e-6` for fitted values (closed-form solution)
+
+**Test cases**:
+- Simple increasing constraint (n=10)
+- Decreasing constraint (via reflection)
+- Weighted observations
+- Data with ties (multiple observations at same x)
+- Step function output (perfect monotonic data)
+- Two observations edge case
+- All equal values (constant output)
+
+**Features validated**:
+- Fitted values under monotonic constraint
+- Increasing vs decreasing modes
+- Weighted PAVA algorithm
+- Out-of-bounds handling (clip, nan, error)
+- Prediction/interpolation for new x values
+
 ## Test Coverage
 
 | Category | Tests | Tolerance |
@@ -241,7 +290,9 @@ Validates demand classification against R's `greybox::aid()` function.
 | Diagnostics | 10+ | 1e-6 |
 | ALM | 21+ | 0.15 |
 | AID | 12+ | - |
-| **Total** | **364+** | - |
+| Quantile | 6+ | 0.01 |
+| Isotonic | 7+ | 1e-6 |
+| **Total** | **377+** | - |
 
 ## Reproducibility
 
@@ -436,6 +487,29 @@ AID (Automatic Identification of Demand) is primarily a **classification algorit
 
 Tests validate classification correctness rather than numeric precision. IC values are compared with 10% tolerance.
 
+#### Quantile Regression (Tolerance: 0.01)
+
+Quantile regression uses **Iteratively Reweighted Least Squares (IRLS)** with asymmetric weights:
+
+1. **Check function**: The objective function ρ_τ(u) = u(τ - I(u < 0)) is non-differentiable at zero, requiring iterative approximation
+2. **Algorithm differences**: R's `quantreg::rq()` uses the Barrodale-Roberts simplex algorithm by default, while this library uses IRLS with smooth approximation
+3. **Epsilon smoothing**: Small epsilon (1e-4) added to avoid division by zero in weight calculation
+4. **Convergence criteria**: Different stopping rules may lead to slightly different final solutions
+5. **Quantile sensitivity**: Extreme quantiles (τ near 0 or 1) are more sensitive to algorithm differences
+
+Despite algorithmic differences, both implementations produce statistically equivalent quantile estimates.
+
+#### Isotonic Regression (Tolerance: 1e-6)
+
+Isotonic regression uses the **Pool Adjacent Violators Algorithm (PAVA)**, a **deterministic algorithm** with no iteration variability:
+
+1. **Closed-form solution**: PAVA is guaranteed to find the exact solution to the isotonic optimization problem
+2. **Numerical stability**: The algorithm only involves averaging, which is numerically stable
+3. **R equivalence**: Both R's `isoreg()` and this library implement identical PAVA algorithms
+4. **Order handling**: Data is sorted by x before processing; identical sorting produces identical results
+
+The tight tolerance (1e-6) reflects that PAVA is deterministic and numerically stable.
+
 ### Summary Table
 
 | Method | Solution Type | Key Challenge | Tolerance |
@@ -453,6 +527,8 @@ Tests validate classification correctness rather than numeric precision. IC valu
 | Diagnostics | Closed-form (matrix) | Direct computation | 1e-6 |
 | ALM | Hybrid (IRLS or L-BFGS) | Distribution diversity, optimizer choice | 0.15 |
 | AID | Classification | Zero proportion threshold | Classification |
+| Quantile | Iterative (IRLS) | Check function non-differentiability | 0.01 |
+| Isotonic | Deterministic (PAVA) | Exact monotonic solution | 1e-6 |
 
 ### Known Differences from R
 
