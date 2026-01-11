@@ -56,20 +56,15 @@ pub struct IsotonicRegressor {
 }
 
 /// How to handle predictions outside the training range.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum OutOfBounds {
     /// Clip predictions to the range [min(fitted), max(fitted)]
+    #[default]
     Clip,
     /// Return NaN for out-of-bounds predictions
     Nan,
     /// Extrapolate using the nearest boundary value
     Extrapolate,
-}
-
-impl Default for OutOfBounds {
-    fn default() -> Self {
-        Self::Clip
-    }
 }
 
 impl IsotonicRegressor {
@@ -129,9 +124,7 @@ impl IsotonicRegressor {
 
         // Sort by x values
         let mut indices: Vec<usize> = (0..n).collect();
-        indices.sort_by(|&a, &b| {
-            x[a].partial_cmp(&x[b]).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        indices.sort_by(|&a, &b| x[a].partial_cmp(&x[b]).unwrap_or(std::cmp::Ordering::Equal));
 
         let x_sorted = Col::from_fn(n, |i| x[indices[i]]);
         let y_sorted = Col::from_fn(n, |i| y[indices[i]]);
@@ -234,9 +227,8 @@ impl IsotonicRegressor {
 
         // Initialize blocks: each observation starts as its own block
         // Each block has: (weighted sum of y, sum of weights, start index, end index)
-        let mut blocks: Vec<(f64, f64, usize, usize)> = (0..n)
-            .map(|i| (y[i] * w[i], w[i], i, i))
-            .collect();
+        let mut blocks: Vec<(f64, f64, usize, usize)> =
+            (0..n).map(|i| (y[i] * w[i], w[i], i, i)).collect();
 
         // Iteratively merge blocks that violate the ordering constraint
         loop {
@@ -398,7 +390,7 @@ impl FittedIsotonic {
         let mut lo = 0;
         let mut hi = n - 1;
         while lo < hi {
-            let mid = (lo + hi + 1) / 2;
+            let mid = (lo + hi).div_ceil(2);
             if self.x_thresholds[mid] <= x {
                 lo = mid;
             } else {

@@ -517,6 +517,9 @@ fn test_engel_predictions() {
         .cloned()
         .fold(f64::NEG_INFINITY, f64::max);
 
-    assert!(min_pred > 0.0, "Predictions should be positive for food expenditure");
+    assert!(
+        min_pred > 0.0,
+        "Predictions should be positive for food expenditure"
+    );
     assert!(max_pred < 3000.0, "Predictions should be reasonable");
 }

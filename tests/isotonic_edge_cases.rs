@@ -3,9 +3,7 @@
 //! Tests input validation, PAVA ties handling, weighted regression,
 //! out-of-bounds modes, and other edge cases.
 
-use anofox_regression::solvers::{
-    FittedRegressor, IsotonicRegressor, OutOfBounds, Regressor,
-};
+use anofox_regression::solvers::{FittedRegressor, IsotonicRegressor, OutOfBounds, Regressor};
 use faer::{Col, Mat};
 
 // =============================================================================
@@ -33,7 +31,10 @@ fn test_weight_dimension_mismatch() {
         .build()
         .fit_1d(&x, &y);
 
-    assert!(result.is_err(), "Should fail with weight dimension mismatch");
+    assert!(
+        result.is_err(),
+        "Should fail with weight dimension mismatch"
+    );
 }
 
 #[test]
@@ -82,9 +83,7 @@ fn test_single_observation() {
     let x = Col::from_fn(1, |_| 1.0);
     let y = Col::from_fn(1, |_| 5.0);
 
-    let result = IsotonicRegressor::builder()
-        .build()
-        .fit_1d(&x, &y);
+    let result = IsotonicRegressor::builder().build().fit_1d(&x, &y);
 
     // Single observation should fail - need at least 2 for regression
     assert!(result.is_err(), "Single observation should fail");
@@ -284,12 +283,24 @@ fn test_out_of_bounds_clip() {
     let pred = fitted.predict_1d(&x_new);
 
     // Below range should be clipped to first value (1.0)
-    assert!((pred[0] - 1.0).abs() < 1e-10, "Below range should clip to 1.0");
-    assert!((pred[1] - 1.0).abs() < 1e-10, "Below range should clip to 1.0");
+    assert!(
+        (pred[0] - 1.0).abs() < 1e-10,
+        "Below range should clip to 1.0"
+    );
+    assert!(
+        (pred[1] - 1.0).abs() < 1e-10,
+        "Below range should clip to 1.0"
+    );
 
     // Above range should be clipped to last value (5.0)
-    assert!((pred[5] - 5.0).abs() < 1e-10, "Above range should clip to 5.0");
-    assert!((pred[6] - 5.0).abs() < 1e-10, "Above range should clip to 5.0");
+    assert!(
+        (pred[5] - 5.0).abs() < 1e-10,
+        "Above range should clip to 5.0"
+    );
+    assert!(
+        (pred[6] - 5.0).abs() < 1e-10,
+        "Above range should clip to 5.0"
+    );
 }
 
 #[test]

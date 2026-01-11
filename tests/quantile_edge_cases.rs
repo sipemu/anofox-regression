@@ -15,10 +15,7 @@ fn test_dimension_mismatch() {
     let x = Mat::from_fn(10, 2, |i, j| (i + j) as f64);
     let y = Col::from_fn(5, |i| i as f64); // Wrong size
 
-    let result = QuantileRegressor::builder()
-        .tau(0.5)
-        .build()
-        .fit(&x, &y);
+    let result = QuantileRegressor::builder().tau(0.5).build().fit(&x, &y);
 
     assert!(result.is_err(), "Should fail with dimension mismatch");
 }
@@ -28,10 +25,7 @@ fn test_invalid_tau_zero() {
     let x = Mat::from_fn(10, 1, |i, _| i as f64);
     let y = Col::from_fn(10, |i| i as f64);
 
-    let result = QuantileRegressor::builder()
-        .tau(0.0)
-        .build()
-        .fit(&x, &y);
+    let result = QuantileRegressor::builder().tau(0.0).build().fit(&x, &y);
 
     assert!(result.is_err(), "tau=0.0 should fail");
 }
@@ -41,10 +35,7 @@ fn test_invalid_tau_one() {
     let x = Mat::from_fn(10, 1, |i, _| i as f64);
     let y = Col::from_fn(10, |i| i as f64);
 
-    let result = QuantileRegressor::builder()
-        .tau(1.0)
-        .build()
-        .fit(&x, &y);
+    let result = QuantileRegressor::builder().tau(1.0).build().fit(&x, &y);
 
     assert!(result.is_err(), "tau=1.0 should fail");
 }
@@ -54,10 +45,7 @@ fn test_invalid_tau_negative() {
     let x = Mat::from_fn(10, 1, |i, _| i as f64);
     let y = Col::from_fn(10, |i| i as f64);
 
-    let result = QuantileRegressor::builder()
-        .tau(-0.5)
-        .build()
-        .fit(&x, &y);
+    let result = QuantileRegressor::builder().tau(-0.5).build().fit(&x, &y);
 
     assert!(result.is_err(), "tau=-0.5 should fail");
 }
@@ -67,10 +55,7 @@ fn test_invalid_tau_greater_than_one() {
     let x = Mat::from_fn(10, 1, |i, _| i as f64);
     let y = Col::from_fn(10, |i| i as f64);
 
-    let result = QuantileRegressor::builder()
-        .tau(1.5)
-        .build()
-        .fit(&x, &y);
+    let result = QuantileRegressor::builder().tau(1.5).build().fit(&x, &y);
 
     assert!(result.is_err(), "tau=1.5 should fail");
 }
@@ -87,7 +72,10 @@ fn test_weight_dimension_mismatch() {
         .build()
         .fit(&x, &y);
 
-    assert!(result.is_err(), "Should fail with weight dimension mismatch");
+    assert!(
+        result.is_err(),
+        "Should fail with weight dimension mismatch"
+    );
 }
 
 #[test]
@@ -298,7 +286,11 @@ fn test_convergence_simple_data() {
     let slope = result.coefficients[0];
 
     // Should be close to true slope of 2.0
-    assert!((slope - 2.0).abs() < 0.5, "Slope should be near 2.0, got {}", slope);
+    assert!(
+        (slope - 2.0).abs() < 0.5,
+        "Slope should be near 2.0, got {}",
+        slope
+    );
 }
 
 #[test]
@@ -372,10 +364,7 @@ fn test_tau_boundary_values() {
 
     // Test tau values close to boundaries
     for tau in [0.001, 0.01, 0.05, 0.95, 0.99, 0.999] {
-        let result = QuantileRegressor::builder()
-            .tau(tau)
-            .build()
-            .fit(&x, &y);
+        let result = QuantileRegressor::builder().tau(tau).build().fit(&x, &y);
 
         match result {
             Ok(fitted) => {
@@ -432,7 +421,10 @@ fn test_no_intercept() {
 
     let result = fitted.result();
     assert!(result.intercept.is_none(), "Should have no intercept");
-    assert!((result.coefficients[0] - 2.5).abs() < 0.5, "Slope should be near 2.5");
+    assert!(
+        (result.coefficients[0] - 2.5).abs() < 0.5,
+        "Slope should be near 2.5"
+    );
 }
 
 // =============================================================================
@@ -445,10 +437,7 @@ fn test_constant_y() {
     let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64);
     let y = Col::from_fn(n, |_| 5.0); // Constant y
 
-    let result = QuantileRegressor::builder()
-        .tau(0.5)
-        .build()
-        .fit(&x, &y);
+    let result = QuantileRegressor::builder().tau(0.5).build().fit(&x, &y);
 
     match result {
         Ok(fitted) => {
@@ -473,10 +462,7 @@ fn test_alternating_pattern() {
     let x = Mat::from_fn(n, 1, |i, _| (i + 1) as f64);
     let y = Col::from_fn(n, |i| if i % 2 == 0 { 1.0 } else { -1.0 });
 
-    let result = QuantileRegressor::builder()
-        .tau(0.5)
-        .build()
-        .fit(&x, &y);
+    let result = QuantileRegressor::builder().tau(0.5).build().fit(&x, &y);
 
     // Should complete without crashing
     match result {

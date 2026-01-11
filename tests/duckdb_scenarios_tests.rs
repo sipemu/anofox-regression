@@ -34,7 +34,10 @@ fn test_alternating_dummy_basic_ols() {
 
     println!("Test 1: Alternating Dummies");
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Coefficients: {:?}", coefficients.iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        coefficients.iter().collect::<Vec<_>>()
+    );
     println!("  Aliased: {:?}", result.aliased);
 
     // With intercept, one column should be aliased
@@ -46,10 +49,7 @@ fn test_alternating_dummy_basic_ols() {
     );
 
     // Intercept should be valid
-    assert!(
-        fitted.intercept().is_some(),
-        "Intercept should be present"
-    );
+    assert!(fitted.intercept().is_some(), "Intercept should be present");
     assert!(
         !fitted.intercept().unwrap().is_nan(),
         "Intercept should not be NaN"
@@ -84,7 +84,10 @@ fn test_constant_feature_aliased() {
 
     println!("Test 2: Constant Feature");
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Coefficients: {:?}", coefficients.iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        coefficients.iter().collect::<Vec<_>>()
+    );
     println!("  Aliased: {:?}", result.aliased);
 
     // Second column (constant) should be aliased
@@ -132,14 +135,14 @@ fn test_all_zero_feature_aliased() {
 
     println!("Test 3: All-Zero Feature");
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Coefficients: {:?}", coefficients.iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        coefficients.iter().collect::<Vec<_>>()
+    );
     println!("  Aliased: {:?}", result.aliased);
 
     // Zero column should be aliased
-    assert!(
-        result.aliased[1],
-        "Zero column (index 1) should be aliased"
-    );
+    assert!(result.aliased[1], "Zero column (index 1) should be aliased");
     assert!(
         coefficients[1].is_nan(),
         "Zero column coefficient should be NaN"
@@ -185,7 +188,10 @@ fn test_perfect_multicollinearity() {
 
     println!("Test 4: Perfect Multicollinearity");
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Coefficients: {:?}", coefficients.iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        coefficients.iter().collect::<Vec<_>>()
+    );
     println!("  Aliased: {:?}", result.aliased);
     println!("  Rank: {}", result.rank);
 
@@ -198,10 +204,7 @@ fn test_perfect_multicollinearity() {
     );
 
     // Should detect rank deficiency
-    assert!(
-        result.has_aliased(),
-        "Should detect collinearity"
-    );
+    assert!(result.has_aliased(), "Should detect collinearity");
 }
 
 // ============================================================================
@@ -231,16 +234,15 @@ fn test_multiple_zero_variance_columns() {
 
     println!("Test 5: Multiple Zero-Variance Columns");
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Coefficients: {:?}", coefficients.iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        coefficients.iter().collect::<Vec<_>>()
+    );
     println!("  Aliased: {:?}", result.aliased);
 
     // Zero columns should be aliased
     for &col in &zero_cols {
-        assert!(
-            result.aliased[col],
-            "Zero column {} should be aliased",
-            col
-        );
+        assert!(result.aliased[col], "Zero column {} should be aliased", col);
         assert!(
             coefficients[col].is_nan(),
             "Zero column {} coefficient should be NaN",
@@ -280,7 +282,10 @@ fn test_prediction_with_aliased_coefficients() {
     let predictions = fitted.predict(&x);
 
     println!("Test 6: Prediction with Aliased Coefficients");
-    println!("  Predictions: {:?}", predictions.iter().collect::<Vec<_>>());
+    println!(
+        "  Predictions: {:?}",
+        predictions.iter().collect::<Vec<_>>()
+    );
 
     // All predictions should be valid (not NaN)
     for (i, &pred) in predictions.iter().enumerate() {
@@ -336,9 +341,15 @@ fn test_unseen_feature_values_in_prediction() {
     let predictions = fitted.predict(&x_test);
 
     println!("Test 7: Unseen Feature Values in Prediction");
-    println!("  Coefficients: {:?}", fitted.coefficients().iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        fitted.coefficients().iter().collect::<Vec<_>>()
+    );
     println!("  Aliased: {:?}", fitted.result().aliased);
-    println!("  Test predictions: {:?}", predictions.iter().collect::<Vec<_>>());
+    println!(
+        "  Test predictions: {:?}",
+        predictions.iter().collect::<Vec<_>>()
+    );
 
     // Predictions should NOT be NaN
     for (i, &pred) in predictions.iter().enumerate() {
@@ -394,7 +405,10 @@ fn test_ridge_multicollinearity_no_nan() {
 
     println!("Test 8: Ridge Multicollinearity");
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Coefficients: {:?}", coefficients.iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        coefficients.iter().collect::<Vec<_>>()
+    );
 
     // NO coefficient should be NaN with Ridge regression
     let nan_count = coefficients.iter().filter(|c| c.is_nan()).count();
@@ -444,7 +458,10 @@ fn test_many_multicollinear_variables() {
     let model = OlsRegressor::builder().with_intercept(true).build();
     let result = model.fit(&x, &y);
 
-    assert!(result.is_ok(), "Fit should succeed with many multicollinear columns");
+    assert!(
+        result.is_ok(),
+        "Fit should succeed with many multicollinear columns"
+    );
 
     let fitted = result.unwrap();
     let coefficients = fitted.coefficients();
@@ -452,12 +469,18 @@ fn test_many_multicollinear_variables() {
 
     println!("Test 9a: Many Multicollinear Variables");
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Coefficients: {:?}", coefficients.iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        coefficients.iter().collect::<Vec<_>>()
+    );
     println!("  Aliased: {:?}", result.aliased);
     println!("  Rank: {}", result.rank);
 
     // Should have rank 1 (all columns are linearly dependent)
-    assert_eq!(result.rank, 1, "Rank should be 1 with all multicollinear columns");
+    assert_eq!(
+        result.rank, 1,
+        "Rank should be 1 with all multicollinear columns"
+    );
 
     // Only one coefficient should be non-NaN
     let non_nan_count = coefficients.iter().filter(|c| !c.is_nan()).count();
@@ -477,7 +500,9 @@ fn test_many_multicollinear_variables() {
         assert!(
             (predictions[i] - y[i]).abs() < 0.01,
             "Prediction {} should match y {}, got {}",
-            i, y[i], predictions[i]
+            i,
+            y[i],
+            predictions[i]
         );
     }
 }
@@ -506,7 +531,10 @@ fn test_many_constant_variables() {
     let model = OlsRegressor::builder().with_intercept(true).build();
     let result = model.fit(&x, &y);
 
-    assert!(result.is_ok(), "Fit should succeed with many constant columns");
+    assert!(
+        result.is_ok(),
+        "Fit should succeed with many constant columns"
+    );
 
     let fitted = result.unwrap();
     let coefficients = fitted.coefficients();
@@ -514,7 +542,10 @@ fn test_many_constant_variables() {
 
     println!("Test 10: Many Constant Variables");
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Coefficients: {:?}", coefficients.iter().collect::<Vec<_>>());
+    println!(
+        "  Coefficients: {:?}",
+        coefficients.iter().collect::<Vec<_>>()
+    );
     println!("  Aliased: {:?}", result.aliased);
 
     // ALL coefficients should be aliased (constant columns with intercept)
@@ -538,7 +569,8 @@ fn test_many_constant_variables() {
         assert!(
             (pred - 42.0).abs() < 0.01,
             "Prediction {} should be 42.0, got {}",
-            i, pred
+            i,
+            pred
         );
     }
 }
@@ -571,7 +603,10 @@ fn test_changepoint_production_scenario() {
     println!("Test 9: Changepoint Production Scenario");
     println!("  n_features: {}", coefficients.nrows());
     println!("  Intercept: {:?}", fitted.intercept());
-    println!("  Aliased count: {}", result.aliased.iter().filter(|&&a| a).count());
+    println!(
+        "  Aliased count: {}",
+        result.aliased.iter().filter(|&&a| a).count()
+    );
     println!("  Rank: {}", result.rank);
 
     // Count NaN coefficients (should be ~9 for zero changepoint segments)

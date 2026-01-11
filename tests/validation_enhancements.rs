@@ -172,7 +172,7 @@ fn test_quantile_crossing_detection() {
             .tau(tau)
             .build()
             .fit(&x, &y)
-            .expect(&format!("fit should succeed for tau={}", tau));
+            .unwrap_or_else(|_| panic!("fit should succeed for tau={}", tau));
 
         intercepts.push(fitted.intercept().unwrap());
         slopes.push(fitted.coefficients()[0]);
@@ -461,7 +461,10 @@ fn test_quantile_nan_in_x() {
     match result {
         Ok(fitted) => {
             let coef = fitted.coefficients()[0];
-            println!("NaN in X: fit succeeded, coefficient is_nan: {}", coef.is_nan());
+            println!(
+                "NaN in X: fit succeeded, coefficient is_nan: {}",
+                coef.is_nan()
+            );
         }
         Err(e) => {
             println!("NaN in X: fit failed with error: {:?}", e);
@@ -842,7 +845,10 @@ fn test_isotonic_all_zero_weights() {
             );
         }
         Err(e) => {
-            println!("Isotonic all-zero weights correctly returned error: {:?}", e);
+            println!(
+                "Isotonic all-zero weights correctly returned error: {:?}",
+                e
+            );
         }
     }
 }
@@ -930,9 +936,7 @@ fn test_quantile_determinism() {
 fn test_isotonic_determinism() {
     // PAVA should be perfectly deterministic
     let x = Col::from_fn(30, |i| (i + 1) as f64);
-    let y = Col::from_fn(30, |i| {
-        (i + 1) as f64 + 2.0 * ((i as f64 * 0.5).sin())
-    });
+    let y = Col::from_fn(30, |i| (i + 1) as f64 + 2.0 * ((i as f64 * 0.5).sin()));
 
     let mut results: Vec<Vec<f64>> = Vec::new();
 
@@ -948,13 +952,14 @@ fn test_isotonic_determinism() {
     }
 
     // All runs should produce bitwise identical results
-    for i in 1..5 {
-        for j in 0..30 {
+    for (i, result) in results.iter().enumerate().skip(1) {
+        for (j, &val) in result.iter().enumerate() {
             assert!(
-                (results[i][j] - results[0][j]).abs() < 1e-15,
-                "Isotonic fitted value at {} not deterministic: {} vs {}",
+                (val - results[0][j]).abs() < 1e-15,
+                "Isotonic fitted value at {} not deterministic (run {}): {} vs {}",
                 j,
-                results[i][j],
+                i,
+                val,
                 results[0][j]
             );
         }
@@ -979,13 +984,14 @@ fn test_isotonic_determinism_with_ties() {
         results.push(fv);
     }
 
-    for i in 1..5 {
-        for j in 0..20 {
+    for (i, result) in results.iter().enumerate().skip(1) {
+        for (j, &val) in result.iter().enumerate() {
             assert!(
-                results[i][j] == results[0][j], // Bitwise equality
-                "Isotonic with ties not deterministic at {}: {} vs {}",
+                val == results[0][j], // Bitwise equality
+                "Isotonic with ties not deterministic at {} (run {}): {} vs {}",
                 j,
-                results[i][j],
+                i,
+                val,
                 results[0][j]
             );
         }

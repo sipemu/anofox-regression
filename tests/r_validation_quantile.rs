@@ -95,7 +95,11 @@ fn test_r_validation_quantile_multiple_tau50() {
     let intercept = result.intercept.expect("intercept should exist");
 
     assert_relative_eq!(intercept, EXPECTED_INTERCEPT_QR2_TAU50, epsilon = 1.0);
-    assert_relative_eq!(result.coefficients[0], EXPECTED_COEF_QR2_TAU50, epsilon = 0.2);
+    assert_relative_eq!(
+        result.coefficients[0],
+        EXPECTED_COEF_QR2_TAU50,
+        epsilon = 0.2
+    );
 }
 
 #[test]
@@ -113,7 +117,11 @@ fn test_r_validation_quantile_multiple_tau25() {
     let intercept = result.intercept.expect("intercept should exist");
 
     assert_relative_eq!(intercept, EXPECTED_INTERCEPT_QR2_TAU25, epsilon = 1.0);
-    assert_relative_eq!(result.coefficients[0], EXPECTED_COEF_QR2_TAU25, epsilon = 0.2);
+    assert_relative_eq!(
+        result.coefficients[0],
+        EXPECTED_COEF_QR2_TAU25,
+        epsilon = 0.2
+    );
 }
 
 #[test]
@@ -131,7 +139,11 @@ fn test_r_validation_quantile_multiple_tau75() {
     let intercept = result.intercept.expect("intercept should exist");
 
     assert_relative_eq!(intercept, EXPECTED_INTERCEPT_QR2_TAU75, epsilon = 1.5);
-    assert_relative_eq!(result.coefficients[0], EXPECTED_COEF_QR2_TAU75, epsilon = 0.3);
+    assert_relative_eq!(
+        result.coefficients[0],
+        EXPECTED_COEF_QR2_TAU75,
+        epsilon = 0.3
+    );
 }
 
 // =============================================================================
