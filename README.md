@@ -31,6 +31,10 @@ This library provides sklearn-style regression estimators with full statistical 
   - 24 distributions: Normal, Laplace, Student-t, Gamma, Beta, Log-Normal, and more
   - Based on the [greybox R package](https://github.com/config-i1/greybox)
 
+- **Quantile & Monotonic Regression**
+  - Quantile Regression (IRLS with asymmetric weights, any τ ∈ (0,1))
+  - Isotonic Regression (PAVA algorithm for monotonic constraints)
+
 - **Smoothing & Classification**
   - LOWESS (Locally Weighted Scatterplot Smoothing)
   - AID (Automatic Identification of Demand) classifier
@@ -48,7 +52,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-anofox-regression = "0.4"
+anofox-regression = "0.5"
 ```
 
 ## Examples
@@ -70,6 +74,8 @@ cargo run --example alm              # Augmented Linear Model
 cargo run --example lm_dynamic       # Dynamic Linear Model
 cargo run --example lowess           # LOWESS smoothing
 cargo run --example aid              # Demand classification
+cargo run --example quantile         # Quantile regression
+cargo run --example isotonic         # Isotonic regression
 ```
 
 ## Quick Start
@@ -141,6 +147,37 @@ let fitted = AlmRegressor::builder()
 println!("Log-likelihood: {}", fitted.log_likelihood);
 ```
 
+### Quantile Regression
+
+```rust
+// Median regression (tau = 0.5)
+let fitted = QuantileRegressor::builder()
+    .tau(0.5)
+    .build()
+    .fit(&x, &y)?;
+
+println!("Median coefficients: {:?}", fitted.coefficients());
+
+// 90th percentile regression
+let fitted_90 = QuantileRegressor::builder()
+    .tau(0.9)
+    .build()
+    .fit(&x, &y)?;
+```
+
+### Isotonic Regression
+
+```rust
+// Fit monotonically increasing function
+let fitted = IsotonicRegressor::builder()
+    .increasing(true)
+    .build()
+    .fit_1d(&x, &y)?;
+
+println!("R² = {:.4}", fitted.result().r_squared);
+let predictions = fitted.predict_1d(&x_new);
+```
+
 ## Validation
 
 This library is developed using Test-Driven Development (TDD) with R as the oracle (ground truth). All implementations are validated against R's statistical functions:
@@ -156,9 +193,11 @@ This library is developed using Test-Driven Development (TDD) with R as the orac
 | `NegativeBinomialRegressor` | `glm.nb()` | MASS |
 | `TweedieRegressor` | `tweedie()` | statmod |
 | `AlmRegressor` | `alm()` | greybox |
+| `QuantileRegressor` | `rq()` | quantreg |
+| `IsotonicRegressor` | `isoreg()` | stats |
 | Diagnostics | `cooks.distance()`, `hatvalues()`, `vif()` | stats, car |
 
-All 364+ test cases ensure numerical agreement with R within appropriate tolerances.
+All 485+ test cases ensure numerical agreement with R within appropriate tolerances.
 
 **For complete transparency on the validation process, see [`validation/VALIDATION.md`](validation/VALIDATION.md)**, which documents tolerance rationale for each method and reproduction instructions.
 
