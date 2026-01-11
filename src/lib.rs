@@ -46,10 +46,11 @@ pub mod prelude {
     };
     pub use crate::solvers::{
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
-        FittedAlm, FittedBinomial, FittedNegativeBinomial, FittedPls, FittedPoisson,
-        FittedRegressor, FittedTweedie, LinkFunction, NegativeBinomialRegressor, OlsRegressor,
-        PlsRegressor, PoissonRegressor, Regressor, RidgeRegressor, RlsRegressor, TweedieRegressor,
-        WlsRegressor,
+        FittedAlm, FittedBinomial, FittedIsotonic, FittedNegativeBinomial, FittedPls,
+        FittedPoisson, FittedQuantile, FittedRegressor, FittedTweedie, IsotonicRegressor,
+        LinkFunction, NegativeBinomialRegressor, OlsRegressor, OutOfBounds, PlsRegressor,
+        PoissonRegressor, QuantileRegressor, Regressor, RidgeRegressor, RlsRegressor,
+        TweedieRegressor, WlsRegressor,
     };
 }
 
@@ -59,6 +60,7 @@ pub use crate::core::{
     PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult, TweedieFamily,
 };
 pub use crate::solvers::{
-    BinomialRegressor, FittedBinomial, FittedNegativeBinomial, FittedPoisson, FittedRegressor,
-    NegativeBinomialRegressor, PoissonRegressor, Regressor,
+    BinomialRegressor, FittedBinomial, FittedIsotonic, FittedNegativeBinomial, FittedPoisson,
+    FittedQuantile, FittedRegressor, IsotonicRegressor, NegativeBinomialRegressor, OutOfBounds,
+    PoissonRegressor, QuantileRegressor, Regressor,
 };

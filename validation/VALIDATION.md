@@ -27,14 +27,18 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_alm_validation_extended.R` | Validates ALM extended distributions (14 additional) |
 | `tests/r_scripts/generate_alm_loss_validation.R` | Validates ALM loss function implementations |
 | `tests/r_scripts/generate_aid_validation.R` | Validates AID demand classification |
+| `tests/r_scripts/generate_quantile_validation.R` | Validates Quantile Regression using `quantreg` package |
+| `tests/r_scripts/generate_quantile_extended_validation.R` | Extended Quantile validation with Engel/Stackloss datasets |
+| `tests/r_scripts/generate_isotonic_validation.R` | Validates Isotonic Regression using base R `isoreg()` |
 
 ### R Packages Used
 
-- **base stats**: `lm()`, `glm()` for core regression and GLM
+- **base stats**: `lm()`, `glm()`, `isoreg()` for core regression, GLM, and isotonic regression
 - **MASS**: `glm.nb()` for negative binomial regression
 - **glmnet**: Ridge regression, Elastic Net, Lasso with coordinate descent
 - **statmod**: Tweedie family distributions, inverse Gaussian
 - **greybox**: `alm()` for augmented linear models, `aid()` for demand identification
+- **quantreg**: `rq()` for quantile regression
 
 ## Validation Categories
 
@@ -224,6 +228,152 @@ Validates demand classification against R's `greybox::aid()` function.
 - Skewed positive (Gamma/LogNormal)
 - IC comparison (AIC vs BIC vs AICc)
 
+### 14. Quantile Regression
+
+Validates quantile regression against R's `quantreg::rq()` function.
+
+**Algorithm**: Iteratively Reweighted Least Squares (IRLS) with asymmetric weights based on the check function ρ_τ(u) = u(τ - I(u < 0)).
+
+**Tolerance**: `0.01` for coefficients
+
+**Test files**:
+- `tests/r_validation_quantile.rs`: Core R validation (6 tests)
+- `tests/r_validation_quantile_extended.rs`: Extended R validation with classic datasets (11 tests)
+- `tests/quantile_edge_cases.rs`: Edge cases and input validation (22 tests)
+
+**Test cases**:
+- Median regression (τ = 0.5) - robust alternative to OLS
+- Multiple quantiles (τ = 0.1, 0.25, 0.5, 0.75, 0.9) on same dataset
+- Weighted quantile regression (heteroscedastic data)
+- No-intercept model
+- Real-world heteroscedastic data (variance increasing with x)
+- Upper quantile regression (τ = 0.9)
+
+**Classic R datasets validated**:
+- Engel food expenditure dataset (n=235, Koenker & Bassett 1982)
+- Stackloss multivariate dataset (n=21, 3 predictors)
+
+**Edge cases**:
+- Input validation (dimension mismatch, invalid tau, negative weights)
+- Collinearity handling (constant features, perfect collinearity)
+- Convergence stability (large/small coefficients, extreme tau values)
+- Special data patterns (constant y, alternating values)
+- Minimum sample sizes (2-3 observations)
+
+**Features validated**:
+- Coefficient estimation for different quantile levels
+- Fitted values at specified quantiles
+- Weighted observations support
+- Intercept/no-intercept modes
+- Outlier robustness vs OLS
+- Heavy-tailed distribution handling
+
+### 15. Isotonic Regression
+
+Validates isotonic regression against R's base `isoreg()` function.
+
+**Algorithm**: Pool Adjacent Violators Algorithm (PAVA) for monotonic constraint fitting.
+
+**Tolerance**: `1e-6` for fitted values (closed-form solution)
+
+**Test files**:
+- `tests/r_validation_isotonic.rs`: Core R validation (7 tests)
+- `tests/isotonic_edge_cases.rs`: Edge cases and input validation (27 tests)
+
+**Test cases**:
+- Simple increasing constraint (n=10)
+- Decreasing constraint (via reflection)
+- Weighted observations
+- Data with ties (multiple observations at same x)
+- Step function output (perfect monotonic data)
+- Two observations edge case
+- All equal values (constant output)
+
+**Edge cases**:
+- Input validation (dimension mismatch, negative weights, zero weights)
+- PAVA ties handling (averaging, many ties, mixed with non-ties)
+- Weighted PAVA with extreme weight ratios
+- Out-of-bounds prediction modes (Clip, Nan)
+- Monotonicity preservation verification
+- Large dataset performance (n=10,000)
+- Floating point edge cases (very small differences, large values)
+- Special data patterns (step functions, mixed signs)
+- R² bounds validation
+
+**Features validated**:
+- Fitted values under monotonic constraint
+- Increasing vs decreasing modes
+- Weighted PAVA algorithm
+- Out-of-bounds handling (clip, nan, error)
+- Prediction/interpolation for new x values
+- Matrix interface (multi-column support)
+- R² calculation and bounds
+
+### 16. Stress Tests
+
+Numerical stress tests and API edge cases beyond standard R validation.
+
+**Test file**: `tests/stress_tests.rs` (19 tests)
+
+#### Scale Invariance (Quantile)
+
+Tests IRLS algorithm behavior relative to the smoothing parameter (epsilon = 1e-6).
+
+| Test | Scale Factor | Expected Behavior |
+|------|--------------|-------------------|
+| Baseline | 1x | Coefficients match true values |
+| Macro-scale | 1e8 | Coefficients scale proportionally |
+| Micro-scale | 1e-8 | Requires smaller epsilon to avoid OLS degradation |
+| Micro-default | 1e-8 (default ε) | Documents epsilon dominance effect |
+
+#### Sawtooth PAVA Stress (Isotonic)
+
+Worst-case input for PAVA block-merging with alternating pattern [10, 0, 10, 0, ...].
+
+| Test | n | Constraint | Expected Result |
+|------|---|------------|-----------------|
+| Standard | 100 | Increasing | Flat line at mean (5.0) |
+| Decreasing | 100 | Decreasing | Monotonic non-increasing |
+| Large | 1000 | Increasing | Flat line at mean (50.0) |
+
+#### Unsorted Input Handling (Isotonic)
+
+Verifies API sorts X internally and returns results in original order.
+
+| Test | Input | Verification |
+|------|-------|--------------|
+| Simple | x=[3,1,2], y=[30,10,20] | Predictions match original order |
+| Matches sorted | Random permutation | Same predictions as pre-sorted |
+| With violations | Unsorted + PAVA needed | Correct merging after sort |
+
+#### Singular Matrix Safety (Quantile)
+
+Ensures graceful handling of rank-deficient design matrices.
+
+| Test | Deficiency Type | Expected Behavior |
+|------|-----------------|-------------------|
+| Zero-variance feature | Column of zeros | Error or finite coefficients |
+| Collinear with intercept | Column of ones | Error or finite coefficients |
+| Perfect collinearity | x₂ = 2x₁ | Error or finite predictions |
+| Near-singular | x₂ ≈ x₁ + ε | Finite predictions |
+
+#### f32/f64 Precision (Both)
+
+Documents that the crate uses f64 exclusively; tests f32-range values work correctly.
+
+| Test | Description | Tolerance |
+|------|-------------|-----------|
+| Quantile f32-range | Values cast from f32 | 1e-2 |
+| Isotonic f32-range | Values cast from f32 | 1e-5 |
+| Documentation | Compile-time API check | N/A |
+
+#### Additional Stress Tests
+
+| Test | Description |
+|------|-------------|
+| Difficult convergence | Heavy outliers (±500, ±1000) |
+| Many ties | 10 unique x with 50 reps each (n=500) |
+
 ## Test Coverage
 
 | Category | Tests | Tolerance |
@@ -241,7 +391,10 @@ Validates demand classification against R's `greybox::aid()` function.
 | Diagnostics | 10+ | 1e-6 |
 | ALM | 21+ | 0.15 |
 | AID | 12+ | - |
-| **Total** | **364+** | - |
+| Quantile | 39+ | 0.01 |
+| Isotonic | 34+ | 1e-6 |
+| Stress Tests | 19 | Varies |
+| **Total** | **456+** | - |
 
 ## Reproducibility
 
@@ -436,6 +589,41 @@ AID (Automatic Identification of Demand) is primarily a **classification algorit
 
 Tests validate classification correctness rather than numeric precision. IC values are compared with 10% tolerance.
 
+#### Quantile Regression (Tolerance: 0.01)
+
+Quantile regression uses **Iteratively Reweighted Least Squares (IRLS)** with asymmetric weights:
+
+1. **Check function**: The objective function ρ_τ(u) = u(τ - I(u < 0)) is non-differentiable at zero, requiring iterative approximation
+2. **Algorithm differences**: R's `quantreg::rq()` uses the Barrodale-Roberts simplex algorithm by default, while this library uses IRLS with smooth approximation
+3. **Epsilon smoothing**: Small epsilon (1e-4) added to avoid division by zero in weight calculation
+4. **Convergence criteria**: Different stopping rules may lead to slightly different final solutions
+5. **Quantile sensitivity**: Extreme quantiles (τ near 0 or 1) are more sensitive to algorithm differences
+
+Despite algorithmic differences, both implementations produce statistically equivalent quantile estimates.
+
+#### Isotonic Regression (Tolerance: 1e-6)
+
+Isotonic regression uses the **Pool Adjacent Violators Algorithm (PAVA)**, a **deterministic algorithm** with no iteration variability:
+
+1. **Closed-form solution**: PAVA is guaranteed to find the exact solution to the isotonic optimization problem
+2. **Numerical stability**: The algorithm only involves averaging, which is numerically stable
+3. **R equivalence**: Both R's `isoreg()` and this library implement identical PAVA algorithms
+4. **Order handling**: Data is sorted by x before processing; identical sorting produces identical results
+
+The tight tolerance (1e-6) reflects that PAVA is deterministic and numerically stable.
+
+#### Stress Tests (Tolerance: Varies)
+
+Stress tests verify numerical robustness and API behavior under extreme conditions:
+
+1. **Scale invariance**: Tests IRLS behavior when data scale approaches or falls below the smoothing parameter (epsilon). Macro-scale (1e8) should scale proportionally; micro-scale (1e-8) may require smaller epsilon
+2. **Sawtooth PAVA**: Worst-case alternating pattern [10, 0, 10, 0, ...] forces maximum block merging. Result must be monotonic
+3. **Unsorted input**: API sorts X internally; results must match sorted input and preserve original order
+4. **Singular matrices**: Rank-deficient designs should return Error or finite values, never panic
+5. **f32 precision**: Crate uses f64 only; f32-range values must work correctly with appropriate tolerance (1e-2)
+
+These tests verify robustness rather than exact numerical agreement with a reference implementation.
+
 ### Summary Table
 
 | Method | Solution Type | Key Challenge | Tolerance |
@@ -453,6 +641,9 @@ Tests validate classification correctness rather than numeric precision. IC valu
 | Diagnostics | Closed-form (matrix) | Direct computation | 1e-6 |
 | ALM | Hybrid (IRLS or L-BFGS) | Distribution diversity, optimizer choice | 0.15 |
 | AID | Classification | Zero proportion threshold | Classification |
+| Quantile | Iterative (IRLS) | Check function non-differentiability | 0.01 |
+| Isotonic | Deterministic (PAVA) | Exact monotonic solution | 1e-6 |
+| Stress Tests | Mixed | Numerical robustness, API edge cases | Varies |
 
 ### Known Differences from R
 
@@ -465,3 +656,56 @@ Tests validate classification correctness rather than numeric precision. IC valu
 For the R code used to generate validation data, see:
 - `validation/generate_validation_data.R`
 - `tests/r_scripts/*.R`
+
+## Validation Enhancements (January 2026)
+
+Additional validation tests added in `tests/validation_enhancements.rs` address gaps identified during external review.
+
+### Quantile Regression Enhancements
+
+| Test Category | Tests | Description |
+|---------------|-------|-------------|
+| **Weighted observations** | 4 | Survey weights, heteroscedastic data, extreme weight ratios (1000:1) |
+| **Quantile crossing** | 2 | Multiple τ values, documents that IRLS does not enforce monotonicity across quantiles |
+| **High-dimensional** | 2 | p=50 with n=200; p=80 with n=100 (near-singular designs) |
+| **Extrapolation** | 1 | Predictions outside training range, verifies linear extrapolation |
+| **Sparse X regions** | 1 | Gaps in predictor space (clusters at extremes) |
+
+### Isotonic Regression Enhancements
+
+| Test Category | Tests | Description |
+|---------------|-------|-------------|
+| **Tie-breaking** | 2 | Documents weighted and unweighted averaging for duplicate X values |
+| **Interpolation method** | 2 | Documents step function (not linear) interpolation between knots |
+| **Extrapolation modes** | 1 | Tests Clip and NaN out-of-bounds behavior |
+| **Sparse X regions** | 1 | Step function behavior in gaps |
+| **Strict vs non-decreasing** | 1 | Documents that output allows ties (non-decreasing, not strictly increasing) |
+
+### General Robustness Enhancements
+
+| Test Category | Tests | Description |
+|---------------|-------|-------------|
+| **NaN/Inf handling** | 5 | NaN in X, NaN in y, Inf in y for both methods |
+| **NaN propagation** | 1 | Single NaN in y vector behavior |
+| **All-zero weights** | 3 | Edge case for weighted regression (both methods) |
+| **Determinism** | 3 | Bitwise identical output across runs (IRLS and PAVA) |
+
+### Key Documented Behaviors
+
+1. **Quantile crossing**: IRLS algorithm does not enforce monotonicity across τ values. Fitted quantile lines may cross.
+
+2. **Isotonic interpolation**: Uses step function, NOT linear interpolation. `predict(15)` between knots at x=10 and x=20 returns the value at x=10.
+
+3. **Isotonic tie-breaking**: Duplicate X values with different Y values are averaged (weighted average if weights provided) before PAVA.
+
+4. **All-zero weights**: Quantile regression produces degenerate solution (coef=0); Isotonic regression produces NaN. Neither crashes.
+
+5. **Determinism**: Both methods are deterministic - same input produces bitwise identical output. PAVA is exact; IRLS converges to same point given same initialization.
+
+### Total Test Count
+
+| File | Tests | Purpose |
+|------|-------|---------|
+| `validation_enhancements.rs` | 29 | Validation gaps identified in external review |
+
+This brings the total quantile + isotonic test count to **102+ tests** across all test files.
