@@ -26,6 +26,9 @@ WebAssembly bindings for [anofox-regression](https://github.com/sipemu/anofox-re
 ### Augmented Linear Model (ALM)
 - **ALM Regression** - Maximum likelihood with various distributions (Normal, Laplace, Student-t, Gamma, etc.)
 
+### Time-Varying Models
+- **LmDynamic** - Dynamic Linear Model with time-varying parameters using information criteria weighting
+
 ## Installation
 
 ```bash
@@ -39,7 +42,7 @@ npm install @sipemu/anofox-regression
 ```javascript
 import init, {
   OlsRegressor, RidgeRegressor, QuantileRegressor,
-  BlsRegressor, PlsRegressor, RlsRegressor, AlmRegressor
+  BlsRegressor, PlsRegressor, RlsRegressor, AlmRegressor, LmDynamicRegressor
 } from '@sipemu/anofox-regression';
 
 async function main() {
@@ -303,6 +306,29 @@ class AlmRegressor {
 Supported distributions: `normal`, `laplace`, `student_t`, `logistic`, `asymmetric_laplace`,
 `generalised_normal`, `log_normal`, `log_laplace`, `gamma`, `inverse_gaussian`, `exponential`,
 `poisson`, `negative_binomial`, `beta`, `folded_normal`, `s`.
+
+### LmDynamicRegressor
+
+Dynamic Linear Model with time-varying parameters.
+
+```typescript
+class LmDynamicRegressor {
+  constructor();
+  setIc(ic: 'aic' | 'aicc' | 'bic'): void;  // Information criterion
+  setWithIntercept(include: boolean): void;
+  setLowessSpan(span: number | null): void;  // LOWESS smoothing (null to disable)
+  setMaxModels(max: number): void;  // Limit candidate models
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedLmDynamic;
+}
+
+class FittedLmDynamic {
+  getResult(): LmDynamicResult;
+  getDynamicCoefficients(): Float64Array;  // Time-varying coefficients (row-major)
+  getDynamicCoefficientsRows(): number;
+  getDynamicCoefficientsCols(): number;
+  predict(x: Float64Array, nRows: number): Float64Array;
+}
+```
 
 ## Data Format
 
