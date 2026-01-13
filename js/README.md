@@ -4,11 +4,21 @@ WebAssembly bindings for [anofox-regression](https://github.com/sipemu/anofox-re
 
 ## Features
 
+### Linear Models
 - **OLS Regression** - Ordinary Least Squares with full inference (standard errors, p-values, confidence intervals)
+- **WLS Regression** - Weighted Least Squares for heteroscedastic data
 - **Ridge Regression** - L2 regularization for handling multicollinearity
+- **Elastic Net** - Combined L1/L2 regularization (Lasso + Ridge)
+
+### Quantile & Monotonic
 - **Quantile Regression** - Estimate conditional quantiles (median, quartiles, etc.)
 - **Isotonic Regression** - Monotonic regression using Pool Adjacent Violators Algorithm
-- **Poisson Regression** - GLM for count data with log/identity/sqrt link functions
+
+### Generalized Linear Models (GLM)
+- **Poisson Regression** - For count data (log/identity/sqrt link)
+- **Binomial Regression** - Logistic/Probit for binary outcomes
+- **Negative Binomial** - For overdispersed count data
+- **Tweedie Regression** - Flexible variance (Gamma, Compound Poisson-Gamma, etc.)
 
 ## Installation
 
@@ -131,6 +141,32 @@ class IsotonicRegressor {
 }
 ```
 
+### WlsRegressor
+
+Weighted Least Squares regression.
+
+```typescript
+class WlsRegressor {
+  constructor();
+  setWeights(weights: Float64Array): void;
+  setWithIntercept(include: boolean): void;
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedWls;
+}
+```
+
+### ElasticNetRegressor
+
+Elastic Net with L1+L2 regularization.
+
+```typescript
+class ElasticNetRegressor {
+  constructor();
+  setLambda(lambda: number): void;  // regularization strength
+  setAlpha(alpha: number): void;    // L1/L2 mix (0=Ridge, 1=Lasso)
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedElasticNet;
+}
+```
+
 ### PoissonRegressor
 
 Poisson GLM for count data.
@@ -141,6 +177,45 @@ class PoissonRegressor {
   setLink(link: 'log' | 'identity' | 'sqrt'): void;
   setWithIntercept(include: boolean): void;
   fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedPoisson;
+}
+```
+
+### BinomialRegressor
+
+Logistic/Probit regression for binary outcomes.
+
+```typescript
+class BinomialRegressor {
+  constructor();
+  setLink(link: 'logit' | 'probit' | 'cloglog'): void;
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedBinomial;
+}
+```
+
+### NegativeBinomialRegressor
+
+For overdispersed count data.
+
+```typescript
+class NegativeBinomialRegressor {
+  constructor();
+  setTheta(theta: number): void;      // fixed dispersion
+  setEstimateTheta(estimate: boolean): void;  // estimate from data
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedNegativeBinomial;
+}
+```
+
+### TweedieRegressor
+
+Flexible GLM with Tweedie variance function.
+
+```typescript
+class TweedieRegressor {
+  constructor();
+  static gamma(): TweedieRegressor;  // Gamma regression
+  setVarPower(p: number): void;  // 0=Gaussian, 1=Poisson, 2=Gamma, 3=InvGauss
+  setLinkPower(p: number): void; // 0=log, 1=identity
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedTweedie;
 }
 ```
 
