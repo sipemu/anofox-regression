@@ -9,6 +9,9 @@ WebAssembly bindings for [anofox-regression](https://github.com/sipemu/anofox-re
 - **WLS Regression** - Weighted Least Squares for heteroscedastic data
 - **Ridge Regression** - L2 regularization for handling multicollinearity
 - **Elastic Net** - Combined L1/L2 regularization (Lasso + Ridge)
+- **BLS Regression** - Bounded/Non-Negative Least Squares (Lawson-Hanson algorithm)
+- **PLS Regression** - Partial Least Squares (SIMPLS) for collinear data
+- **RLS Regression** - Recursive Least Squares for online learning
 
 ### Quantile & Monotonic
 - **Quantile Regression** - Estimate conditional quantiles (median, quartiles, etc.)
@@ -19,6 +22,9 @@ WebAssembly bindings for [anofox-regression](https://github.com/sipemu/anofox-re
 - **Binomial Regression** - Logistic/Probit for binary outcomes
 - **Negative Binomial** - For overdispersed count data
 - **Tweedie Regression** - Flexible variance (Gamma, Compound Poisson-Gamma, etc.)
+
+### Augmented Linear Model (ALM)
+- **ALM Regression** - Maximum likelihood with various distributions (Normal, Laplace, Student-t, Gamma, etc.)
 
 ## Installation
 
@@ -31,7 +37,10 @@ npm install @sipemu/anofox-regression
 ### Browser (ES Modules)
 
 ```javascript
-import init, { OlsRegressor, RidgeRegressor, QuantileRegressor } from '@sipemu/anofox-regression';
+import init, {
+  OlsRegressor, RidgeRegressor, QuantileRegressor,
+  BlsRegressor, PlsRegressor, RlsRegressor, AlmRegressor
+} from '@sipemu/anofox-regression';
 
 async function main() {
   // Initialize the WASM module
@@ -218,6 +227,82 @@ class TweedieRegressor {
   fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedTweedie;
 }
 ```
+
+### BlsRegressor
+
+Bounded/Non-Negative Least Squares using Lawson-Hanson algorithm.
+
+```typescript
+class BlsRegressor {
+  constructor();
+  static nnls(): BlsRegressor;  // Non-negative least squares
+  setWithIntercept(include: boolean): void;
+  setLowerBoundAll(bound: number): void;  // Same lower bound for all coefficients
+  setUpperBoundAll(bound: number): void;  // Same upper bound for all coefficients
+  setLowerBounds(bounds: Float64Array): void;  // Per-variable lower bounds
+  setUpperBounds(bounds: Float64Array): void;  // Per-variable upper bounds
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedBls;
+}
+```
+
+### PlsRegressor
+
+Partial Least Squares using SIMPLS algorithm.
+
+```typescript
+class PlsRegressor {
+  constructor();
+  setNComponents(n: number): void;  // Number of latent components
+  setWithIntercept(include: boolean): void;
+  setScale(scale: boolean): void;  // Scale X to unit variance
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedPls;
+}
+
+class FittedPls {
+  getResult(): PlsResult;
+  getNComponents(): number;
+  transform(x: Float64Array, nRows: number): Float64Array;  // Project to latent space
+  predict(x: Float64Array, nRows: number): Float64Array;
+}
+```
+
+### RlsRegressor
+
+Recursive Least Squares for online learning.
+
+```typescript
+class RlsRegressor {
+  constructor();
+  setWithIntercept(include: boolean): void;
+  setForgettingFactor(lambda: number): void;  // 1.0 = standard RLS, <1 = weight recent data
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedRls;
+}
+
+class FittedRls {
+  getResult(): RlsResult;
+  getForgettingFactor(): number;
+  predict(x: Float64Array, nRows: number): Float64Array;
+}
+```
+
+### AlmRegressor
+
+Augmented Linear Model with various error distributions.
+
+```typescript
+class AlmRegressor {
+  constructor();
+  setDistribution(dist: string): void;  // 'normal', 'laplace', 'student_t', 'gamma', etc.
+  setWithIntercept(include: boolean): void;
+  setComputeInference(compute: boolean): void;
+  setMaxIterations(maxIter: number): void;
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedAlm;
+}
+```
+
+Supported distributions: `normal`, `laplace`, `student_t`, `logistic`, `asymmetric_laplace`,
+`generalised_normal`, `log_normal`, `log_laplace`, `gamma`, `inverse_gaussian`, `exponential`,
+`poisson`, `negative_binomial`, `beta`, `folded_normal`, `s`.
 
 ## Data Format
 
