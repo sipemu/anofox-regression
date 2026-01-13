@@ -1,8 +1,8 @@
 //! Quantile Regression wrapper for WebAssembly.
 
 use anofox_regression::solvers::{
-    FittedQuantile as RustFittedQuantile, FittedRegressor, QuantileRegressor as RustQuantileRegressor,
-    Regressor,
+    FittedQuantile as RustFittedQuantile, FittedRegressor,
+    QuantileRegressor as RustQuantileRegressor, Regressor,
 };
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};

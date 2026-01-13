@@ -49,8 +49,14 @@ impl FittedNegativeBinomial {
             aic: result.aic,
             residuals: result.residuals.iter().copied().collect(),
             fitted_values: result.fitted_values.iter().copied().collect(),
-            std_errors: result.std_errors.as_ref().map(|v| v.iter().copied().collect()),
-            p_values: result.p_values.as_ref().map(|v| v.iter().copied().collect()),
+            std_errors: result
+                .std_errors
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
+            p_values: result
+                .p_values
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
         };
         serde_wasm_bindgen::to_value(&nb_result).map_err(|e| JsError::new(&e.to_string()))
     }

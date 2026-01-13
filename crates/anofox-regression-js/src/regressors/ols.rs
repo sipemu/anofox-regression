@@ -83,12 +83,18 @@ impl FittedOls {
             bic: result.bic,
             residuals: result.residuals.iter().copied().collect(),
             fitted_values: result.fitted_values.iter().copied().collect(),
-            std_errors: result.std_errors.as_ref().map(|v| v.iter().copied().collect()),
+            std_errors: result
+                .std_errors
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
             t_statistics: result
                 .t_statistics
                 .as_ref()
                 .map(|v| v.iter().copied().collect()),
-            p_values: result.p_values.as_ref().map(|v| v.iter().copied().collect()),
+            p_values: result
+                .p_values
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
             conf_interval_lower: result
                 .conf_interval_lower
                 .as_ref()

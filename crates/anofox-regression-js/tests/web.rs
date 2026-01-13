@@ -25,7 +25,10 @@ fn test_ols_basic() {
     assert!(r_squared > 0.99, "R-squared should be close to 1.0");
 
     let intercept = fitted.get_intercept().expect("Should have intercept");
-    assert!((intercept - 2.0).abs() < 0.1, "Intercept should be close to 2.0");
+    assert!(
+        (intercept - 2.0).abs() < 0.1,
+        "Intercept should be close to 2.0"
+    );
 
     let coefficients = fitted.get_coefficients();
     assert!(
@@ -91,9 +94,7 @@ fn test_isotonic_increasing() {
     let x: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
     let y: Vec<f64> = vec![1.0, 3.0, 2.0, 4.0, 5.0]; // Has violations
 
-    let fitted = isotonic
-        .fit(&x, &y)
-        .expect("Isotonic fit should succeed");
+    let fitted = isotonic.fit(&x, &y).expect("Isotonic fit should succeed");
 
     assert!(fitted.is_increasing(), "Should be increasing");
 

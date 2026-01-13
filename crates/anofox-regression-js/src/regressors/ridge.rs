@@ -1,7 +1,7 @@
 //! Ridge Regression wrapper for WebAssembly.
 
 use anofox_regression::solvers::{
-    FittedRegressor, RidgeRegressor as RustRidgeRegressor, Regressor,
+    FittedRegressor, Regressor, RidgeRegressor as RustRidgeRegressor,
 };
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
@@ -55,12 +55,18 @@ impl FittedRidge {
             n_parameters: result.n_parameters,
             residuals: result.residuals.iter().copied().collect(),
             fitted_values: result.fitted_values.iter().copied().collect(),
-            std_errors: result.std_errors.as_ref().map(|v| v.iter().copied().collect()),
+            std_errors: result
+                .std_errors
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
             t_statistics: result
                 .t_statistics
                 .as_ref()
                 .map(|v| v.iter().copied().collect()),
-            p_values: result.p_values.as_ref().map(|v| v.iter().copied().collect()),
+            p_values: result
+                .p_values
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
             confidence_level: result.confidence_level,
         };
 

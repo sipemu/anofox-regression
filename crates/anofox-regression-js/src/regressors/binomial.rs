@@ -50,8 +50,14 @@ impl FittedBinomial {
             bic: result.bic,
             residuals: result.residuals.iter().copied().collect(),
             fitted_values: result.fitted_values.iter().copied().collect(),
-            std_errors: result.std_errors.as_ref().map(|v| v.iter().copied().collect()),
-            p_values: result.p_values.as_ref().map(|v| v.iter().copied().collect()),
+            std_errors: result
+                .std_errors
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
+            p_values: result
+                .p_values
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
         };
         serde_wasm_bindgen::to_value(&bin_result).map_err(|e| JsError::new(&e.to_string()))
     }
@@ -145,7 +151,7 @@ impl BinomialRegressor {
         }
 
         // Validate binary response
-        if y.iter().any(|&yi| yi < 0.0 || yi > 1.0) {
+        if y.iter().any(|&yi| !(0.0..=1.0).contains(&yi)) {
             return Err(JsError::new("Response must be between 0 and 1"));
         }
 

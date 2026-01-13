@@ -2,8 +2,8 @@
 
 use anofox_regression::core::PoissonLink;
 use anofox_regression::solvers::{
-    FittedPoisson as RustFittedPoisson, FittedRegressor,
-    PoissonRegressor as RustPoissonRegressor, Regressor,
+    FittedPoisson as RustFittedPoisson, FittedRegressor, PoissonRegressor as RustPoissonRegressor,
+    Regressor,
 };
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
@@ -56,8 +56,14 @@ impl FittedPoisson {
             bic: result.bic,
             residuals: result.residuals.iter().copied().collect(),
             fitted_values: result.fitted_values.iter().copied().collect(),
-            std_errors: result.std_errors.as_ref().map(|v| v.iter().copied().collect()),
-            p_values: result.p_values.as_ref().map(|v| v.iter().copied().collect()),
+            std_errors: result
+                .std_errors
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
+            p_values: result
+                .p_values
+                .as_ref()
+                .map(|v| v.iter().copied().collect()),
         };
 
         serde_wasm_bindgen::to_value(&poisson_result).map_err(|e| JsError::new(&e.to_string()))
