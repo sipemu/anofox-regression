@@ -6,6 +6,10 @@
 [![codecov](https://codecov.io/gh/sipemu/anofox-regression/branch/main/graph/badge.svg)](https://codecov.io/gh/sipemu/anofox-regression)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
+> **Need to run this on 10GB of data?** Use our [DuckDB extension](https://github.com/DataZooDE/anofox-statistics)
+>
+> **Need to use this in a React Dashboard?** Use our [npm package](https://www.npmjs.com/package/@sipemu/anofox-regression)
+
 A robust statistics library for regression analysis in Rust, validated against R ([VALIDATION](validation/VALIDATION.md)).
 
 This library provides sklearn-style regression estimators with full statistical inference support including standard errors, t-statistics, p-values, confidence intervals, and prediction intervals.
