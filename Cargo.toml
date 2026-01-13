@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/anofox-regression-js"]
+resolver = "2"
+
 [package]
 name = "anofox-regression"
 version = "0.5.0"

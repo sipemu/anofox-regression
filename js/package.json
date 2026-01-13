@@ -1,0 +1,39 @@
+{
+  "name": "@sipemu/anofox-regression",
+  "version": "0.5.0",
+  "description": "Statistical regression library - WebAssembly bindings for anofox-regression",
+  "type": "module",
+  "main": "anofox_regression_js.js",
+  "types": "anofox_regression_js.d.ts",
+  "files": [
+    "*.wasm",
+    "*.js",
+    "*.d.ts",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sipemu/anofox-regression"
+  },
+  "keywords": [
+    "regression",
+    "statistics",
+    "wasm",
+    "webassembly",
+    "ols",
+    "ridge",
+    "quantile",
+    "isotonic",
+    "linear-regression",
+    "machine-learning"
+  ],
+  "author": "Simon M",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/sipemu/anofox-regression/issues"
+  },
+  "homepage": "https://github.com/sipemu/anofox-regression#readme",
+  "sideEffects": [
+    "./anofox_regression_js.js"
+  ]
+}
