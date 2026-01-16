@@ -40,9 +40,11 @@ pub mod prelude {
         TweedieFamily,
     };
     pub use crate::diagnostics::{
-        compute_leverage, cooks_distance, deviance_residuals, high_leverage_points,
-        influential_cooks, pearson_residuals, standardized_residuals, studentized_residuals,
-        variance_inflation_factor, working_residuals,
+        check_binary_separation, check_count_sparsity, classify_condition_number, compute_leverage,
+        condition_diagnostic, condition_number, cooks_distance, deviance_residuals,
+        high_leverage_points, influential_cooks, pearson_residuals, standardized_residuals,
+        studentized_residuals, variance_decomposition_proportions, variance_inflation_factor,
+        working_residuals, ConditionDiagnostic, ConditionSeverity, SeparationCheck, SeparationType,
     };
     pub use crate::solvers::{
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,

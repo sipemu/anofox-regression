@@ -4,9 +4,7 @@
 
 mod common;
 
-use anofox_regression::solvers::{
-    AlmDistribution, AlmRegressor, FittedAlm, FittedRegressor, Regressor,
-};
+use anofox_regression::solvers::{AlmDistribution, AlmRegressor, FittedRegressor, Regressor};
 use faer::{Col, Mat};
 
 // ============================================================================
@@ -267,7 +265,6 @@ mod likelihood_tests {
 
 mod fitting_tests {
     use super::*;
-    use common::approx_eq;
 
     /// Test fitting with Normal distribution (should match OLS)
     #[test]

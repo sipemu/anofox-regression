@@ -934,7 +934,7 @@ mod tests {
 
         // Should have 2^3 - 1 = 7 models (or less if max_models limits it)
         assert!(fitted.model_specs().len() <= 7);
-        assert!(fitted.model_specs().len() >= 1);
+        assert!(!fitted.model_specs().is_empty());
     }
 
     #[test]

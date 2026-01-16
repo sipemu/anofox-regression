@@ -1,3 +1,4 @@
+#![allow(clippy::useless_vec)]
 //! R Validation Tests for GLM implementations.
 //!
 //! These tests compare anofox-regression GLM implementations against R's glm() function.

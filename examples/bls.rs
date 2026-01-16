@@ -159,12 +159,16 @@ fn mixture_model() {
     );
     println!("{}", "-".repeat(40));
 
-    for i in 0..n_components {
+    for (i, (&true_prop, &est_prop)) in true_props
+        .iter()
+        .zip(fitted.coefficients().iter())
+        .enumerate()
+    {
         println!(
             "{:<12} {:>12.4} {:>12.4}",
             format!("Component {}", i + 1),
-            true_props[i],
-            fitted.coefficients()[i]
+            true_prop,
+            est_prop
         );
     }
 

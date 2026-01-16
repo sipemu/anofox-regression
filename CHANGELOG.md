@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-01-16
+
+### Added
+
+- Penalized IRLS (L2 regularization) for GLMs: Poisson, Binomial, Tweedie, Negative Binomial
+  - New `lambda()` builder method for all GLM regressors
+  - Solves `(X'WX + λI)β = X'Wz` with unpenalized intercept
+- Condition number diagnostics for regression matrices
+  - `condition_number()` - compute κ(X) = σ_max / σ_min
+  - `condition_diagnostic()` - comprehensive analysis with singular values and condition indices
+  - `classify_condition_number()` - severity classification (WellConditioned, Moderate, High, Severe)
+  - `variance_decomposition_proportions()` - Belsley-Kuh-Welsch collinearity analysis
+- Quasi-separation detection for binary GLMs
+  - `check_binary_separation()` - detect Complete, Quasi, MonotonicResponse separation
+  - `check_count_sparsity()` - detect sparse count data issues
+
+### Fixed
+
+- Quasi-separation MonotonicResponse detection now requires repeated x-values
+  - Prevents false positives when each x value has only one observation
+
+### Changed
+
+- npm publishing workflow updated to match anofox-forecast pattern
+  - Uses curl installer for wasm-pack
+  - Builds WASM to js/ directory with custom package.json preservation
+  - Added test-js job for JavaScript tests
+  - npm upgrade for OIDC provenance support
+
 ## [0.4.0] - 2025-12-12
 
 ### Added

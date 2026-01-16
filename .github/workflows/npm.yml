@@ -16,7 +16,7 @@ env:
 
 jobs:
   build-wasm:
-    name: Build WebAssembly
+    name: Build WASM
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,25 +27,23 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM package
-        run: wasm-pack build crates/anofox-regression-js --target web --release
+        run: wasm-pack build crates/anofox-regression-js --target web --out-dir ../../js --out-name anofox_regression_js
 
-      - name: Copy package files
-        run: |
-          cp js/package.json crates/anofox-regression-js/pkg/
-          cp js/README.md crates/anofox-regression-js/pkg/
+      - name: Restore custom package.json and README
+        run: git checkout js/package.json js/README.md
 
-      - name: Upload artifact
+      - name: Upload WASM artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wasm-package
-          path: crates/anofox-regression-js/pkg/
+          path: js/
           retention-days: 1
 
   test-wasm:
-    name: Test WebAssembly
+    name: Test WASM
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,24 +54,52 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Run WASM tests
         run: wasm-pack test --headless --chrome crates/anofox-regression-js
 
+  test-js:
+    name: Test JavaScript
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download WASM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-package
+          path: js/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: js
+        run: npm ci
+
+      - name: Run JavaScript tests
+        working-directory: js
+        run: npm test
+
   publish-npm:
     name: Publish to npm
-    needs: [build-wasm, test-wasm]
+    needs: [build-wasm, test-wasm, test-js]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
-      - name: Download artifact
+      - uses: actions/checkout@v4
+
+      - name: Download WASM artifacts
         uses: actions/download-artifact@v4
         with:
           name: wasm-package
-          path: pkg
+          path: js/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -81,17 +107,30 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: List package contents
-        run: ls -la pkg/
+      - name: Upgrade npm for OIDC support
+        run: |
+          echo "Current npm version: $(npm --version)"
+          npm install -g npm@latest
+          echo "New npm version: $(npm --version)"
+
+      - name: Verify package contents
+        run: |
+          echo "Package contents:"
+          ls -la js/
+          echo ""
+          echo "package.json:"
+          cat js/package.json
 
       - name: Publish (dry run)
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
-        run: npm publish pkg/ --dry-run
+        working-directory: js
+        run: npm publish --access public --dry-run
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
-        run: npm publish pkg/ --provenance --access public
+        working-directory: js
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

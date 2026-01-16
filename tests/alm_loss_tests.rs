@@ -28,7 +28,7 @@ fn generate_linear_data(
     let y = Col::from_fn(n, |i| {
         let xi = (i + 1) as f64;
         // Simple pseudo-random noise using seed
-        let noise = ((seed as f64 * (i as f64 + 1.0) * 0.1).sin() * noise_sd);
+        let noise = (seed as f64 * (i as f64 + 1.0) * 0.1).sin() * noise_sd;
         intercept + slope * xi + noise
     });
     (x, y)
@@ -237,8 +237,8 @@ fn test_mae_more_robust_than_mse_with_outliers() {
 
     // True slope is 1.5
     // MAE should be closer to true value when outliers are present
-    let error_mse = (coef_mse - 1.5).abs();
-    let error_mae = (coef_mae - 1.5).abs();
+    let _error_mse = (coef_mse - 1.5).abs();
+    let _error_mae = (coef_mae - 1.5).abs();
 
     // MAE should have smaller error (more robust)
     // Note: This may not always hold with our deterministic noise, so we just

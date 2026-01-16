@@ -102,7 +102,7 @@ fn inverse_variance_weighting() {
 
     // Simulate data from different sources with known variances
     let group_sizes = [20, 30, 50];
-    let group_variances = [1.0, 4.0, 9.0]; // Known variances
+    let group_variances: [f64; 3] = [1.0, 4.0, 9.0]; // Known variances
 
     let n: usize = group_sizes.iter().sum();
     let mut x_data = Vec::with_capacity(n);
@@ -114,7 +114,7 @@ fn inverse_variance_weighting() {
         for _ in 0..size {
             let xi = (idx as f64) * 0.1;
             // Noise scaled by sqrt(variance)
-            let noise = ((idx as f64 * 0.9).sin()) * (var as f64).sqrt();
+            let noise = ((idx as f64 * 0.9).sin()) * var.sqrt();
             let yi = 1.0 + 2.0 * xi + noise;
 
             x_data.push(xi);

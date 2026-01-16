@@ -9,8 +9,8 @@
 //!   Springer, New York, NY.
 
 use crate::core::{
-    IntervalType, PredictionResult, PredictionType, RegressionOptions, RegressionOptionsBuilder,
-    RegressionResult, TweedieFamily,
+    GlmFamily, IntervalType, PredictionResult, PredictionType, RegressionOptions,
+    RegressionOptionsBuilder, RegressionResult, TweedieFamily,
 };
 use crate::diagnostics::{deviance_residuals, pearson_residuals, working_residuals};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
@@ -163,8 +163,16 @@ impl TweedieRegressor {
         let mut converged = false;
         let mut iterations = 0;
 
+        // Compute initial deviance for deviance-based convergence (following R's glm.fit)
+        let mut dev = self.family.deviance(&y_vec, &mu);
+        let mut dev_old: f64;
+
+        // Maximum step halvings per iteration (following R's glm.control default)
+        const MAX_HALVINGS: usize = 10;
+
         for iter in 0..max_iter {
             iterations = iter + 1;
+            dev_old = dev;
 
             // Compute working weights and response
             let (weights, z) = self.compute_irls_quantities(&y_vec, &mu, &eta);
@@ -172,40 +180,54 @@ impl TweedieRegressor {
             // Solve weighted least squares: min_β Σ wᵢ (zᵢ - xᵢ'β)²
             let beta_new = self.solve_weighted_ls(&x_design, &z, &weights)?;
 
-            // Check convergence: max|β_new - β_old| < tol
+            // Store old beta for step-halving
+            let beta_old = beta.clone();
+
+            // Check convergence based on coefficient change
             let max_change: f64 = beta_new
                 .iter()
-                .zip(beta.iter())
+                .zip(beta_old.iter())
                 .map(|(&b_new, &b_old)| {
                     let diff: f64 = b_new - b_old;
                     diff.abs()
                 })
                 .fold(0.0_f64, f64::max);
 
+            // Try full step first
             beta = beta_new;
 
-            // Update η and μ
-            for i in 0..n_samples {
-                let mut eta_i = 0.0;
-                for j in 0..n_params {
-                    eta_i += x_design[(i, j)] * beta[j];
-                }
-                // Add offset if present
-                let eta_with_offset = if let Some(ref offset) = self.offset {
-                    eta_i + offset[i]
-                } else {
-                    eta_i
-                };
-                eta[i] = eta_i; // Store η without offset for working response
-                mu[i] = self.family.link_inverse(eta_with_offset);
+            // Update η and μ with validity checks
+            self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
-                // Ensure μ > 0 for var_power > 0
-                if self.family.var_power > 0.0 && mu[i] <= 0.0 {
-                    mu[i] = 1e-6;
+            // Update deviance after μ update
+            dev = self.family.deviance(&y_vec, &mu);
+
+            // Step-halving: if deviance increased, halve the step (following R's glm.fit)
+            if dev.is_finite() && dev_old.is_finite() {
+                let mut n_halvings = 0;
+                while dev > dev_old + 1e-7 * dev_old.abs() && n_halvings < MAX_HALVINGS {
+                    n_halvings += 1;
+
+                    // Halve the step: β = (β_new + β_old) / 2
+                    for j in 0..n_params {
+                        beta[j] = (beta[j] + beta_old[j]) / 2.0;
+                    }
+
+                    // Recompute η and μ with halved coefficients
+                    self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
+
+                    // Recompute deviance
+                    dev = self.family.deviance(&y_vec, &mu);
                 }
             }
 
-            if max_change < tol {
+            // Check convergence using both coefficient change and deviance criteria
+            // Following R's glm.fit: |dev - dev_old| / (0.1 + |dev|) < epsilon
+            let dev_converged = (dev - dev_old).abs() / (0.1 + dev.abs()) < tol;
+            let coef_converged = max_change < tol;
+
+            // Converge if either criterion is met
+            if dev_converged || coef_converged {
                 converged = true;
                 break;
             }
@@ -249,6 +271,48 @@ impl TweedieRegressor {
         (weights, z)
     }
 
+    /// Update η and μ from current coefficients with validity checks.
+    fn update_eta_mu(
+        &self,
+        x_design: &Mat<f64>,
+        beta: &Col<f64>,
+        eta: &mut [f64],
+        mu: &mut [f64],
+        n_samples: usize,
+        n_params: usize,
+    ) -> Result<(), RegressionError> {
+        for i in 0..n_samples {
+            let mut eta_i = 0.0;
+            for j in 0..n_params {
+                eta_i += x_design[(i, j)] * beta[j];
+            }
+            // Add offset if present
+            let eta_with_offset = if let Some(ref offset) = self.offset {
+                eta_i + offset[i]
+            } else {
+                eta_i
+            };
+            eta[i] = eta_i; // Store η without offset for working response
+
+            // Check eta validity (following R's valideta)
+            if !self.family.valid_eta(eta_with_offset) {
+                return Err(RegressionError::NumericalError(
+                    "Invalid linear predictor (eta) during IRLS: non-finite value".to_string(),
+                ));
+            }
+
+            let mu_new = self.family.link_inverse(eta_with_offset);
+
+            // Check mu validity and clamp if needed (following R's validmu)
+            if !self.family.valid_mu(mu_new) {
+                mu[i] = self.family.clamp_mu(mu_new);
+            } else {
+                mu[i] = mu_new;
+            }
+        }
+        Ok(())
+    }
+
     /// Solve weighted least squares: min_β Σ wᵢ (zᵢ - xᵢ'β)²
     fn solve_weighted_ls(
         &self,
@@ -259,48 +323,98 @@ impl TweedieRegressor {
         let n_samples = x.nrows();
         let n_params = x.ncols();
 
-        // Transform: X_w = sqrt(W) * X, z_w = sqrt(W) * z
-        let mut x_weighted = Mat::zeros(n_samples, n_params);
-        let mut z_weighted = Col::zeros(n_samples);
+        // Check if we need penalized IRLS
+        let lambda = self.options.lambda;
 
-        for i in 0..n_samples {
-            let sqrt_w = weights[i].sqrt();
-            for j in 0..n_params {
-                x_weighted[(i, j)] = sqrt_w * x[(i, j)];
+        if lambda > 0.0 {
+            // Penalized IRLS: solve (X'WX + λI)β = X'Wz
+            // Note: Do not penalize intercept (first column if with_intercept)
+            let mut xtwx: Mat<f64> = Mat::zeros(n_params, n_params);
+            let mut xtwz: Col<f64> = Col::zeros(n_params);
+
+            // Compute X'WX and X'Wz
+            for i in 0..n_samples {
+                let w = weights[i];
+                for j in 0..n_params {
+                    xtwz[j] += w * x[(i, j)] * z[i];
+                    for k in 0..n_params {
+                        xtwx[(j, k)] += w * x[(i, j)] * x[(i, k)];
+                    }
+                }
             }
-            z_weighted[i] = sqrt_w * z[i];
-        }
 
-        // Solve via QR decomposition
-        let qr = x_weighted.col_piv_qr();
-        let q = qr.compute_Q();
-        let r = qr.R();
-        let perm = qr.P();
-
-        // Compute Q'z
-        let qtz = q.transpose() * z_weighted;
-
-        // Back substitution
-        let mut beta_perm = Col::zeros(n_params);
-        for i in (0..n_params).rev() {
-            let mut sum = qtz[i];
-            for j in (i + 1)..n_params {
-                sum -= r[(i, j)] * beta_perm[j];
+            // Add λI to the diagonal (skip intercept at index 0 if with_intercept)
+            let start_idx = if self.options.with_intercept { 1 } else { 0 };
+            for j in start_idx..n_params {
+                xtwx[(j, j)] += lambda;
             }
-            if r[(i, i)].abs() > self.options.rank_tolerance {
-                beta_perm[i] = sum / r[(i, i)];
-            } else {
-                beta_perm[i] = 0.0;
+
+            // Solve using QR decomposition
+            let qr = xtwx.qr();
+            let q = qr.compute_Q();
+            let r: Mat<f64> = qr.R().to_owned();
+
+            // Solve R β = Q' (X'Wz)
+            let qty = q.transpose() * &xtwz;
+
+            let mut beta: Col<f64> = Col::zeros(n_params);
+            for i in (0..n_params).rev() {
+                let mut sum: f64 = qty[i];
+                for j in (i + 1)..n_params {
+                    sum -= r[(i, j)] * beta[j];
+                }
+                if r[(i, i)].abs() > self.options.rank_tolerance {
+                    beta[i] = sum / r[(i, i)];
+                } else {
+                    beta[i] = 0.0;
+                }
             }
-        }
 
-        // Unpermute
-        let mut beta = Col::zeros(n_params);
-        for i in 0..n_params {
-            beta[perm.inverse().arrays().0[i]] = beta_perm[i];
-        }
+            Ok(beta)
+        } else {
+            // Standard IRLS: Transform X_w = sqrt(W) * X, z_w = sqrt(W) * z
+            let mut x_weighted = Mat::zeros(n_samples, n_params);
+            let mut z_weighted = Col::zeros(n_samples);
 
-        Ok(beta)
+            for i in 0..n_samples {
+                let sqrt_w = weights[i].sqrt();
+                for j in 0..n_params {
+                    x_weighted[(i, j)] = sqrt_w * x[(i, j)];
+                }
+                z_weighted[i] = sqrt_w * z[i];
+            }
+
+            // Solve via QR decomposition
+            let qr = x_weighted.col_piv_qr();
+            let q = qr.compute_Q();
+            let r = qr.R();
+            let perm = qr.P();
+
+            // Compute Q'z
+            let qtz = q.transpose() * z_weighted;
+
+            // Back substitution
+            let mut beta_perm = Col::zeros(n_params);
+            for i in (0..n_params).rev() {
+                let mut sum = qtz[i];
+                for j in (i + 1)..n_params {
+                    sum -= r[(i, j)] * beta_perm[j];
+                }
+                if r[(i, i)].abs() > self.options.rank_tolerance {
+                    beta_perm[i] = sum / r[(i, i)];
+                } else {
+                    beta_perm[i] = 0.0;
+                }
+            }
+
+            // Unpermute
+            let mut beta = Col::zeros(n_params);
+            for i in 0..n_params {
+                beta[perm.inverse().arrays().0[i]] = beta_perm[i];
+            }
+
+            Ok(beta)
+        }
     }
 
     /// Build the regression result from fitted values.
@@ -971,6 +1085,20 @@ impl TweedieRegressorBuilder {
         self
     }
 
+    /// Set the L2 regularization parameter (Ridge penalty).
+    ///
+    /// When lambda > 0, the IRLS algorithm solves a penalized weighted least
+    /// squares problem at each iteration: (X'WX + λI)β = X'Wz
+    ///
+    /// This helps stabilize estimation when there is collinearity or
+    /// extreme values in the data.
+    ///
+    /// Note: The intercept is not penalized.
+    pub fn lambda(mut self, lambda: f64) -> Self {
+        self.options_builder = self.options_builder.lambda(lambda);
+        self
+    }
+
     /// Set the variance power for the Tweedie family.
     ///
     /// Common values:
@@ -1454,5 +1582,127 @@ mod tests {
         for i in 0..5 {
             assert!(pred[i] > 0.0);
         }
+    }
+
+    #[test]
+    fn test_penalized_irls() {
+        // Test the penalized IRLS path with lambda > 0
+        let x = Mat::from_fn(30, 1, |i, _| i as f64);
+        let y = Col::from_fn(30, |i| (1.0 + 0.1 * i as f64).exp());
+
+        // Fit with regularization
+        let fitted_penalized = TweedieRegressor::gamma()
+            .with_intercept(true)
+            .lambda(0.1)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model should fit");
+
+        // Fit without regularization
+        let fitted_unpenalized = TweedieRegressor::gamma()
+            .with_intercept(true)
+            .lambda(0.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("unpenalized model should fit");
+
+        // Both should converge
+        assert!(fitted_penalized.iterations < 100);
+        assert!(fitted_unpenalized.iterations < 100);
+
+        // Penalized coefficients should be shrunk toward zero
+        let coef_penalized = fitted_penalized.result.coefficients[0].abs();
+        let coef_unpenalized = fitted_unpenalized.result.coefficients[0].abs();
+        assert!(
+            coef_penalized <= coef_unpenalized + 0.1,
+            "Penalized coefficient {} should not be much larger than unpenalized {}",
+            coef_penalized,
+            coef_unpenalized
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_no_intercept() {
+        // Test penalized IRLS without intercept
+        let x = Mat::from_fn(30, 1, |i, _| (i + 1) as f64);
+        let y = Col::from_fn(30, |i| (0.1 * (i + 1) as f64).exp());
+
+        let fitted = TweedieRegressor::gamma()
+            .with_intercept(false)
+            .lambda(0.5)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model without intercept should fit");
+
+        assert!(fitted.result.intercept.is_none());
+        assert!(fitted.iterations < 100);
+    }
+
+    #[test]
+    fn test_penalized_irls_high_lambda() {
+        // Test penalized IRLS with high lambda - coefficients should be heavily shrunk
+        let x = Mat::from_fn(30, 1, |i, _| i as f64);
+        let y = Col::from_fn(30, |i| (1.0 + 0.1 * i as f64).exp());
+
+        let fitted = TweedieRegressor::gamma()
+            .with_intercept(true)
+            .lambda(100.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("heavily penalized model should fit");
+
+        // Coefficient should be small due to heavy penalization
+        assert!(
+            fitted.result.coefficients[0].abs() < 0.5,
+            "Heavily penalized coefficient should be small: {}",
+            fitted.result.coefficients[0]
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_multivariate() {
+        // Test penalized IRLS with multiple features
+        let n = 50;
+        let x = Mat::from_fn(n, 3, |i, j| (i as f64 + j as f64 * 0.5) / 10.0);
+        let y = Col::from_fn(n, |i| {
+            let xi = (i as f64) / 10.0;
+            (1.0 + 0.1 * xi).exp()
+        });
+
+        let fitted = TweedieRegressor::gamma()
+            .with_intercept(true)
+            .lambda(0.1)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("multivariate penalized model should fit");
+
+        assert_eq!(fitted.result.coefficients.nrows(), 3);
+        assert!(fitted.iterations < 100);
+    }
+
+    #[test]
+    fn test_penalized_irls_poisson() {
+        // Test penalized IRLS with Poisson variance
+        let x = Mat::from_fn(50, 1, |i, _| i as f64 / 10.0);
+        let y = Col::from_fn(50, |i| {
+            let eta = 0.1 + 0.2 * (i as f64 / 10.0);
+            eta.exp().max(0.1)
+        });
+
+        let fitted = TweedieRegressor::poisson()
+            .with_intercept(true)
+            .lambda(0.5)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized Poisson model should fit");
+
+        assert!(fitted.iterations < 100);
+        assert!(fitted.result.r_squared > 0.0);
     }
 }

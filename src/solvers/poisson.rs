@@ -132,8 +132,16 @@ impl PoissonRegressor {
         let mut converged = false;
         let mut iterations = 0;
 
+        // Compute initial deviance for deviance-based convergence (following R's glm.fit)
+        let mut dev = self.family.deviance(&y_vec, &mu);
+        let mut dev_old: f64;
+
+        // Maximum step halvings per iteration (following R's glm.control default)
+        const MAX_HALVINGS: usize = 10;
+
         for iter in 0..max_iter {
             iterations = iter + 1;
+            dev_old = dev;
 
             // Compute working weights and response
             let (weights, z) = self.compute_irls_quantities(&y_vec, &mu, &eta);
@@ -141,33 +149,54 @@ impl PoissonRegressor {
             // Solve weighted least squares
             let beta_new = self.solve_weighted_ls(&x_design, &z, &weights)?;
 
-            // Check convergence
+            // Store old beta for step-halving
+            let beta_old = beta.clone();
+
+            // Check convergence based on coefficient change
             let max_change: f64 = beta_new
                 .iter()
-                .zip(beta.iter())
+                .zip(beta_old.iter())
                 .map(|(&b_new, &b_old)| {
                     let diff: f64 = b_new - b_old;
                     diff.abs()
                 })
                 .fold(0.0_f64, f64::max);
 
+            // Try full step first
             beta = beta_new;
 
-            // Update η and μ
-            for i in 0..n_samples {
-                let mut eta_i = 0.0;
-                for j in 0..n_params {
-                    eta_i += x_design[(i, j)] * beta[j];
+            // Update η and μ with validity checks
+            self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
+
+            // Update deviance after μ update
+            dev = self.family.deviance(&y_vec, &mu);
+
+            // Step-halving: if deviance increased, halve the step (following R's glm.fit)
+            if dev.is_finite() && dev_old.is_finite() {
+                let mut n_halvings = 0;
+                while dev > dev_old + 1e-7 * dev_old.abs() && n_halvings < MAX_HALVINGS {
+                    n_halvings += 1;
+
+                    // Halve the step: β = (β_new + β_old) / 2
+                    for j in 0..n_params {
+                        beta[j] = (beta[j] + beta_old[j]) / 2.0;
+                    }
+
+                    // Recompute η and μ with halved coefficients
+                    self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
+
+                    // Recompute deviance
+                    dev = self.family.deviance(&y_vec, &mu);
                 }
-                // Add offset if present
-                if let Some(ref offset) = self.offset {
-                    eta_i += offset[i];
-                }
-                eta[i] = eta_i;
-                mu[i] = self.family.link_inverse(eta_i);
             }
 
-            if max_change < tol {
+            // Check convergence using both coefficient change and deviance criteria
+            // Following R's glm.fit: |dev - dev_old| / (0.1 + |dev|) < epsilon
+            let dev_converged = (dev - dev_old).abs() / (0.1 + dev.abs()) < tol;
+            let coef_converged = max_change < tol;
+
+            // Converge if either criterion is met
+            if dev_converged || coef_converged {
                 converged = true;
                 break;
             }
@@ -206,6 +235,46 @@ impl PoissonRegressor {
         (weights, z)
     }
 
+    /// Update η and μ from current coefficients with validity checks.
+    fn update_eta_mu(
+        &self,
+        x_design: &Mat<f64>,
+        beta: &Col<f64>,
+        eta: &mut [f64],
+        mu: &mut [f64],
+        n_samples: usize,
+        n_params: usize,
+    ) -> Result<(), RegressionError> {
+        for i in 0..n_samples {
+            let mut eta_i = 0.0;
+            for j in 0..n_params {
+                eta_i += x_design[(i, j)] * beta[j];
+            }
+            // Add offset if present
+            if let Some(ref offset) = self.offset {
+                eta_i += offset[i];
+            }
+            eta[i] = eta_i;
+
+            // Check eta validity (following R's valideta)
+            if !self.family.valid_eta(eta_i) {
+                return Err(RegressionError::NumericalError(
+                    "Invalid linear predictor (eta) during IRLS: non-finite value".to_string(),
+                ));
+            }
+
+            let mu_new = self.family.link_inverse(eta_i);
+
+            // Check mu validity and clamp if needed (following R's validmu)
+            if !self.family.valid_mu(mu_new) {
+                mu[i] = self.family.clamp_mu(mu_new);
+            } else {
+                mu[i] = mu_new;
+            }
+        }
+        Ok(())
+    }
+
     fn solve_weighted_ls(
         &self,
         x: &Mat<f64>,
@@ -215,43 +284,94 @@ impl PoissonRegressor {
         let n_samples = x.nrows();
         let n_params = x.ncols();
 
-        let mut x_weighted = Mat::zeros(n_samples, n_params);
-        let mut z_weighted = Col::zeros(n_samples);
+        // Check if we need penalized IRLS
+        let lambda = self.options.lambda;
 
-        for i in 0..n_samples {
-            let sqrt_w = weights[i].sqrt();
-            for j in 0..n_params {
-                x_weighted[(i, j)] = sqrt_w * x[(i, j)];
+        if lambda > 0.0 {
+            // Penalized IRLS: solve (X'WX + λI)β = X'Wz
+            // Note: Do not penalize intercept (first column if with_intercept)
+            let mut xtwx: Mat<f64> = Mat::zeros(n_params, n_params);
+            let mut xtwz: Col<f64> = Col::zeros(n_params);
+
+            // Compute X'WX and X'Wz
+            for i in 0..n_samples {
+                let w = weights[i];
+                for j in 0..n_params {
+                    xtwz[j] += w * x[(i, j)] * z[i];
+                    for k in 0..n_params {
+                        xtwx[(j, k)] += w * x[(i, j)] * x[(i, k)];
+                    }
+                }
             }
-            z_weighted[i] = sqrt_w * z[i];
-        }
 
-        let qr = x_weighted.col_piv_qr();
-        let q = qr.compute_Q();
-        let r = qr.R();
-        let perm = qr.P();
-
-        let qtz = q.transpose() * z_weighted;
-
-        let mut beta_perm = Col::zeros(n_params);
-        for i in (0..n_params).rev() {
-            let mut sum = qtz[i];
-            for j in (i + 1)..n_params {
-                sum -= r[(i, j)] * beta_perm[j];
+            // Add λI to the diagonal (skip intercept at index 0 if with_intercept)
+            let start_idx = if self.options.with_intercept { 1 } else { 0 };
+            for j in start_idx..n_params {
+                xtwx[(j, j)] += lambda;
             }
-            if r[(i, i)].abs() > self.options.rank_tolerance {
-                beta_perm[i] = sum / r[(i, i)];
-            } else {
-                beta_perm[i] = 0.0;
+
+            // Solve using QR decomposition
+            let qr = xtwx.qr();
+            let q = qr.compute_Q();
+            let r: Mat<f64> = qr.R().to_owned();
+
+            // Solve R β = Q' (X'Wz)
+            let qty = q.transpose() * &xtwz;
+
+            let mut beta: Col<f64> = Col::zeros(n_params);
+            for i in (0..n_params).rev() {
+                let mut sum: f64 = qty[i];
+                for j in (i + 1)..n_params {
+                    sum -= r[(i, j)] * beta[j];
+                }
+                if r[(i, i)].abs() > self.options.rank_tolerance {
+                    beta[i] = sum / r[(i, i)];
+                } else {
+                    beta[i] = 0.0;
+                }
             }
-        }
 
-        let mut beta = Col::zeros(n_params);
-        for i in 0..n_params {
-            beta[perm.inverse().arrays().0[i]] = beta_perm[i];
-        }
+            Ok(beta)
+        } else {
+            // Standard IRLS: solve using QR on weighted design matrix
+            let mut x_weighted = Mat::zeros(n_samples, n_params);
+            let mut z_weighted = Col::zeros(n_samples);
 
-        Ok(beta)
+            for i in 0..n_samples {
+                let sqrt_w = weights[i].sqrt();
+                for j in 0..n_params {
+                    x_weighted[(i, j)] = sqrt_w * x[(i, j)];
+                }
+                z_weighted[i] = sqrt_w * z[i];
+            }
+
+            let qr = x_weighted.col_piv_qr();
+            let q = qr.compute_Q();
+            let r = qr.R();
+            let perm = qr.P();
+
+            let qtz = q.transpose() * z_weighted;
+
+            let mut beta_perm = Col::zeros(n_params);
+            for i in (0..n_params).rev() {
+                let mut sum = qtz[i];
+                for j in (i + 1)..n_params {
+                    sum -= r[(i, j)] * beta_perm[j];
+                }
+                if r[(i, i)].abs() > self.options.rank_tolerance {
+                    beta_perm[i] = sum / r[(i, i)];
+                } else {
+                    beta_perm[i] = 0.0;
+                }
+            }
+
+            let mut beta = Col::zeros(n_params);
+            for i in 0..n_params {
+                beta[perm.inverse().arrays().0[i]] = beta_perm[i];
+            }
+
+            Ok(beta)
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -879,6 +999,20 @@ impl PoissonRegressorBuilder {
         self
     }
 
+    /// Set the L2 regularization parameter (Ridge penalty).
+    ///
+    /// When lambda > 0, the IRLS algorithm solves a penalized weighted least
+    /// squares problem at each iteration: (X'WX + λI)β = X'Wz
+    ///
+    /// This helps stabilize estimation when there is collinearity or
+    /// quasi-separation in the data.
+    ///
+    /// Note: The intercept is not penalized.
+    pub fn lambda(mut self, lambda: f64) -> Self {
+        self.options_builder = self.options_builder.lambda(lambda);
+        self
+    }
+
     /// Set the link function.
     pub fn link(mut self, link: PoissonLink) -> Self {
         self.link = link;
@@ -1311,5 +1445,99 @@ mod tests {
             .expect("model should fit");
 
         assert!(fitted.result.coefficients[0] > 0.0);
+    }
+
+    #[test]
+    fn test_penalized_irls() {
+        // Test Ridge (L2) penalized IRLS
+        let (x, y) = create_poisson_data(100);
+
+        // Fit with regularization
+        let fitted_ridge = PoissonRegressor::log()
+            .with_intercept(true)
+            .lambda(1.0)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model should fit");
+
+        // Fit without regularization
+        let fitted_unpen = PoissonRegressor::log()
+            .with_intercept(true)
+            .lambda(0.0)
+            .build()
+            .fit(&x, &y)
+            .expect("unpenalized model should fit");
+
+        // Both should converge
+        assert!(fitted_ridge.iterations < 100);
+        assert!(fitted_unpen.iterations < 100);
+
+        // Ridge coefficients should be shrunk toward zero (smaller in magnitude)
+        assert!(
+            fitted_ridge.result.coefficients[0].abs() <= fitted_unpen.result.coefficients[0].abs(),
+            "Ridge coefficient {} should be <= unpenalized {}",
+            fitted_ridge.result.coefficients[0].abs(),
+            fitted_unpen.result.coefficients[0].abs()
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_no_intercept() {
+        // Test penalized IRLS without intercept
+        let (x, y) = create_poisson_data(100);
+
+        let fitted = PoissonRegressor::log()
+            .with_intercept(false)
+            .lambda(0.5)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model without intercept should fit");
+
+        assert!(fitted.result.intercept.is_none());
+        assert!(fitted.iterations < 100);
+    }
+
+    #[test]
+    fn test_penalized_irls_high_lambda() {
+        // Test penalized IRLS with high lambda - coefficients should be heavily shrunk
+        let (x, y) = create_poisson_data(100);
+
+        let fitted = PoissonRegressor::log()
+            .with_intercept(true)
+            .lambda(100.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("heavily penalized model should fit");
+
+        // Coefficient should be small due to heavy penalization
+        assert!(
+            fitted.result.coefficients[0].abs() < 1.0,
+            "Heavily penalized coefficient should be small: {}",
+            fitted.result.coefficients[0]
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_multivariate() {
+        // Test penalized IRLS with multiple features
+        let n = 100;
+        let x = Mat::from_fn(n, 3, |i, j| (i as f64 + j as f64 * 0.5) / 10.0);
+        let y = Col::from_fn(n, |i| {
+            let xi = (i as f64) / 10.0;
+            (0.5 + 0.1 * xi).exp().round().max(1.0)
+        });
+
+        let fitted = PoissonRegressor::log()
+            .with_intercept(true)
+            .lambda(0.1)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("multivariate penalized model should fit");
+
+        assert_eq!(fitted.result.coefficients.nrows(), 3);
+        assert!(fitted.iterations < 100);
     }
 }
