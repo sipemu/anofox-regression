@@ -419,7 +419,10 @@ mod tests {
 
         let result = check_binary_separation(&x, &y);
         assert!(result.has_separation);
-        assert_eq!(result.separation_types[0], SeparationType::MonotonicResponse);
+        assert_eq!(
+            result.separation_types[0],
+            SeparationType::MonotonicResponse
+        );
         assert!(result.warning_message.is_some());
         let msg = result.warning_message.unwrap();
         assert!(msg.contains("all responses in one class"));
@@ -441,7 +444,10 @@ mod tests {
         // This should trigger the separation detection
         assert!(result.has_separation);
         assert!(result.separated_predictors.contains(&0));
-        assert_eq!(result.separation_types[0], SeparationType::MonotonicResponse);
+        assert_eq!(
+            result.separation_types[0],
+            SeparationType::MonotonicResponse
+        );
         assert!(result.warning_message.is_some());
         let msg = result.warning_message.unwrap();
         assert!(msg.contains("all-zero responses when active"));

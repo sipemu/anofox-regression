@@ -633,7 +633,10 @@ mod tests {
         // κ = 100 should be High
         // κ = 1000 should be Severe
 
-        assert_eq!(classify_condition_number(29.9), ConditionSeverity::WellConditioned);
+        assert_eq!(
+            classify_condition_number(29.9),
+            ConditionSeverity::WellConditioned
+        );
         assert_eq!(classify_condition_number(30.0), ConditionSeverity::Moderate);
         assert_eq!(classify_condition_number(99.9), ConditionSeverity::Moderate);
         assert_eq!(classify_condition_number(100.0), ConditionSeverity::High);
