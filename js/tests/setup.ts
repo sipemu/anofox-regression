@@ -5,8 +5,17 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Path to the WASM package
-const WASM_PKG_PATH = join(__dirname, '..', '..', 'crates', 'anofox-regression-js', 'pkg');
+// Path to the WASM package - check both locations
+// In npm.yml workflow, files are in js/ directory
+// In ci.yml workflow, files are in crates/anofox-regression-js/pkg/
+const WASM_PKG_PATH_JS = join(__dirname, '..');
+const WASM_PKG_PATH_CRATES = join(__dirname, '..', '..', 'crates', 'anofox-regression-js', 'pkg');
+
+// Determine which path to use based on file existence
+import { existsSync } from 'fs';
+const WASM_PKG_PATH = existsSync(join(WASM_PKG_PATH_JS, 'anofox_regression_js_bg.wasm'))
+  ? WASM_PKG_PATH_JS
+  : WASM_PKG_PATH_CRATES;
 
 let initialized = false;
 
