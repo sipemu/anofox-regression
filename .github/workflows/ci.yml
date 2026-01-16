@@ -62,6 +62,29 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  wasm-test:
+    name: WASM/JS Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build WASM package
+        run: wasm-pack build crates/anofox-regression-js --target web --out-dir pkg
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install npm dependencies
+        working-directory: js
+        run: npm ci
+      - name: Run npm tests
+        working-directory: js
+        run: npm test
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
