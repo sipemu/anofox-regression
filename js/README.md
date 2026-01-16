@@ -344,6 +344,38 @@ const nRows = 3;
 const nCols = 2;
 ```
 
+## Development
+
+### Running Tests
+
+The package includes a comprehensive test suite using [Vitest](https://vitest.dev/).
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+```
+
+### Building from Source
+
+To build the WASM package from the Rust source:
+
+```bash
+# Install wasm-pack
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Build the package
+wasm-pack build crates/anofox-regression-js --target web --out-dir pkg
+```
+
 ## License
 
 MIT
