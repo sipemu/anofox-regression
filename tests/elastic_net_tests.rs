@@ -118,7 +118,7 @@ fn test_elastic_net_varying_alpha() {
 
         let fitted = model
             .fit(&x, &y)
-            .expect(&format!("fit should succeed for alpha={}", alpha));
+            .unwrap_or_else(|_| panic!("fit should succeed for alpha={}", alpha));
         assert!(fitted.r_squared() >= 0.0);
         assert!(fitted.r_squared() <= 1.0 || fitted.r_squared().is_nan());
     }

@@ -154,31 +154,28 @@ impl NegativeBinomialRegressor {
                 // Solve weighted least squares
                 let beta_new = self.solve_weighted_ls(&x_design, &z, &weights)?;
 
-                // Check convergence
+                // Store old beta for step-halving
+                let beta_old = beta.clone();
+
+                // Check convergence based on coefficient change
                 let max_change: f64 = beta_new
                     .iter()
-                    .zip(beta.iter())
+                    .zip(beta_old.iter())
                     .map(|(&b_new, &b_old)| {
                         let diff: f64 = b_new - b_old;
                         diff.abs()
                     })
                     .fold(0.0_f64, f64::max);
 
+                // Update coefficients
                 beta = beta_new;
 
-                // Update η and μ
-                for i in 0..n_samples {
-                    let mut eta_i = 0.0;
-                    for j in 0..n_params {
-                        eta_i += x_design[(i, j)] * beta[j];
-                    }
-                    if let Some(ref offset) = self.offset {
-                        eta_i += offset[i];
-                    }
-                    eta[i] = eta_i;
-                    mu[i] = family.link_inverse(eta_i);
-                }
+                // Update η and μ with validity checks
+                self.update_eta_mu_with_family(
+                    &family, &x_design, &beta, &mut eta, &mut mu, n_samples, n_params,
+                )?;
 
+                // Check convergence based on coefficient change
                 if max_change < tol {
                     inner_converged = true;
                     break;
@@ -254,6 +251,48 @@ impl NegativeBinomialRegressor {
         (weights, z)
     }
 
+    /// Update η and μ from current coefficients with validity checks.
+    #[allow(clippy::too_many_arguments)]
+    fn update_eta_mu_with_family(
+        &self,
+        family: &NegativeBinomialFamily,
+        x_design: &Mat<f64>,
+        beta: &Col<f64>,
+        eta: &mut [f64],
+        mu: &mut [f64],
+        n_samples: usize,
+        n_params: usize,
+    ) -> Result<(), RegressionError> {
+        for i in 0..n_samples {
+            let mut eta_i = 0.0;
+            for j in 0..n_params {
+                eta_i += x_design[(i, j)] * beta[j];
+            }
+            // Add offset if present
+            if let Some(ref offset) = self.offset {
+                eta_i += offset[i];
+            }
+            eta[i] = eta_i;
+
+            // Check eta validity (following R's valideta)
+            if !family.valid_eta(eta_i) {
+                return Err(RegressionError::NumericalError(
+                    "Invalid linear predictor (eta) during IRLS: non-finite value".to_string(),
+                ));
+            }
+
+            let mu_new = family.link_inverse(eta_i);
+
+            // Check mu validity and clamp if needed (following R's validmu)
+            if !family.valid_mu(mu_new) {
+                mu[i] = family.clamp_mu(mu_new);
+            } else {
+                mu[i] = mu_new;
+            }
+        }
+        Ok(())
+    }
+
     fn solve_weighted_ls(
         &self,
         x: &Mat<f64>,
@@ -263,43 +302,94 @@ impl NegativeBinomialRegressor {
         let n_samples = x.nrows();
         let n_params = x.ncols();
 
-        let mut x_weighted = Mat::zeros(n_samples, n_params);
-        let mut z_weighted = Col::zeros(n_samples);
+        // Check if we need penalized IRLS
+        let lambda = self.options.lambda;
 
-        for i in 0..n_samples {
-            let sqrt_w = weights[i].sqrt();
-            for j in 0..n_params {
-                x_weighted[(i, j)] = sqrt_w * x[(i, j)];
+        if lambda > 0.0 {
+            // Penalized IRLS: solve (X'WX + λI)β = X'Wz
+            // Note: Do not penalize intercept (first column if with_intercept)
+            let mut xtwx: Mat<f64> = Mat::zeros(n_params, n_params);
+            let mut xtwz: Col<f64> = Col::zeros(n_params);
+
+            // Compute X'WX and X'Wz
+            for i in 0..n_samples {
+                let w = weights[i];
+                for j in 0..n_params {
+                    xtwz[j] += w * x[(i, j)] * z[i];
+                    for k in 0..n_params {
+                        xtwx[(j, k)] += w * x[(i, j)] * x[(i, k)];
+                    }
+                }
             }
-            z_weighted[i] = sqrt_w * z[i];
-        }
 
-        let qr = x_weighted.col_piv_qr();
-        let q = qr.compute_Q();
-        let r = qr.R();
-        let perm = qr.P();
-
-        let qtz = q.transpose() * z_weighted;
-
-        let mut beta_perm = Col::zeros(n_params);
-        for i in (0..n_params).rev() {
-            let mut sum = qtz[i];
-            for j in (i + 1)..n_params {
-                sum -= r[(i, j)] * beta_perm[j];
+            // Add λI to the diagonal (skip intercept at index 0 if with_intercept)
+            let start_idx = if self.options.with_intercept { 1 } else { 0 };
+            for j in start_idx..n_params {
+                xtwx[(j, j)] += lambda;
             }
-            if r[(i, i)].abs() > self.options.rank_tolerance {
-                beta_perm[i] = sum / r[(i, i)];
-            } else {
-                beta_perm[i] = 0.0;
+
+            // Solve using QR decomposition
+            let qr = xtwx.qr();
+            let q = qr.compute_Q();
+            let r: Mat<f64> = qr.R().to_owned();
+
+            // Solve R β = Q' (X'Wz)
+            let qty = q.transpose() * &xtwz;
+
+            let mut beta: Col<f64> = Col::zeros(n_params);
+            for i in (0..n_params).rev() {
+                let mut sum: f64 = qty[i];
+                for j in (i + 1)..n_params {
+                    sum -= r[(i, j)] * beta[j];
+                }
+                if r[(i, i)].abs() > self.options.rank_tolerance {
+                    beta[i] = sum / r[(i, i)];
+                } else {
+                    beta[i] = 0.0;
+                }
             }
-        }
 
-        let mut beta = Col::zeros(n_params);
-        for i in 0..n_params {
-            beta[perm.inverse().arrays().0[i]] = beta_perm[i];
-        }
+            Ok(beta)
+        } else {
+            // Standard IRLS: solve using QR on weighted design matrix
+            let mut x_weighted = Mat::zeros(n_samples, n_params);
+            let mut z_weighted = Col::zeros(n_samples);
 
-        Ok(beta)
+            for i in 0..n_samples {
+                let sqrt_w = weights[i].sqrt();
+                for j in 0..n_params {
+                    x_weighted[(i, j)] = sqrt_w * x[(i, j)];
+                }
+                z_weighted[i] = sqrt_w * z[i];
+            }
+
+            let qr = x_weighted.col_piv_qr();
+            let q = qr.compute_Q();
+            let r = qr.R();
+            let perm = qr.P();
+
+            let qtz = q.transpose() * z_weighted;
+
+            let mut beta_perm = Col::zeros(n_params);
+            for i in (0..n_params).rev() {
+                let mut sum = qtz[i];
+                for j in (i + 1)..n_params {
+                    sum -= r[(i, j)] * beta_perm[j];
+                }
+                if r[(i, i)].abs() > self.options.rank_tolerance {
+                    beta_perm[i] = sum / r[(i, i)];
+                } else {
+                    beta_perm[i] = 0.0;
+                }
+            }
+
+            let mut beta = Col::zeros(n_params);
+            for i in 0..n_params {
+                beta[perm.inverse().arrays().0[i]] = beta_perm[i];
+            }
+
+            Ok(beta)
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -950,6 +1040,20 @@ impl NegativeBinomialRegressorBuilder {
     /// Set the convergence tolerance.
     pub fn tolerance(mut self, tol: f64) -> Self {
         self.options_builder = self.options_builder.tolerance(tol);
+        self
+    }
+
+    /// Set the L2 regularization parameter (Ridge penalty).
+    ///
+    /// When lambda > 0, the IRLS algorithm solves a penalized weighted least
+    /// squares problem at each iteration: (X'WX + λI)β = X'Wz
+    ///
+    /// This helps stabilize estimation when there is overdispersion or
+    /// sparse data with extreme values.
+    ///
+    /// Note: The intercept is not penalized.
+    pub fn lambda(mut self, lambda: f64) -> Self {
+        self.options_builder = self.options_builder.lambda(lambda);
         self
     }
 

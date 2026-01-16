@@ -3,6 +3,7 @@
 use faer::{Col, Mat};
 
 /// Generate simple linear data: y = x * beta + intercept + noise
+#[allow(dead_code)]
 pub fn generate_linear_data(
     n_samples: usize,
     n_features: usize,
@@ -41,6 +42,7 @@ pub fn generate_linear_data(
 }
 
 /// Generate data with collinear features.
+#[allow(dead_code)]
 pub fn generate_collinear_data(n_samples: usize) -> (Mat<f64>, Col<f64>) {
     let mut x = Mat::zeros(n_samples, 3);
     let mut y = Col::zeros(n_samples);
@@ -56,6 +58,7 @@ pub fn generate_collinear_data(n_samples: usize) -> (Mat<f64>, Col<f64>) {
 }
 
 /// Generate data with constant columns.
+#[allow(dead_code)]
 pub fn generate_constant_column_data(n_samples: usize) -> (Mat<f64>, Col<f64>) {
     let mut x = Mat::zeros(n_samples, 3);
     let mut y = Col::zeros(n_samples);
@@ -71,6 +74,7 @@ pub fn generate_constant_column_data(n_samples: usize) -> (Mat<f64>, Col<f64>) {
 }
 
 /// Approximate equality check for floating point values.
+#[allow(dead_code)]
 pub fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
     (a - b).abs() < epsilon
 }
@@ -81,6 +85,7 @@ pub fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
 
 /// Generate alternating dummy variables: [[1,0],[0,1],[1,0],[0,1],...]
 /// With intercept, this creates rank deficiency since col1 + col2 = 1 (intercept)
+#[allow(dead_code)]
 pub fn generate_alternating_dummies(n_samples: usize) -> (Mat<f64>, Col<f64>) {
     let mut x = Mat::zeros(n_samples, 2);
     let mut y = Col::zeros(n_samples);
@@ -101,6 +106,7 @@ pub fn generate_alternating_dummies(n_samples: usize) -> (Mat<f64>, Col<f64>) {
 
 /// Generate data with specified zero-variance columns.
 /// `zero_cols` contains indices of columns that should be all zeros.
+#[allow(dead_code)]
 pub fn generate_zero_variance_columns(
     n_samples: usize,
     n_features: usize,
@@ -127,6 +133,7 @@ pub fn generate_zero_variance_columns(
 
 /// Generate changepoint-like production data.
 /// 11 month dummies (rotating) + 11 changepoint segments (9 are all zeros).
+#[allow(dead_code)]
 pub fn generate_changepoint_data(n_samples: usize) -> (Mat<f64>, Col<f64>) {
     let n_features = 22; // 11 month dummies + 11 changepoint segments
     let mut x = Mat::zeros(n_samples, n_features);

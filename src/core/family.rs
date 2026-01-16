@@ -15,6 +15,7 @@
 /// - A variance function V(μ) relating variance to the mean
 /// - A link function g(μ) = η relating the mean to the linear predictor
 /// - Methods for IRLS (Iteratively Reweighted Least Squares) fitting
+/// - Validity checks for μ and η (following R's glm.fit)
 pub trait GlmFamily {
     /// Compute the variance function V(μ).
     ///
@@ -29,6 +30,50 @@ pub trait GlmFamily {
 
     /// Compute derivative of link function dη/dμ.
     fn link_derivative(&self, mu: f64) -> f64;
+
+    /// Check if a mean value μ is valid for this family.
+    ///
+    /// This follows R's `validmu()` function in glm families.
+    /// Returns `true` if μ is in the valid range for the family.
+    ///
+    /// # Examples
+    ///
+    /// - Poisson: μ > 0
+    /// - Binomial: 0 < μ < 1
+    /// - Gamma: μ > 0
+    fn valid_mu(&self, mu: f64) -> bool {
+        mu.is_finite() && mu > 0.0
+    }
+
+    /// Check if a linear predictor η is valid for this family.
+    ///
+    /// This follows R's `valideta()` function in glm families.
+    /// Returns `true` if η is finite (default behavior).
+    fn valid_eta(&self, eta: f64) -> bool {
+        eta.is_finite()
+    }
+
+    /// Check validity of all μ values in a slice.
+    ///
+    /// Returns `true` if all values are valid.
+    fn all_valid_mu(&self, mu: &[f64]) -> bool {
+        mu.iter().all(|&m| self.valid_mu(m))
+    }
+
+    /// Check validity of all η values in a slice.
+    ///
+    /// Returns `true` if all values are valid.
+    fn all_valid_eta(&self, eta: &[f64]) -> bool {
+        eta.iter().all(|&e| self.valid_eta(e))
+    }
+
+    /// Clamp μ to valid range for this family.
+    ///
+    /// Default implementation clamps to (1e-10, 1e10).
+    /// Override for family-specific bounds (e.g., Binomial: (ε, 1-ε)).
+    fn clamp_mu(&self, mu: f64) -> f64 {
+        mu.clamp(1e-10, 1e10)
+    }
 
     /// Compute IRLS weight for observation.
     ///
@@ -437,6 +482,30 @@ impl GlmFamily for TweedieFamily {
 
     fn initialize_mu(&self, y: &[f64]) -> Vec<f64> {
         TweedieFamily::initialize_mu(self, y)
+    }
+
+    /// Check if μ is valid for Tweedie family.
+    ///
+    /// - var_power = 0 (Gaussian): any finite μ
+    /// - var_power > 0 (Poisson, Gamma, etc.): μ > 0
+    fn valid_mu(&self, mu: f64) -> bool {
+        if !mu.is_finite() {
+            return false;
+        }
+        if self.var_power == 0.0 {
+            true // Gaussian: any finite μ
+        } else {
+            mu > 0.0 // Poisson, Gamma, etc.: μ > 0
+        }
+    }
+
+    /// Clamp μ to valid range for Tweedie family.
+    fn clamp_mu(&self, mu: f64) -> f64 {
+        if self.var_power == 0.0 {
+            mu.clamp(-1e10, 1e10) // Gaussian: any value
+        } else {
+            mu.clamp(1e-10, 1e10) // Poisson, Gamma: μ > 0
+        }
     }
 }
 
@@ -992,8 +1061,8 @@ mod tests {
 
         // For Poisson, mu should be positive
         assert_eq!(mu.len(), y.len());
-        for i in 0..y.len() {
-            assert!(mu[i] > 0.0, "mu[{}] should be positive", i);
+        for (i, &mu_i) in mu.iter().enumerate() {
+            assert!(mu_i > 0.0, "mu[{}] should be positive", i);
         }
 
         // First observation has y=0, mu should be (0 + 2)/2 = 1.0
@@ -1008,8 +1077,8 @@ mod tests {
         let mu = fam.initialize_mu(&y);
 
         // All mu values should be positive for Poisson
-        for i in 0..y.len() {
-            assert!(mu[i] > 0.0, "mu[{}] = {} should be positive", i, mu[i]);
+        for (i, &mu_i) in mu.iter().enumerate() {
+            assert!(mu_i > 0.0, "mu[{}] = {} should be positive", i, mu_i);
         }
     }
 

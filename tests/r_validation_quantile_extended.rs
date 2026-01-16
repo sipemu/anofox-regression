@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Extended Quantile Regression Validation Tests
 //!
 //! Validates against R's quantreg package using classic datasets:
@@ -27,19 +28,29 @@ const Y_ENGEL: [f64; 235] = [
 ];
 
 // Expected coefficients from R quantreg::rq() for various tau values
+#[allow(dead_code)]
 const EXPECTED_ENGEL_INTERCEPT_TAU05: f64 = 124.8800408126;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_SLOPE_TAU05: f64 = 0.3433610576;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_INTERCEPT_TAU10: f64 = 110.1415742049;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_SLOPE_TAU10: f64 = 0.4017657593;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_INTERCEPT_TAU25: f64 = 95.4835396346;
 const EXPECTED_ENGEL_SLOPE_TAU25: f64 = 0.4741032082;
 const EXPECTED_ENGEL_INTERCEPT_TAU50: f64 = 81.4822474169;
 const EXPECTED_ENGEL_SLOPE_TAU50: f64 = 0.5601805512;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_INTERCEPT_TAU75: f64 = 62.3965855290;
 const EXPECTED_ENGEL_SLOPE_TAU75: f64 = 0.6440141394;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_INTERCEPT_TAU90: f64 = 67.3508720801;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_SLOPE_TAU90: f64 = 0.6862994804;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_INTERCEPT_TAU95: f64 = 64.1039631811;
+#[allow(dead_code)]
 const EXPECTED_ENGEL_SLOPE_TAU95: f64 = 0.7090685170;
 
 // =============================================================================

@@ -88,7 +88,7 @@ fn test_ols_simple_vs_r() {
         epsilon = 1e-4
     );
     let t_stats = result.t_statistics.as_ref().expect("should have t-stats");
-    assert_relative_eq!(t_stats[0], 121.088861863778604, epsilon = 1e-4);
+    assert_relative_eq!(t_stats[0], 121.088_861_863_778_6, epsilon = 1e-4);
 
     // R results - p-values (exact match)
     // p_intercept = 5.893230752934917e-09
@@ -104,18 +104,18 @@ fn test_ols_simple_vs_r() {
 
     // R results - F-statistic (exact match)
     // f_statistic = 14662.512467465243390
-    assert_relative_eq!(result.f_statistic, 14662.512467465243390, epsilon = 1.0);
+    assert_relative_eq!(result.f_statistic, 14_662.512_467_465_243, epsilon = 1.0);
 
     // Residuals (first 5)
-    let expected_residuals = vec![
+    let expected_residuals = [
         0.215956397585084,
         -0.712549509972986,
         -0.209313816892890,
         -0.035124318367676,
         -0.110099057564337,
     ];
-    for i in 0..5 {
-        assert_relative_eq!(result.residuals[i], expected_residuals[i], epsilon = 1e-8);
+    for (i, &expected) in expected_residuals.iter().enumerate() {
+        assert_relative_eq!(result.residuals[i], expected, epsilon = 1e-8);
     }
 }
 
@@ -156,7 +156,7 @@ fn test_ols_aic_bic_loglik_vs_r() {
 fn dataset2() -> (Mat<f64>, Col<f64>) {
     let n = 50;
     let x1: Vec<f64> = (0..n).map(|i| i as f64 * 10.0 / 49.0).collect();
-    let x2: Vec<f64> = x1.iter().map(|&xi| (xi as f64).sin() * 5.0).collect();
+    let x2: Vec<f64> = x1.iter().map(|&xi| xi.sin() * 5.0).collect();
 
     let y_data = vec![
         0.6933614059,
@@ -1262,7 +1262,7 @@ fn test_bls_box_constraints_vs_r() {
     // Test bounded least squares with explicit bounds
     // This generalizes NNLS with arbitrary lower/upper bounds
     let a = Mat::from_fn(10, 3, |i, j| ((i + 1) * (j + 1)) as f64);
-    let b = Col::from_fn(10, |i| (2.0 * i as f64 + 1.0));
+    let b = Col::from_fn(10, |i| 2.0 * i as f64 + 1.0);
 
     // Constrain: 0 <= x0 <= 0.5, -1 <= x1 <= 1, 0 <= x2 <= inf
     let lower = vec![0.0, -1.0, 0.0];
@@ -2377,7 +2377,7 @@ fn test_predict_with_offset() {
         .expect("fit should succeed");
 
     // Predict with new offset
-    let x_new = Mat::from_fn(5, 1, |i, _| (i as f64 + 1.0));
+    let x_new = Mat::from_fn(5, 1, |i, _| i as f64 + 1.0);
     let offset_new = Col::from_fn(5, |_| 2.0_f64.ln()); // exposure = 2
 
     let pred_no_offset = fitted.predict_count(&x_new);

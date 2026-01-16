@@ -378,7 +378,7 @@ fn test_tau_boundary_values() {
             Err(_) => {
                 // Very extreme tau values may fail
                 assert!(
-                    tau < 0.01 || tau > 0.99,
+                    !(0.01..=0.99).contains(&tau),
                     "Should not fail for tau={} in reasonable range",
                     tau
                 );

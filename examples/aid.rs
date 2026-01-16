@@ -173,7 +173,7 @@ fn anomaly_detection() {
         let base = 15.0 + ((i as f64 * 0.8).sin()) * 3.0;
 
         // Inject anomalies
-        if i >= 50 && i < 55 {
+        if (50..55).contains(&i) {
             0.0 // Stockout period
         } else if i < 5 {
             ((i as f64) * 3.0).round() // New product ramp-up

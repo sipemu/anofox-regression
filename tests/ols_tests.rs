@@ -592,7 +592,7 @@ fn test_all_statistics_computed() {
 
     assert!(result.intercept_p_value.is_some());
     let p_int = result.intercept_p_value.unwrap();
-    assert!(p_int >= 0.0 && p_int <= 1.0);
+    assert!((0.0..=1.0).contains(&p_int));
 
     assert!(result.intercept_conf_interval.is_some());
     let (ci_low, ci_high) = result.intercept_conf_interval.unwrap();

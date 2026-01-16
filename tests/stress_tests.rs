@@ -584,10 +584,7 @@ fn test_f64_precision_sufficient_for_f32_range() {
         let val = (i + 1) as f32;
         val as f64 // Convert to f64 for API
     });
-    let y = Col::from_fn(n, |i| {
-        let val = (2.5_f32 + 1.5_f32 * (i + 1) as f32) as f64;
-        val
-    });
+    let y = Col::from_fn(n, |i| (2.5_f32 + 1.5_f32 * (i + 1) as f32) as f64);
 
     let fitted = QuantileRegressor::builder()
         .tau(0.5)

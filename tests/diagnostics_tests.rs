@@ -312,7 +312,7 @@ fn test_generalized_vif_basic() {
         0 => i as f64,
         1 => (i as f64 * 0.1).sin(),
         2 => (i as f64 * 0.2).cos(),
-        3 => (i as f64 * 0.3).tan().min(10.0).max(-10.0),
+        3 => (i as f64 * 0.3).tan().clamp(-10.0, 10.0),
         _ => 0.0,
     });
 

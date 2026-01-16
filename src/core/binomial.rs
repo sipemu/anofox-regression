@@ -103,6 +103,16 @@ impl GlmFamily for BinomialFamily {
         self.link.link_derivative(mu)
     }
 
+    /// Check if μ is valid for binomial family: 0 < μ < 1.
+    fn valid_mu(&self, mu: f64) -> bool {
+        mu.is_finite() && mu > 0.0 && mu < 1.0
+    }
+
+    /// Clamp μ to valid range for binomial: (ε, 1-ε).
+    fn clamp_mu(&self, mu: f64) -> f64 {
+        mu.clamp(1e-10, 1.0 - 1e-10)
+    }
+
     /// Unit deviance: d(y,μ) = 2[y·log(y/μ) + (1-y)·log((1-y)/(1-μ))].
     ///
     /// Uses limit values for y = 0 or y = 1 to avoid numerical issues.
