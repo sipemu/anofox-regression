@@ -11,6 +11,17 @@
     "*.d.ts",
     "README.md"
   ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prebuild": "wasm-pack build ../crates/anofox-regression-js --target web --out-dir ../../js/dist",
+    "build": "echo 'Build complete'"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "@vitest/coverage-v8": "^3.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/sipemu/anofox-regression"
