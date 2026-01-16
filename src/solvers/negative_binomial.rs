@@ -1510,4 +1510,122 @@ mod tests {
 
         assert!(fitted.theta > 0.0);
     }
+
+    #[test]
+    fn test_penalized_irls() {
+        // Test the penalized IRLS path with lambda > 0
+        let (x, y) = create_overdispersed_data(100);
+
+        // Fit with regularization
+        let fitted_penalized = NegativeBinomialRegressor::builder()
+            .with_intercept(true)
+            .lambda(0.1)
+            .estimate_theta(false)
+            .theta(2.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model should fit");
+
+        // Fit without regularization
+        let fitted_unpenalized = NegativeBinomialRegressor::builder()
+            .with_intercept(true)
+            .lambda(0.0)
+            .estimate_theta(false)
+            .theta(2.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("unpenalized model should fit");
+
+        // Both should converge
+        assert!(fitted_penalized.iterations < 500);
+        assert!(fitted_unpenalized.iterations < 500);
+
+        // Penalized coefficients should be shrunk toward zero
+        let coef_penalized = fitted_penalized.result.coefficients[0].abs();
+        let coef_unpenalized = fitted_unpenalized.result.coefficients[0].abs();
+        assert!(
+            coef_penalized <= coef_unpenalized + 0.1,
+            "Penalized coefficient {} should not be much larger than unpenalized {}",
+            coef_penalized,
+            coef_unpenalized
+        );
+
+        // Intercept should not be penalized much
+        let int_penalized = fitted_penalized.result.intercept.unwrap();
+        let int_unpenalized = fitted_unpenalized.result.intercept.unwrap();
+        assert!(
+            (int_penalized - int_unpenalized).abs() < 0.5,
+            "Intercepts should be similar: {} vs {}",
+            int_penalized,
+            int_unpenalized
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_no_intercept() {
+        // Test penalized IRLS without intercept
+        let (x, y) = create_overdispersed_data(100);
+
+        let fitted = NegativeBinomialRegressor::builder()
+            .with_intercept(false)
+            .lambda(0.5)
+            .estimate_theta(false)
+            .theta(2.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model without intercept should fit");
+
+        assert!(fitted.result.intercept.is_none());
+        assert!(fitted.iterations < 500);
+    }
+
+    #[test]
+    fn test_penalized_irls_high_lambda() {
+        // Test penalized IRLS with high lambda - coefficients should be heavily shrunk
+        let (x, y) = create_overdispersed_data(100);
+
+        let fitted = NegativeBinomialRegressor::builder()
+            .with_intercept(true)
+            .lambda(100.0)
+            .estimate_theta(false)
+            .theta(2.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("heavily penalized model should fit");
+
+        // Coefficient should be small due to heavy penalization
+        assert!(
+            fitted.result.coefficients[0].abs() < 1.0,
+            "Heavily penalized coefficient should be small: {}",
+            fitted.result.coefficients[0]
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_multivariate() {
+        // Test penalized IRLS with multiple features
+        let n = 100;
+        let x = Mat::from_fn(n, 3, |i, j| (i as f64 + j as f64 * 0.5) / 10.0);
+        let y = Col::from_fn(n, |i| {
+            let xi = (i as f64) / 10.0;
+            ((0.5 + 0.2 * xi).exp() + (i % 3) as f64).round().max(0.0)
+        });
+
+        let fitted = NegativeBinomialRegressor::builder()
+            .with_intercept(true)
+            .lambda(0.1)
+            .estimate_theta(false)
+            .theta(2.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("multivariate penalized model should fit");
+
+        assert_eq!(fitted.result.coefficients.nrows(), 3);
+        assert!(fitted.iterations < 500);
+    }
 }

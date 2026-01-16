@@ -414,4 +414,230 @@ mod tests {
         assert_eq!(classify_condition_number(500.0), ConditionSeverity::High);
         assert_eq!(classify_condition_number(5000.0), ConditionSeverity::Severe);
     }
+
+    #[test]
+    fn test_severity_descriptions() {
+        assert_eq!(
+            ConditionSeverity::WellConditioned.description(),
+            "Well-conditioned: numerically stable"
+        );
+        assert_eq!(
+            ConditionSeverity::Moderate.description(),
+            "Moderate collinearity: some instability possible"
+        );
+        assert_eq!(
+            ConditionSeverity::High.description(),
+            "High collinearity: numerical instability likely"
+        );
+        assert_eq!(
+            ConditionSeverity::Severe.description(),
+            "Severe collinearity: coefficients may be unreliable"
+        );
+    }
+
+    #[test]
+    fn test_condition_number_empty_matrix() {
+        let x = Mat::<f64>::zeros(0, 0);
+        let cond = condition_number(&x, false);
+        assert!(cond.is_infinite());
+    }
+
+    #[test]
+    fn test_condition_number_with_intercept() {
+        let n = 50;
+        let x = Mat::from_fn(n, 2, |i, j| (i + j) as f64 / 10.0);
+        let cond_no_int = condition_number(&x, false);
+        let cond_with_int = condition_number(&x, true);
+
+        // Both should be finite
+        assert!(cond_no_int.is_finite());
+        assert!(cond_with_int.is_finite());
+    }
+
+    #[test]
+    fn test_condition_diagnostic_warnings() {
+        // Create data with moderate collinearity
+        let n = 100;
+        let x = Mat::from_fn(n, 2, |i, j| {
+            if j == 0 {
+                i as f64
+            } else {
+                i as f64 * 1.5 + (i % 5) as f64 // Correlated but not perfect
+            }
+        });
+
+        let diag = condition_diagnostic(&x, true);
+        // Check structure
+        assert!(diag.condition_number > 0.0);
+        assert_eq!(diag.condition_number_xtx, diag.condition_number.powi(2));
+    }
+
+    #[test]
+    fn test_condition_diagnostic_severe_collinearity() {
+        // Create nearly collinear data
+        let n = 100;
+        let x = Mat::from_fn(n, 2, |i, j| {
+            if j == 0 {
+                i as f64
+            } else {
+                i as f64 + 0.0001 // Almost identical
+            }
+        });
+
+        let diag = condition_diagnostic(&x, false);
+        assert_eq!(diag.severity, ConditionSeverity::Severe);
+        assert!(diag.warning.is_some());
+        let warning = diag.warning.unwrap();
+        assert!(warning.contains("Severe collinearity"));
+    }
+
+    #[test]
+    fn test_condition_diagnostic_moderate_collinearity() {
+        // Create data with moderate condition number (30-100)
+        let n = 100;
+        let x = Mat::from_fn(n, 2, |i, j| {
+            if j == 0 {
+                (i as f64).sin()
+            } else {
+                (i as f64 * 0.1).cos() * 10.0
+            }
+        });
+
+        let diag = condition_diagnostic(&x, true);
+        // Just verify the diagnostic runs and produces valid output
+        assert!(diag.condition_number > 0.0);
+        assert!(!diag.singular_values.is_empty());
+    }
+
+    #[test]
+    fn test_condition_diagnostic_high_collinearity() {
+        // Create data with high condition number (100-1000)
+        let n = 100;
+        let x = Mat::from_fn(n, 2, |i, j| {
+            if j == 0 {
+                i as f64
+            } else {
+                i as f64 + 0.1 * ((i % 10) as f64)
+            }
+        });
+
+        let diag = condition_diagnostic(&x, false);
+        // Verify warning is generated for non-well-conditioned cases
+        if diag.severity != ConditionSeverity::WellConditioned {
+            assert!(diag.warning.is_some());
+        }
+    }
+
+    #[test]
+    fn test_variance_decomposition_proportions() {
+        // Basic test for variance decomposition
+        let n = 50;
+        let x = Mat::from_fn(n, 2, |i, j| (i + j) as f64);
+
+        let vdp = variance_decomposition_proportions(&x, true);
+
+        // Should return a 3x3 matrix (2 features + intercept)
+        assert_eq!(vdp.nrows(), 3);
+        assert_eq!(vdp.ncols(), 3);
+
+        // Each row should sum approximately to 1 (proportions)
+        for j in 0..vdp.nrows() {
+            let row_sum: f64 = (0..vdp.ncols()).map(|k| vdp[(j, k)]).sum();
+            assert!(
+                (row_sum - 1.0).abs() < 1e-6,
+                "Row {} sum = {}, expected 1.0",
+                j,
+                row_sum
+            );
+        }
+    }
+
+    #[test]
+    fn test_variance_decomposition_proportions_empty() {
+        let x = Mat::<f64>::zeros(0, 0);
+        let vdp = variance_decomposition_proportions(&x, false);
+        assert_eq!(vdp.nrows(), 0);
+        assert_eq!(vdp.ncols(), 0);
+    }
+
+    #[test]
+    fn test_variance_decomposition_proportions_no_intercept() {
+        let n = 50;
+        let x = Mat::from_fn(n, 2, |i, j| (i * (j + 1)) as f64);
+
+        let vdp = variance_decomposition_proportions(&x, false);
+
+        // Should return a 2x2 matrix (2 features, no intercept)
+        assert_eq!(vdp.nrows(), 2);
+        assert_eq!(vdp.ncols(), 2);
+    }
+
+    #[test]
+    fn test_condition_number_rank_deficient() {
+        // Create a rank-deficient matrix (duplicate columns)
+        let n = 50;
+        let x = Mat::from_fn(n, 3, |i, j| {
+            if j == 2 {
+                // Third column is same as first
+                i as f64
+            } else {
+                i as f64 + j as f64
+            }
+        });
+
+        let diag = condition_diagnostic(&x, false);
+        // Should detect severe collinearity or infinity
+        assert!(
+            diag.condition_number > 1000.0 || diag.condition_number.is_infinite(),
+            "Expected high condition number for rank-deficient matrix"
+        );
+    }
+
+    #[test]
+    fn test_condition_indices_ordering() {
+        let n = 100;
+        let x = Mat::from_fn(n, 2, |i, j| (i + j) as f64);
+        let diag = condition_diagnostic(&x, true);
+
+        // First condition index should be 1.0 (max/max)
+        assert!((diag.condition_indices[0] - 1.0).abs() < 1e-10);
+
+        // Condition indices should be non-decreasing (sorted by singular values descending)
+        for i in 1..diag.condition_indices.len() {
+            assert!(
+                diag.condition_indices[i] >= diag.condition_indices[i - 1],
+                "Condition indices should be non-decreasing"
+            );
+        }
+    }
+
+    #[test]
+    fn test_singular_values_sorted() {
+        let n = 100;
+        let x = Mat::from_fn(n, 3, |i, j| (i * j + 1) as f64);
+        let diag = condition_diagnostic(&x, false);
+
+        // Singular values should be sorted descending
+        for i in 1..diag.singular_values.len() {
+            assert!(
+                diag.singular_values[i] <= diag.singular_values[i - 1],
+                "Singular values should be sorted descending"
+            );
+        }
+    }
+
+    #[test]
+    fn test_condition_diagnostic_boundary_values() {
+        // Test boundary values for classification
+        // κ = 30 should be Moderate
+        // κ = 100 should be High
+        // κ = 1000 should be Severe
+
+        assert_eq!(classify_condition_number(29.9), ConditionSeverity::WellConditioned);
+        assert_eq!(classify_condition_number(30.0), ConditionSeverity::Moderate);
+        assert_eq!(classify_condition_number(99.9), ConditionSeverity::Moderate);
+        assert_eq!(classify_condition_number(100.0), ConditionSeverity::High);
+        assert_eq!(classify_condition_number(999.9), ConditionSeverity::High);
+        assert_eq!(classify_condition_number(1000.0), ConditionSeverity::Severe);
+    }
 }

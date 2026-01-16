@@ -1480,4 +1480,64 @@ mod tests {
             fitted_unpen.result.coefficients[0].abs()
         );
     }
+
+    #[test]
+    fn test_penalized_irls_no_intercept() {
+        // Test penalized IRLS without intercept
+        let (x, y) = create_poisson_data(100);
+
+        let fitted = PoissonRegressor::log()
+            .with_intercept(false)
+            .lambda(0.5)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model without intercept should fit");
+
+        assert!(fitted.result.intercept.is_none());
+        assert!(fitted.iterations < 100);
+    }
+
+    #[test]
+    fn test_penalized_irls_high_lambda() {
+        // Test penalized IRLS with high lambda - coefficients should be heavily shrunk
+        let (x, y) = create_poisson_data(100);
+
+        let fitted = PoissonRegressor::log()
+            .with_intercept(true)
+            .lambda(100.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("heavily penalized model should fit");
+
+        // Coefficient should be small due to heavy penalization
+        assert!(
+            fitted.result.coefficients[0].abs() < 1.0,
+            "Heavily penalized coefficient should be small: {}",
+            fitted.result.coefficients[0]
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_multivariate() {
+        // Test penalized IRLS with multiple features
+        let n = 100;
+        let x = Mat::from_fn(n, 3, |i, j| (i as f64 + j as f64 * 0.5) / 10.0);
+        let y = Col::from_fn(n, |i| {
+            let xi = (i as f64) / 10.0;
+            (0.5 + 0.1 * xi).exp().round().max(1.0)
+        });
+
+        let fitted = PoissonRegressor::log()
+            .with_intercept(true)
+            .lambda(0.1)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("multivariate penalized model should fit");
+
+        assert_eq!(fitted.result.coefficients.nrows(), 3);
+        assert!(fitted.iterations < 100);
+    }
 }

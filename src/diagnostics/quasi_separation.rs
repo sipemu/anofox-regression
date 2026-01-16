@@ -356,4 +356,198 @@ mod tests {
         // This test verifies the function runs without error
         assert!(!result.has_separation || result.separated_predictors.is_empty());
     }
+
+    #[test]
+    fn test_quasi_separation() {
+        // Quasi-separation: almost complete separation with 1-2 overlap points
+        // x sorted: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+        // Most 0s before most 1s, but with 1 or 2 early 1s (<=10% overlap)
+        let n = 30;
+        let x = Mat::from_fn(n, 1, |i, _| i as f64);
+        // y: 28 0s followed by 2 1s, except one 1 at position 1
+        // Positions 0-27 are 0s except position 1 which is 1
+        // Positions 28-29 are 1s
+        // This gives: total_1s = 3, overlap_count = 1, overlap_count/total_1s = 0.33 > 0.1
+        // Need fewer overlaps relative to total 1s
+
+        // Let's try: 18 0s, then 12 1s (total), with 1 early 1 at position 0
+        // total_1s = 12, overlap_count = 1, 1/12 = 0.083 < 0.1
+        let y = Col::from_fn(n, |i| {
+            if i == 0 {
+                1.0 // one early 1 (overlap)
+            } else if i < 18 {
+                0.0 // remaining 0s
+            } else {
+                1.0 // 12 1s at the end
+            }
+        });
+
+        let result = check_binary_separation(&x, &y);
+        assert!(result.has_separation);
+        assert_eq!(result.separation_types[0], SeparationType::Quasi);
+        assert!(result.warning_message.is_some());
+        let msg = result.warning_message.unwrap();
+        assert!(msg.contains("quasi-separation"));
+    }
+
+    #[test]
+    fn test_monotonic_response() {
+        // Monotonic response: categorical predictor where each level has all same class
+        // x has repeated values (like a categorical), and each unique x value
+        // has all responses in one class
+        // x = [0, 0, 0, 0, 1, 1, 1, 1]
+        // y = [0, 0, 0, 0, 1, 1, 1, 1]
+        // But this is also complete separation...
+
+        // For MonotonicResponse without complete separation, we need:
+        // - found_only_zeros = true (some x level has all 0s)
+        // - found_only_ones = true (some x level has all 1s)
+        // - all_same_class_for_x = true (no x level has mixed)
+        // - groups_with_multiple_obs > 0 (at least one repeated x value)
+        // - Not complete separation (first_1 not > last_0)
+
+        // x = [0, 0, 1, 1, 2, 2]
+        // y = [0, 0, 1, 1, 0, 0]
+        // Sorted: x=[0,0,1,1,2,2], y=[0,0,1,1,0,0]
+        // Groups: x=0 has all 0s, x=1 has all 1s, x=2 has all 0s
+        // found_only_zeros = true, found_only_ones = true, all_same_class_for_x = true
+        // first_1 = 2, last_0 = 5, so first_1 (2) not > last_0 (5) - not complete
+        // groups_with_multiple_obs = 3 (all groups have 2 obs)
+        let x = Mat::from_fn(6, 1, |i, _| (i / 2) as f64);
+        let y_vals = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0];
+        let y = Col::from_fn(6, |i| y_vals[i]);
+
+        let result = check_binary_separation(&x, &y);
+        assert!(result.has_separation);
+        assert_eq!(result.separation_types[0], SeparationType::MonotonicResponse);
+        assert!(result.warning_message.is_some());
+        let msg = result.warning_message.unwrap();
+        assert!(msg.contains("all responses in one class"));
+    }
+
+    #[test]
+    fn test_count_sparsity_with_separation() {
+        // Create highly sparse data (>90% zeros) with binary indicator
+        // where x=1 always has y=0 (separation)
+        let n = 100;
+        // x is binary: 0 for first 50, 1 for last 50
+        let x = Mat::from_fn(n, 1, |i, _| if i < 50 { 0.0 } else { 1.0 });
+        // y: first 5 observations have small counts, rest are all zeros
+        // This gives >95% zeros
+        let y = Col::from_fn(n, |i| if i < 5 { 1.0 } else { 0.0 });
+
+        let result = check_count_sparsity(&x, &y);
+        // When x=1 (indices 50-99), all y values are 0
+        // This should trigger the separation detection
+        assert!(result.has_separation);
+        assert!(result.separated_predictors.contains(&0));
+        assert_eq!(result.separation_types[0], SeparationType::MonotonicResponse);
+        assert!(result.warning_message.is_some());
+        let msg = result.warning_message.unwrap();
+        assert!(msg.contains("all-zero responses when active"));
+    }
+
+    #[test]
+    fn test_empty_matrix_binary() {
+        let x = Mat::<f64>::zeros(0, 0);
+        let y = Col::<f64>::zeros(0);
+        let result = check_binary_separation(&x, &y);
+        assert!(!result.has_separation);
+        assert!(result.separated_predictors.is_empty());
+    }
+
+    #[test]
+    fn test_empty_matrix_count() {
+        let x = Mat::<f64>::zeros(0, 0);
+        let y = Col::<f64>::zeros(0);
+        let result = check_count_sparsity(&x, &y);
+        assert!(!result.has_separation);
+        assert!(result.separated_predictors.is_empty());
+    }
+
+    #[test]
+    fn test_all_same_class() {
+        // All y values are the same class - no separation possible
+        let x = Mat::from_fn(10, 1, |i, _| i as f64);
+        let y = Col::from_fn(10, |_| 1.0); // all 1s
+
+        let result = check_binary_separation(&x, &y);
+        assert!(!result.has_separation);
+    }
+
+    #[test]
+    fn test_multiple_predictors() {
+        // Test with multiple predictors, only one showing separation
+        // Feature 0: no separation (mixed)
+        // Feature 1: complete separation
+        let x = Mat::from_fn(10, 2, |i, j| {
+            if j == 0 {
+                (i % 3) as f64 // cycles through 0,1,2
+            } else {
+                i as f64 // monotonic
+            }
+        });
+        let y = Col::from_fn(10, |i| if i < 5 { 0.0 } else { 1.0 });
+
+        let result = check_binary_separation(&x, &y);
+        assert!(result.has_separation);
+        // Feature 1 should show complete separation
+        assert!(result.separated_predictors.contains(&1));
+        assert_eq!(result.separation_types[1], SeparationType::Complete);
+    }
+
+    #[test]
+    fn test_count_sparsity_not_sparse_enough() {
+        // Data that's not sparse enough (< 90% zeros)
+        let n = 10;
+        let x = Mat::from_fn(n, 1, |i, _| if i < 5 { 0.0 } else { 1.0 });
+        let y = Col::from_fn(n, |i| if i < 3 { 1.0 } else { 0.0 }); // 70% zeros
+
+        let result = check_count_sparsity(&x, &y);
+        // Should not detect separation because data is not sparse enough
+        assert!(!result.has_separation);
+    }
+
+    #[test]
+    fn test_count_sparsity_non_binary_predictor() {
+        // Highly sparse data but predictor has >3 unique values (not binary-like)
+        let n = 100;
+        let x = Mat::from_fn(n, 1, |i, _| i as f64); // 100 unique values
+        let y = Col::from_fn(n, |i| if i < 5 { 1.0 } else { 0.0 }); // 95% zeros
+
+        let result = check_count_sparsity(&x, &y);
+        // Should not flag this since x is not binary-like
+        assert!(!result.has_separation);
+    }
+
+    #[test]
+    fn test_separation_type_clone() {
+        let sep = SeparationType::Complete;
+        let cloned = sep.clone();
+        assert_eq!(sep, cloned);
+    }
+
+    #[test]
+    fn test_separation_check_default() {
+        let check = SeparationCheck::default();
+        assert!(!check.has_separation);
+        assert!(check.separated_predictors.is_empty());
+        assert!(check.separation_types.is_empty());
+        assert!(check.warning_message.is_none());
+    }
+
+    #[test]
+    fn test_separation_check_clone() {
+        let mut check = SeparationCheck::default();
+        check.has_separation = true;
+        check.separated_predictors.push(0);
+        check.separation_types.push(SeparationType::Complete);
+        check.warning_message = Some("test".to_string());
+
+        let cloned = check.clone();
+        assert!(cloned.has_separation);
+        assert_eq!(cloned.separated_predictors, vec![0]);
+        assert_eq!(cloned.separation_types, vec![SeparationType::Complete]);
+        assert_eq!(cloned.warning_message, Some("test".to_string()));
+    }
 }

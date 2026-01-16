@@ -284,4 +284,73 @@ mod tests {
         // With y_mean = 0.5, null deviance should be positive
         assert!(null_dev > 0.0);
     }
+
+    #[test]
+    fn test_valid_mu() {
+        let fam = BinomialFamily::logistic();
+
+        // Valid values: 0 < μ < 1
+        assert!(fam.valid_mu(0.5));
+        assert!(fam.valid_mu(0.01));
+        assert!(fam.valid_mu(0.99));
+
+        // Invalid: μ <= 0
+        assert!(!fam.valid_mu(0.0));
+        assert!(!fam.valid_mu(-0.1));
+
+        // Invalid: μ >= 1
+        assert!(!fam.valid_mu(1.0));
+        assert!(!fam.valid_mu(1.1));
+
+        // Invalid: non-finite
+        assert!(!fam.valid_mu(f64::NAN));
+        assert!(!fam.valid_mu(f64::INFINITY));
+    }
+
+    #[test]
+    fn test_clamp_mu() {
+        let fam = BinomialFamily::logistic();
+
+        // Values in range stay unchanged
+        assert!((fam.clamp_mu(0.5) - 0.5).abs() < 1e-15);
+
+        // Values below lower bound get clamped to 1e-10
+        assert!((fam.clamp_mu(0.0) - 1e-10).abs() < 1e-15);
+        assert!((fam.clamp_mu(-1.0) - 1e-10).abs() < 1e-15);
+
+        // Values above upper bound get clamped to 1 - 1e-10
+        assert!((fam.clamp_mu(1.0) - (1.0 - 1e-10)).abs() < 1e-15);
+        assert!((fam.clamp_mu(2.0) - (1.0 - 1e-10)).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_all_valid_mu() {
+        let fam = BinomialFamily::logistic();
+
+        // All valid
+        let mu_valid = [0.1, 0.5, 0.9];
+        assert!(fam.all_valid_mu(&mu_valid));
+
+        // Contains invalid (0)
+        let mu_with_zero = [0.1, 0.0, 0.5];
+        assert!(!fam.all_valid_mu(&mu_with_zero));
+
+        // Contains invalid (1)
+        let mu_with_one = [0.1, 1.0, 0.5];
+        assert!(!fam.all_valid_mu(&mu_with_one));
+    }
+
+    #[test]
+    fn test_new_constructor() {
+        let fam = BinomialFamily::new(BinomialLink::Probit);
+        assert_eq!(fam.link, BinomialLink::Probit);
+        assert!(!fam.is_canonical_link());
+    }
+
+    #[test]
+    fn test_default() {
+        let fam = BinomialFamily::default();
+        assert_eq!(fam.link, BinomialLink::Logit);
+        assert!(fam.is_canonical_link());
+    }
 }

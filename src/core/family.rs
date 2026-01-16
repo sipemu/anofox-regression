@@ -1131,4 +1131,105 @@ mod tests {
         // (1-2)² + (2-2)² + (3-2)² = 1 + 0 + 1 = 2
         assert!((dev - 2.0).abs() < 1e-10);
     }
+
+    // === Tests for all_valid_mu and all_valid_eta ===
+
+    #[test]
+    fn test_all_valid_mu_poisson() {
+        let fam = TweedieFamily::poisson();
+
+        // All positive values - valid for Poisson
+        let mu_valid = [1.0, 2.0, 3.0, 0.1];
+        assert!(fam.all_valid_mu(&mu_valid));
+
+        // Contains zero - invalid for Poisson
+        let mu_with_zero = [1.0, 0.0, 3.0];
+        assert!(!fam.all_valid_mu(&mu_with_zero));
+
+        // Contains negative - invalid for Poisson
+        let mu_with_neg = [1.0, -1.0, 3.0];
+        assert!(!fam.all_valid_mu(&mu_with_neg));
+
+        // Contains NaN - invalid
+        let mu_with_nan = [1.0, f64::NAN, 3.0];
+        assert!(!fam.all_valid_mu(&mu_with_nan));
+
+        // Contains infinity - invalid
+        let mu_with_inf = [1.0, f64::INFINITY, 3.0];
+        assert!(!fam.all_valid_mu(&mu_with_inf));
+    }
+
+    #[test]
+    fn test_all_valid_mu_gaussian() {
+        let fam = TweedieFamily::gaussian();
+
+        // Gaussian accepts any finite value
+        let mu_valid = [-1.0, 0.0, 1.0, 100.0];
+        assert!(fam.all_valid_mu(&mu_valid));
+
+        // Contains NaN - invalid
+        let mu_with_nan = [1.0, f64::NAN, 3.0];
+        assert!(!fam.all_valid_mu(&mu_with_nan));
+    }
+
+    #[test]
+    fn test_all_valid_eta() {
+        let fam = TweedieFamily::poisson();
+
+        // All finite values - valid
+        let eta_valid = [-100.0, -1.0, 0.0, 1.0, 100.0];
+        assert!(fam.all_valid_eta(&eta_valid));
+
+        // Contains NaN - invalid
+        let eta_with_nan = [1.0, f64::NAN, 3.0];
+        assert!(!fam.all_valid_eta(&eta_with_nan));
+
+        // Contains infinity - invalid
+        let eta_with_inf = [1.0, f64::INFINITY, 3.0];
+        assert!(!fam.all_valid_eta(&eta_with_inf));
+
+        // Contains negative infinity - invalid
+        let eta_with_neg_inf = [1.0, f64::NEG_INFINITY, 3.0];
+        assert!(!fam.all_valid_eta(&eta_with_neg_inf));
+    }
+
+    #[test]
+    fn test_all_valid_eta_empty() {
+        let fam = TweedieFamily::poisson();
+
+        // Empty slice - should be valid (vacuously true)
+        let eta_empty: [f64; 0] = [];
+        assert!(fam.all_valid_eta(&eta_empty));
+    }
+
+    #[test]
+    fn test_all_valid_mu_empty() {
+        let fam = TweedieFamily::poisson();
+
+        // Empty slice - should be valid (vacuously true)
+        let mu_empty: [f64; 0] = [];
+        assert!(fam.all_valid_mu(&mu_empty));
+    }
+
+    #[test]
+    fn test_clamp_mu_gaussian() {
+        let fam = TweedieFamily::gaussian();
+
+        // Gaussian clamps to (-1e10, 1e10)
+        assert!((fam.clamp_mu(0.0) - 0.0).abs() < 1e-10);
+        assert!((fam.clamp_mu(-100.0) - (-100.0)).abs() < 1e-10);
+        assert!((fam.clamp_mu(1e20) - 1e10).abs() < 1e-5);
+        assert!((fam.clamp_mu(-1e20) - (-1e10)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_clamp_mu_poisson() {
+        let fam = TweedieFamily::poisson();
+
+        // Poisson clamps to (1e-10, 1e10)
+        assert!((fam.clamp_mu(0.0) - 1e-10).abs() < 1e-15);
+        assert!((fam.clamp_mu(-100.0) - 1e-10).abs() < 1e-15);
+        assert!((fam.clamp_mu(1e20) - 1e10).abs() < 1e-5);
+        assert!((fam.clamp_mu(5.0) - 5.0).abs() < 1e-10);
+    }
 }

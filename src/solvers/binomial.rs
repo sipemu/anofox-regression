@@ -1392,4 +1392,123 @@ mod tests {
             assert!((pred.se[i] - 0.0).abs() < 1e-10);
         }
     }
+
+    #[test]
+    fn test_penalized_irls() {
+        // Test the penalized IRLS path with lambda > 0
+        let (x, y) = create_test_data(100);
+
+        // Fit with regularization
+        let fitted_penalized = BinomialRegressor::logistic()
+            .with_intercept(true)
+            .lambda(0.1)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model should fit");
+
+        // Fit without regularization
+        let fitted_unpenalized = BinomialRegressor::logistic()
+            .with_intercept(true)
+            .lambda(0.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("unpenalized model should fit");
+
+        // Both should converge
+        assert!(fitted_penalized.iterations < 100);
+        assert!(fitted_unpenalized.iterations < 100);
+
+        // Penalized coefficients should be shrunk toward zero
+        let coef_penalized = fitted_penalized.result.coefficients[0].abs();
+        let coef_unpenalized = fitted_unpenalized.result.coefficients[0].abs();
+        assert!(
+            coef_penalized <= coef_unpenalized + 0.1,
+            "Penalized coefficient {} should not be much larger than unpenalized {}",
+            coef_penalized,
+            coef_unpenalized
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_no_intercept() {
+        // Test penalized IRLS without intercept
+        let (x, y) = create_test_data(100);
+
+        let fitted = BinomialRegressor::logistic()
+            .with_intercept(false)
+            .lambda(0.5)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized model without intercept should fit");
+
+        assert!(fitted.result.intercept.is_none());
+        assert!(fitted.iterations < 100);
+    }
+
+    #[test]
+    fn test_penalized_irls_high_lambda() {
+        // Test penalized IRLS with high lambda - coefficients should be heavily shrunk
+        let (x, y) = create_test_data(100);
+
+        let fitted = BinomialRegressor::logistic()
+            .with_intercept(true)
+            .lambda(100.0)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("heavily penalized model should fit");
+
+        // Coefficient should be small due to heavy penalization
+        assert!(
+            fitted.result.coefficients[0].abs() < 1.0,
+            "Heavily penalized coefficient should be small: {}",
+            fitted.result.coefficients[0]
+        );
+    }
+
+    #[test]
+    fn test_penalized_irls_multivariate() {
+        // Test penalized IRLS with multiple features
+        let n = 100;
+        let x = Mat::from_fn(n, 3, |i, j| (i as f64 + j as f64 * 0.5) / 10.0 - 2.0);
+        let y = Col::from_fn(n, |i| {
+            let xi = (i as f64) / (n as f64);
+            if xi > 0.5 {
+                1.0
+            } else {
+                0.0
+            }
+        });
+
+        let fitted = BinomialRegressor::logistic()
+            .with_intercept(true)
+            .lambda(0.1)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("multivariate penalized model should fit");
+
+        assert_eq!(fitted.result.coefficients.nrows(), 3);
+        assert!(fitted.iterations < 100);
+    }
+
+    #[test]
+    fn test_penalized_irls_probit() {
+        // Test penalized IRLS with probit link
+        let (x, y) = create_test_data(100);
+
+        let fitted = BinomialRegressor::probit()
+            .with_intercept(true)
+            .lambda(0.5)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("penalized probit model should fit");
+
+        assert!(fitted.iterations < 100);
+        assert!(fitted.result.coefficients[0] > 0.0);
+    }
 }
