@@ -2,12 +2,13 @@
 
 use crate::core::{
     IntervalType, LambdaScaling, PredictionResult, RegressionOptions, RegressionOptionsBuilder,
-    RegressionResult,
+    RegressionResult, SolverType,
 };
 use crate::inference::{compute_prediction_intervals, CoefficientInference};
 use crate::solvers::ols::OlsRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
+use faer::prelude::Solve;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor, StudentsT};
 
@@ -96,8 +97,12 @@ impl Regressor for RidgeRegressor {
             let (x_centered, x_means) = center_columns(x);
             let (y_centered, y_mean) = center_vector(y);
 
-            // Solve Ridge regression on centered data
-            let coefficients = self.solve_ridge(&x_centered, &y_centered)?;
+            // Solve Ridge regression on centered data (dispatch to selected solver)
+            let coefficients = match self.options.solver {
+                SolverType::Qr => self.solve_ridge_qr(&x_centered, &y_centered)?,
+                SolverType::Svd => self.solve_ridge_svd(&x_centered, &y_centered)?,
+                SolverType::Cholesky => self.solve_ridge_cholesky(&x_centered, &y_centered)?,
+            };
 
             // Compute intercept: intercept = y_mean - x_means' * coefficients
             let mut intercept = y_mean;
@@ -145,7 +150,11 @@ impl Regressor for RidgeRegressor {
             })
         } else {
             // No intercept case
-            let coefficients = self.solve_ridge(x, y)?;
+            let coefficients = match self.options.solver {
+                SolverType::Qr => self.solve_ridge_qr(x, y)?,
+                SolverType::Svd => self.solve_ridge_svd(x, y)?,
+                SolverType::Cholesky => self.solve_ridge_cholesky(x, y)?,
+            };
 
             // Compute fitted values and residuals
             let mut fitted_values = Col::zeros(n_samples);
@@ -195,10 +204,7 @@ impl RidgeRegressor {
         let n_features = x.ncols();
         let aug_size = n_features + 1;
 
-        let lambda = match self.options.lambda_scaling {
-            LambdaScaling::Raw => self.options.lambda,
-            LambdaScaling::Glmnet => self.options.lambda * n_samples as f64,
-        };
+        let lambda = self.effective_lambda(n_samples);
 
         // Build X_aug'X_aug
         let mut xtx_aug: Mat<f64> = Mat::zeros(aug_size, aug_size);
@@ -253,10 +259,7 @@ impl RidgeRegressor {
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
-        let lambda = match self.options.lambda_scaling {
-            LambdaScaling::Raw => self.options.lambda,
-            LambdaScaling::Glmnet => self.options.lambda * n_samples as f64,
-        };
+        let lambda = self.effective_lambda(n_samples);
 
         // Compute X'X + λI
         let xtx = x.transpose() * x;
@@ -292,21 +295,22 @@ impl RidgeRegressor {
         Some(inv)
     }
 
-    /// Solve Ridge regression: β = (X'X + λI)^(-1) X'y
-    fn solve_ridge(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Col<f64>, RegressionError> {
-        let n_samples = x.nrows();
-        let n_features = x.ncols();
-
-        // Apply lambda scaling based on convention
-        let lambda = match self.options.lambda_scaling {
+    /// Get the effective lambda after applying scaling convention.
+    fn effective_lambda(&self, n_samples: usize) -> f64 {
+        match self.options.lambda_scaling {
             LambdaScaling::Raw => self.options.lambda,
             LambdaScaling::Glmnet => self.options.lambda * n_samples as f64,
-        };
+        }
+    }
 
-        // Compute X'X
+    /// Solve Ridge regression using QR: β = (X'X + λI)^(-1) X'y
+    fn solve_ridge_qr(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Col<f64>, RegressionError> {
+        let n_samples = x.nrows();
+        let n_features = x.ncols();
+        let lambda = self.effective_lambda(n_samples);
+
+        // Compute X'X + λI
         let xtx = x.transpose() * x;
-
-        // Add λI to the diagonal (X'X + λI)
         let mut xtx_reg = xtx.clone();
         for i in 0..n_features {
             xtx_reg[(i, i)] += lambda;
@@ -341,6 +345,84 @@ impl RidgeRegressor {
         }
 
         Ok(coefficients)
+    }
+
+    /// Solve Ridge regression using SVD of X.
+    ///
+    /// Uses SVD of X directly: β = V (S² + λI)⁻¹ S U' y
+    /// This is the most numerically stable approach for Ridge.
+    fn solve_ridge_svd(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Col<f64>, RegressionError> {
+        let n_samples = x.nrows();
+        let lambda = self.effective_lambda(n_samples);
+
+        // Compute SVD: X = U S V'
+        let svd = x.svd().map_err(|_| RegressionError::SingularMatrix)?;
+        let u = svd.U();
+        let s = svd.S();
+        let s_col = s.column_vector();
+        let v = svd.V();
+
+        let n_sv = s_col.nrows();
+
+        // Compute U' y
+        let uty = u.transpose() * y;
+
+        // Compute d_i = s_i / (s_i² + λ) * (U'y)_i  for each singular value
+        let mut d = Col::zeros(n_sv);
+        for i in 0..n_sv {
+            let si = s_col[i];
+            d[i] = si / (si * si + lambda) * uty[i];
+        }
+
+        // β = V * d
+        let coefficients = v * &d;
+
+        // Convert from Mat to Col
+        let mut coeff = Col::zeros(coefficients.nrows());
+        for i in 0..coefficients.nrows() {
+            coeff[i] = coefficients[i];
+        }
+
+        Ok(coeff)
+    }
+
+    /// Solve Ridge regression using Cholesky decomposition.
+    ///
+    /// Solves (X'X + λI) β = X'y via Cholesky. Since λ > 0, the matrix
+    /// X'X + λI is always positive definite, making Cholesky the fastest option.
+    fn solve_ridge_cholesky(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+    ) -> Result<Col<f64>, RegressionError> {
+        let n_samples = x.nrows();
+        let n_features = x.ncols();
+        let lambda = self.effective_lambda(n_samples);
+
+        // Compute X'X + λI
+        let xtx = x.transpose() * x;
+        let mut xtx_reg = xtx.clone();
+        for i in 0..n_features {
+            xtx_reg[(i, i)] += lambda;
+        }
+
+        // Compute X'y
+        let xty = x.transpose() * y;
+
+        // Solve via Cholesky (should always succeed for λ > 0)
+        let llt = xtx_reg
+            .llt(faer::Side::Lower)
+            .map_err(|_| RegressionError::SingularMatrix)?;
+
+        let coefficients = llt.solve(&xty);
+
+        // Convert from Mat to Col
+        let mut coeff = Col::zeros(coefficients.nrows());
+        for i in 0..coefficients.nrows() {
+            coeff[i] = coefficients[i];
+        }
+
+        Ok(coeff)
     }
 
     /// Compute fit statistics.
@@ -478,11 +560,7 @@ impl RidgeRegressor {
         let n_features = x.ncols();
         let df = result.residual_df() as f64;
 
-        // Apply lambda scaling based on convention
-        let lambda = match self.options.lambda_scaling {
-            LambdaScaling::Raw => self.options.lambda,
-            LambdaScaling::Glmnet => self.options.lambda * n_samples as f64,
-        };
+        let lambda = self.effective_lambda(n_samples);
 
         if df <= 0.0 || !result.mse.is_finite() {
             return Ok(());
@@ -694,6 +772,12 @@ impl RidgeRegressorBuilder {
     /// Set the confidence level for confidence intervals.
     pub fn confidence_level(mut self, level: f64) -> Self {
         self.builder = self.builder.confidence_level(level);
+        self
+    }
+
+    /// Set the solver method (QR, SVD, or Cholesky).
+    pub fn solve_method(mut self, solver: SolverType) -> Self {
+        self.builder = self.builder.solver(solver);
         self
     }
 

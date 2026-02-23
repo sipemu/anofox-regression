@@ -2,6 +2,7 @@
 
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
+    SolverType,
 };
 use crate::inference::{
     compute_hc_inference, compute_hc_standard_errors, compute_prediction_intervals,
@@ -10,6 +11,7 @@ use crate::inference::{
 };
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
+use faer::prelude::Solve;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 
@@ -121,9 +123,14 @@ impl Regressor for OlsRegressor {
             let (x_centered, x_means) = center_columns(x);
             let (y_centered, y_mean) = center_vector(y);
 
-            // Perform QR decomposition with column pivoting
-            let (coefficients, aliased, rank) =
-                self.solve_with_qr(&x_centered, &y_centered, &constant_cols)?;
+            // Dispatch to selected solver
+            let (coefficients, aliased, rank) = match self.options.solver {
+                SolverType::Qr => self.solve_with_qr(&x_centered, &y_centered, &constant_cols)?,
+                SolverType::Svd => self.solve_with_svd(&x_centered, &y_centered, &constant_cols)?,
+                SolverType::Cholesky => {
+                    self.solve_with_cholesky(&x_centered, &y_centered, &constant_cols)?
+                }
+            };
 
             // Compute intercept: intercept = y_mean - x_means' * coefficients
             let mut intercept = y_mean;
@@ -177,7 +184,11 @@ impl Regressor for OlsRegressor {
                 return Err(RegressionError::AllFeaturesConstant);
             }
 
-            let (coefficients, aliased, rank) = self.solve_with_qr(x, y, &constant_cols)?;
+            let (coefficients, aliased, rank) = match self.options.solver {
+                SolverType::Qr => self.solve_with_qr(x, y, &constant_cols)?,
+                SolverType::Svd => self.solve_with_svd(x, y, &constant_cols)?,
+                SolverType::Cholesky => self.solve_with_cholesky(x, y, &constant_cols)?,
+            };
 
             // Compute fitted values and residuals
             let mut fitted_values = Col::zeros(n_samples);
@@ -299,6 +310,131 @@ impl OlsRegressor {
         }
 
         Ok((coefficients, aliased, rank))
+    }
+
+    /// Solve the least squares problem using SVD decomposition.
+    ///
+    /// Uses the pseudoinverse: β = V S⁺ U' y, where S⁺ is the pseudoinverse
+    /// of the singular value matrix (thresholded by rank_tolerance).
+    fn solve_with_svd(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        constant_cols: &[bool],
+    ) -> Result<(Col<f64>, Vec<bool>, usize), RegressionError> {
+        let n_features = x.ncols();
+
+        // Initialize aliased flags with constant columns
+        let mut aliased = constant_cols.to_vec();
+
+        // Compute SVD: X = U S V'
+        let svd = x.svd().map_err(|_| RegressionError::SingularMatrix)?;
+        let u = svd.U();
+        let s = svd.S();
+        let s_col = s.column_vector();
+        let v = svd.V();
+
+        let n_sv = s_col.nrows();
+
+        // Determine numerical rank from singular values
+        let s_max = (0..n_sv).fold(0.0_f64, |acc, i| acc.max(s_col[i]));
+        let threshold = self.options.rank_tolerance * s_max;
+
+        let mut rank = 0;
+        for i in 0..n_sv {
+            if s_col[i] > threshold {
+                rank += 1;
+            }
+        }
+
+        if rank == 0 {
+            let mut coefficients = Col::zeros(n_features);
+            for j in 0..n_features {
+                coefficients[j] = f64::NAN;
+                aliased[j] = true;
+            }
+            return Ok((coefficients, aliased, 0));
+        }
+
+        // Compute β = V S⁺ U' y
+        // First: U' y
+        let uty = u.transpose() * y;
+
+        // Then: S⁺ U' y (apply pseudoinverse of singular values)
+        let mut s_inv_uty = Col::zeros(n_sv);
+        for i in 0..n_sv {
+            if s_col[i] > threshold {
+                s_inv_uty[i] = uty[i] / s_col[i];
+            }
+        }
+
+        // Finally: V * (S⁺ U' y)
+        let coefficients_full = v * &s_inv_uty;
+
+        // Determine aliased columns: columns where all V rows for non-zero
+        // singular values contribute negligibly
+        // For SVD, we mark constant columns as aliased and set rank accordingly
+        for j in 0..n_features {
+            if constant_cols[j] {
+                aliased[j] = true;
+            }
+        }
+
+        // Extract coefficients, setting aliased to NaN
+        let mut coefficients = Col::zeros(n_features);
+        for j in 0..n_features {
+            if aliased[j] {
+                coefficients[j] = f64::NAN;
+            } else {
+                coefficients[j] = coefficients_full[j];
+            }
+        }
+
+        Ok((coefficients, aliased, rank))
+    }
+
+    /// Solve the least squares problem using Cholesky decomposition.
+    ///
+    /// Computes X'X and solves (X'X) β = X'y via Cholesky.
+    /// Falls back to QR if X'X is not positive definite (singular).
+    fn solve_with_cholesky(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        constant_cols: &[bool],
+    ) -> Result<(Col<f64>, Vec<bool>, usize), RegressionError> {
+        let n_features = x.ncols();
+
+        // Compute X'X and X'y
+        let xtx = x.transpose() * x;
+        let xty = x.transpose() * y;
+
+        // Attempt Cholesky decomposition
+        match xtx.llt(faer::Side::Lower) {
+            Ok(llt) => {
+                // Solve (X'X) β = X'y
+                let coefficients = llt.solve(&xty);
+
+                let aliased = constant_cols.to_vec();
+                let rank = aliased.iter().filter(|&&a| !a).count();
+
+                // Set aliased coefficients to NaN
+                let mut coeff_out = Col::zeros(n_features);
+                for j in 0..n_features {
+                    if aliased[j] {
+                        coeff_out[j] = f64::NAN;
+                    } else {
+                        coeff_out[j] = coefficients[j];
+                    }
+                }
+
+                Ok((coeff_out, aliased, rank))
+            }
+            Err(_) => {
+                // Cholesky failed (X'X not positive definite), fall back to QR
+                self.solve_with_qr(x, y, constant_cols)
+            }
+        }
     }
 
     /// Compute fit statistics and optionally inference statistics.
@@ -757,6 +893,12 @@ impl OlsRegressorBuilder {
     /// Set the rank tolerance for QR decomposition.
     pub fn rank_tolerance(mut self, tol: f64) -> Self {
         self.builder = self.builder.rank_tolerance(tol);
+        self
+    }
+
+    /// Set the solver method (QR, SVD, or Cholesky).
+    pub fn solve_method(mut self, solver: SolverType) -> Self {
+        self.builder = self.builder.solver(solver);
         self
     }
 
