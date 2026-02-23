@@ -458,7 +458,7 @@ pub fn compute_xtwx_inverse_reduced(
 }
 
 /// General matrix inverse using QR decomposition.
-fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
+pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
     let n = matrix.nrows();
 
     let qr: faer::linalg::solvers::Qr<f64> = matrix.qr();

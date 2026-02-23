@@ -4,8 +4,9 @@ use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
 use crate::inference::{
-    compute_prediction_intervals, compute_xtx_inverse_augmented_reduced,
-    compute_xtx_inverse_reduced, CoefficientInference,
+    compute_hc_inference, compute_hc_standard_errors, compute_prediction_intervals,
+    compute_xtx_inverse_augmented_reduced, compute_xtx_inverse_reduced, CoefficientInference,
+    HcInference, HcResult, HcType,
 };
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
@@ -645,6 +646,82 @@ impl FittedOls {
         }
 
         x_reduced
+    }
+}
+
+impl FittedOls {
+    /// Compute HC (heteroskedasticity-consistent) standard errors.
+    ///
+    /// Requires the original feature matrix `x` (without intercept column).
+    /// This is a post-hoc computation — you can try different HC variants
+    /// without re-fitting the model.
+    ///
+    /// # Arguments
+    /// * `x` - The original feature matrix used to fit the model
+    /// * `hc_type` - Which HC variant to compute (HC0–HC3)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let fitted = OlsRegressor::builder()
+    ///     .with_intercept(true)
+    ///     .build()
+    ///     .fit(&x, &y)?;
+    ///
+    /// let hc_se = fitted.hc_standard_errors(&x, HcType::HC1)?;
+    /// println!("Robust SE: {:?}", hc_se.std_errors);
+    /// ```
+    pub fn hc_standard_errors(
+        &self,
+        x: &Mat<f64>,
+        hc_type: HcType,
+    ) -> Result<HcResult, &'static str> {
+        let with_intercept = self.result.intercept.is_some();
+        compute_hc_standard_errors(
+            x,
+            &self.result.residuals,
+            &self.aliased,
+            with_intercept,
+            hc_type,
+        )
+    }
+
+    /// Compute full HC inference: standard errors, t-statistics, p-values,
+    /// and confidence intervals.
+    ///
+    /// Requires the original feature matrix `x` (without intercept column).
+    /// Uses the model's confidence level by default.
+    ///
+    /// # Arguments
+    /// * `x` - The original feature matrix used to fit the model
+    /// * `hc_type` - Which HC variant to compute (HC0–HC3)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let fitted = OlsRegressor::builder()
+    ///     .with_intercept(true)
+    ///     .compute_inference(true)
+    ///     .confidence_level(0.95)
+    ///     .build()
+    ///     .fit(&x, &y)?;
+    ///
+    /// let hc = fitted.hc_inference(&x, HcType::HC3)?;
+    /// println!("HC3 t-stats: {:?}", hc.t_statistics);
+    /// println!("HC3 p-values: {:?}", hc.p_values);
+    /// ```
+    pub fn hc_inference(&self, x: &Mat<f64>, hc_type: HcType) -> Result<HcInference, &'static str> {
+        let with_intercept = self.result.intercept.is_some();
+        compute_hc_inference(
+            x,
+            &self.result.coefficients,
+            self.result.intercept,
+            &self.result.residuals,
+            &self.aliased,
+            with_intercept,
+            hc_type,
+            self.options.confidence_level,
+        )
     }
 }
 
