@@ -46,6 +46,7 @@ pub mod prelude {
         studentized_residuals, variance_decomposition_proportions, variance_inflation_factor,
         working_residuals, ConditionDiagnostic, ConditionSeverity, SeparationCheck, SeparationType,
     };
+    pub use crate::inference::{HcInference, HcType};
     pub use crate::solvers::{
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
         FittedAlm, FittedBinomial, FittedIsotonic, FittedNegativeBinomial, FittedPls,
@@ -61,6 +62,7 @@ pub use crate::core::{
     NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily, PoissonLink, PredictionResult,
     PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult, TweedieFamily,
 };
+pub use crate::inference::{HcInference, HcType};
 pub use crate::solvers::{
     BinomialRegressor, FittedBinomial, FittedIsotonic, FittedNegativeBinomial, FittedPoisson,
     FittedQuantile, FittedRegressor, IsotonicRegressor, NegativeBinomialRegressor, OutOfBounds,
