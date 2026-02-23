@@ -34,12 +34,12 @@ pub use lm_dynamic::{
     FittedLmDynamic, InformationCriterion, LmDynamicRegressor, LmDynamicRegressorBuilder, ModelSpec,
 };
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
-pub use ols::{FittedOls, OlsRegressor};
+pub use ols::{FittedOls, OlsRegressor, OlsRegressorBuilder};
 pub use pls::{FittedPls, PlsRegressor};
 pub use poisson::{FittedPoisson, PoissonRegressor};
 pub use quantile::{FittedQuantile, QuantileRegressor, QuantileRegressorBuilder};
-pub use ridge::{FittedRidge, RidgeRegressor};
+pub use ridge::{FittedRidge, RidgeRegressor, RidgeRegressorBuilder};
 pub use rls::{FittedRls, RlsRegressor};
 pub use traits::{FittedRegressor, RegressionError, Regressor};
 pub use tweedie::{FittedTweedie, TweedieRegressor};
-pub use wls::{FittedWls, WlsRegressor};
+pub use wls::{FittedWls, WlsRegressor, WlsRegressorBuilder};

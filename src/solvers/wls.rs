@@ -2,6 +2,7 @@
 
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
+    SolverType,
 };
 use crate::inference::{
     compute_prediction_intervals, compute_xtwx_inverse_augmented_reduced,
@@ -11,6 +12,7 @@ use crate::solvers::ols::OlsRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::detect_constant_columns;
 use faer::linalg::solvers::Qr;
+use faer::prelude::Solve;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor, StudentsT};
 
@@ -175,9 +177,14 @@ impl Regressor for WlsRegressor {
             // but the centered weighted data has variation
             let constant_cols = detect_constant_columns(&x_centered, self.options.rank_tolerance);
 
-            // Solve using QR decomposition
-            let (coefficients, aliased, rank) =
-                self.solve_with_qr(&x_centered, &y_centered, &constant_cols)?;
+            // Dispatch to selected solver
+            let (coefficients, aliased, rank) = match self.options.solver {
+                SolverType::Qr => self.solve_with_qr(&x_centered, &y_centered, &constant_cols)?,
+                SolverType::Svd => self.solve_with_svd(&x_centered, &y_centered, &constant_cols)?,
+                SolverType::Cholesky => {
+                    self.solve_with_cholesky(&x_centered, &y_centered, &constant_cols)?
+                }
+            };
 
             // Compute intercept in original (unweighted) space
             let mut intercept = y_mean;
@@ -229,8 +236,13 @@ impl Regressor for WlsRegressor {
         } else {
             // No intercept case - detect constant columns in weighted data
             let constant_cols = detect_constant_columns(&x_weighted, self.options.rank_tolerance);
-            let (coefficients, aliased, rank) =
-                self.solve_with_qr(&x_weighted, &y_weighted, &constant_cols)?;
+            let (coefficients, aliased, rank) = match self.options.solver {
+                SolverType::Qr => self.solve_with_qr(&x_weighted, &y_weighted, &constant_cols)?,
+                SolverType::Svd => self.solve_with_svd(&x_weighted, &y_weighted, &constant_cols)?,
+                SolverType::Cholesky => {
+                    self.solve_with_cholesky(&x_weighted, &y_weighted, &constant_cols)?
+                }
+            };
 
             // Compute fitted values and residuals
             let mut fitted_values = Col::zeros(n_samples);
@@ -394,6 +406,118 @@ impl WlsRegressor {
         }
 
         Ok((coefficients, aliased, rank))
+    }
+
+    /// Solve the weighted least squares problem using SVD decomposition.
+    ///
+    /// Operates on the already-weighted design matrix (W^{1/2} X) and response (W^{1/2} y).
+    /// Uses pseudoinverse: β = V S⁺ U' y.
+    fn solve_with_svd(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        constant_cols: &[bool],
+    ) -> Result<(Col<f64>, Vec<bool>, usize), RegressionError> {
+        let n_features = x.ncols();
+
+        let mut aliased = constant_cols.to_vec();
+
+        let svd = x.svd().map_err(|_| RegressionError::SingularMatrix)?;
+        let u = svd.U();
+        let s = svd.S();
+        let s_col = s.column_vector();
+        let v = svd.V();
+
+        let n_sv = s_col.nrows();
+
+        // Determine numerical rank
+        let s_max = (0..n_sv).fold(0.0_f64, |acc, i| acc.max(s_col[i]));
+        let threshold = self.options.rank_tolerance * s_max;
+
+        let mut rank = 0;
+        for i in 0..n_sv {
+            if s_col[i] > threshold {
+                rank += 1;
+            }
+        }
+
+        if rank == 0 {
+            let mut coefficients = Col::zeros(n_features);
+            for j in 0..n_features {
+                coefficients[j] = f64::NAN;
+                aliased[j] = true;
+            }
+            return Ok((coefficients, aliased, 0));
+        }
+
+        // β = V S⁺ U' y
+        let uty = u.transpose() * y;
+
+        let mut s_inv_uty = Col::zeros(n_sv);
+        for i in 0..n_sv {
+            if s_col[i] > threshold {
+                s_inv_uty[i] = uty[i] / s_col[i];
+            }
+        }
+
+        let coefficients_full = v * &s_inv_uty;
+
+        for j in 0..n_features {
+            if constant_cols[j] {
+                aliased[j] = true;
+            }
+        }
+
+        let mut coefficients = Col::zeros(n_features);
+        for j in 0..n_features {
+            if aliased[j] {
+                coefficients[j] = f64::NAN;
+            } else {
+                coefficients[j] = coefficients_full[j];
+            }
+        }
+
+        Ok((coefficients, aliased, rank))
+    }
+
+    /// Solve the weighted least squares problem using Cholesky decomposition.
+    ///
+    /// Operates on the already-weighted design matrix. Computes X'X and solves
+    /// via Cholesky. Falls back to QR if X'X is not positive definite.
+    fn solve_with_cholesky(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        constant_cols: &[bool],
+    ) -> Result<(Col<f64>, Vec<bool>, usize), RegressionError> {
+        let n_features = x.ncols();
+
+        let xtx = x.transpose() * x;
+        let xty = x.transpose() * y;
+
+        match xtx.llt(faer::Side::Lower) {
+            Ok(llt) => {
+                let coefficients = llt.solve(&xty);
+
+                let aliased = constant_cols.to_vec();
+                let rank = aliased.iter().filter(|&&a| !a).count();
+
+                let mut coeff_out = Col::zeros(n_features);
+                for j in 0..n_features {
+                    if aliased[j] {
+                        coeff_out[j] = f64::NAN;
+                    } else {
+                        coeff_out[j] = coefficients[j];
+                    }
+                }
+
+                Ok((coeff_out, aliased, rank))
+            }
+            Err(_) => {
+                // Cholesky failed, fall back to QR
+                self.solve_with_qr(x, y, constant_cols)
+            }
+        }
     }
 
     /// Compute fit statistics.
@@ -826,6 +950,12 @@ impl WlsRegressorBuilder {
     /// Set the confidence level for confidence intervals.
     pub fn confidence_level(mut self, level: f64) -> Self {
         self.builder = self.builder.confidence_level(level);
+        self
+    }
+
+    /// Set the solver method (QR, SVD, or Cholesky).
+    pub fn solve_method(mut self, solver: SolverType) -> Self {
+        self.builder = self.builder.solver(solver);
         self
     }
 

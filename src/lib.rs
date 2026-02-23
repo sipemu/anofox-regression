@@ -36,7 +36,7 @@ pub mod prelude {
     pub use crate::core::{
         BinomialFamily, BinomialLink, GlmFamily, IntervalType, LambdaScaling, NaAction, NaError,
         NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily, PoissonLink, PredictionResult,
-        PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
+        PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult, SolverType,
         TweedieFamily,
     };
     pub use crate::diagnostics::{
@@ -60,7 +60,8 @@ pub mod prelude {
 pub use crate::core::{
     BinomialFamily, BinomialLink, GlmFamily, IntervalType, LambdaScaling, NaAction, NaError,
     NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily, PoissonLink, PredictionResult,
-    PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult, TweedieFamily,
+    PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult, SolverType,
+    TweedieFamily,
 };
 pub use crate::inference::{HcInference, HcType};
 pub use crate::solvers::{
