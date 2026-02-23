@@ -440,7 +440,7 @@ impl OlsRegressor {
 
         // Use the augmented design matrix method for models with intercept
         // This computes SE for both intercept and coefficients correctly
-        if result.intercept.is_some() {
+        if let Some(intercept) = result.intercept {
             match CoefficientInference::standard_errors_with_intercept(
                 x,
                 result.mse,
@@ -468,7 +468,6 @@ impl OlsRegressor {
                     result.conf_interval_upper = Some(ci_upper);
 
                     // Intercept inference
-                    let intercept = result.intercept.expect("intercept was computed");
                     let t_int = if se_int > 0.0 {
                         intercept / se_int
                     } else {

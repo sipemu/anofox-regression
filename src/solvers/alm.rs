@@ -2192,7 +2192,7 @@ impl AlmRegressor {
 
         // Use standard errors based on (X'WX)^{-1} approximation
         // For simplicity, use the OLS-based standard errors
-        if result.intercept.is_some() {
+        if let Some(intercept) = result.intercept {
             if let Ok((se, se_int)) =
                 CoefficientInference::standard_errors_with_intercept(x, result.mse, &result.aliased)
             {
@@ -2212,7 +2212,6 @@ impl AlmRegressor {
                 result.conf_interval_upper = Some(ci_upper);
 
                 // Intercept inference
-                let intercept = result.intercept.expect("intercept was computed");
                 let t_int = if se_int > 0.0 {
                     intercept / se_int
                 } else {

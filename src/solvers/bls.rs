@@ -680,13 +680,13 @@ impl BlsRegressorBuilder {
         // Store the "all" bounds for later expansion
         BlsRegressor {
             options: self.options_builder.build_unchecked(),
-            lower_bounds: if self.lower_bound_all.is_some() {
-                Some(vec![self.lower_bound_all.expect("lower bound was set")])
+            lower_bounds: if let Some(lb) = self.lower_bound_all {
+                Some(vec![lb])
             } else {
                 lower
             },
-            upper_bounds: if self.upper_bound_all.is_some() {
-                Some(vec![self.upper_bound_all.expect("upper bound was set")])
+            upper_bounds: if let Some(ub) = self.upper_bound_all {
+                Some(vec![ub])
             } else {
                 upper
             },
