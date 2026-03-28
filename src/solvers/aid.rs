@@ -38,10 +38,10 @@ use crate::solvers::alm::{AlmDistribution, AlmRegressor};
 use crate::solvers::lm_dynamic::InformationCriterion;
 use crate::solvers::traits::{FittedRegressor, Regressor};
 use faer::{Col, Mat};
+use statrs::function::gamma::ln_gamma;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::LazyLock;
-use statrs::function::gamma::ln_gamma;
 
 /// Precomputed ln(k!) = ln_gamma(k+1) for k = 0..LN_FACT_SIZE.
 /// Covers demand values up to 256, which handles virtually all practical
@@ -492,9 +492,7 @@ impl AidClassifier {
                     })
                     .sum();
 
-                let ll = sum_ln_gamma_y_plus_size
-                    - n_f * ln_gamma_size
-                    - stats.sum_ln_gamma_yp1
+                let ll = sum_ln_gamma_y_plus_size - n_f * ln_gamma_size - stats.sum_ln_gamma_yp1
                     + n_f * size * p.ln()
                     + stats.sum_y * (1.0 - p).ln();
 
@@ -516,8 +514,7 @@ impl AidClassifier {
                 let df = (n - 1) as f64;
                 let sigma = (stats.sum_sq_dev / df).sqrt();
                 let sigma2 = sigma * sigma;
-                let ll = -0.5 * n_f * (2.0 * PI * sigma2).ln()
-                    - stats.sum_sq_dev / (2.0 * sigma2);
+                let ll = -0.5 * n_f * (2.0 * PI * sigma2).ln() - stats.sum_sq_dev / (2.0 * sigma2);
                 (ll, sigma, None, 2, mu)
             }
 
@@ -527,8 +524,7 @@ impl AidClassifier {
                 // With constant mu: n*shape*ln(rate) + (shape-1)*sum_ln_y - rate*sum_y - n*ln_Γ(shape)
                 let shape = if var > 0.0 { mu * mu / var } else { 1.0 };
                 let rate = shape / mu;
-                let ll = n_f * shape * rate.ln()
-                    + (shape - 1.0) * stats.sum_ln_y
+                let ll = n_f * shape * rate.ln() + (shape - 1.0) * stats.sum_ln_y
                     - rate * stats.sum_y
                     - n_f * ln_gamma(shape);
                 (ll, 1.0, Some(shape), 2, mu)
@@ -543,9 +539,8 @@ impl AidClassifier {
                 let log_mu = mu_resp.ln();
                 let df = (n - 1) as f64;
                 // log_rss = Σ(ln(y) - log_mu)² = sum_ln_y_sq - 2*log_mu*sum_ln_y + n*log_mu²
-                let log_rss = stats.sum_ln_y_sq
-                    - 2.0 * log_mu * stats.sum_ln_y
-                    + n_f * log_mu * log_mu;
+                let log_rss =
+                    stats.sum_ln_y_sq - 2.0 * log_mu * stats.sum_ln_y + n_f * log_mu * log_mu;
                 let sigma = (log_rss / df).sqrt();
                 let sigma2 = sigma * sigma;
                 let ll = -stats.sum_ln_y
@@ -609,12 +604,8 @@ impl AidClassifier {
                 let ic = self.ic_type.compute(ll, k, n);
 
                 let mean = result.fitted_values.iter().sum::<f64>() / n as f64;
-                let variance: f64 = result
-                    .residuals
-                    .iter()
-                    .map(|&r| r.powi(2))
-                    .sum::<f64>()
-                    / n as f64;
+                let variance: f64 =
+                    result.residuals.iter().map(|&r| r.powi(2)).sum::<f64>() / n as f64;
 
                 let zero_count = y.iter().filter(|&&v| v == 0.0).count();
                 let zero_prob = zero_count as f64 / n as f64;

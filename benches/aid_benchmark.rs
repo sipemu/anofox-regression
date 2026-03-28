@@ -50,12 +50,16 @@ fn bench_classify_full(c: &mut Criterion) {
 
     for &n in &[50, 100, 500, 1000] {
         let poisson_data = generate_poisson_like(n);
-        group.bench_with_input(BenchmarkId::new("poisson_like", n), &poisson_data, |b, y| {
-            b.iter(|| {
-                let classifier = AidClassifier::new();
-                black_box(classifier.classify(black_box(y)))
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("poisson_like", n),
+            &poisson_data,
+            |b, y| {
+                b.iter(|| {
+                    let classifier = AidClassifier::new();
+                    black_box(classifier.classify(black_box(y)))
+                })
+            },
+        );
 
         let intermittent_data = generate_intermittent(n);
         group.bench_with_input(
@@ -90,14 +94,16 @@ fn bench_classify_no_anomalies(c: &mut Criterion) {
 
     for &n in &[50, 100, 500, 1000] {
         let poisson_data = generate_poisson_like(n);
-        group.bench_with_input(BenchmarkId::new("poisson_like", n), &poisson_data, |b, y| {
-            b.iter(|| {
-                let classifier = AidClassifier::builder()
-                    .detect_anomalies(false)
-                    .build();
-                black_box(classifier.classify(black_box(y)))
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("poisson_like", n),
+            &poisson_data,
+            |b, y| {
+                b.iter(|| {
+                    let classifier = AidClassifier::builder().detect_anomalies(false).build();
+                    black_box(classifier.classify(black_box(y)))
+                })
+            },
+        );
     }
 
     group.finish();
@@ -111,18 +117,14 @@ fn bench_anomaly_detection(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("with_anomalies", n), &data, |b, y| {
             b.iter(|| {
-                let classifier = AidClassifier::builder()
-                    .detect_anomalies(true)
-                    .build();
+                let classifier = AidClassifier::builder().detect_anomalies(true).build();
                 black_box(classifier.classify(black_box(y)))
             })
         });
 
         group.bench_with_input(BenchmarkId::new("without_anomalies", n), &data, |b, y| {
             b.iter(|| {
-                let classifier = AidClassifier::builder()
-                    .detect_anomalies(false)
-                    .build();
+                let classifier = AidClassifier::builder().detect_anomalies(false).build();
                 black_box(classifier.classify(black_box(y)))
             })
         });
