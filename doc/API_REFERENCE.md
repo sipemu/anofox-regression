@@ -4,11 +4,11 @@ This comprehensive API documentation covers all regression methods, distribution
 
 ## Core Regression Methods
 
-**Linear Regression** includes `OlsRegressor` (Ordinary Least Squares with full inference), `WlsRegressor` (Weighted Least Squares), `RidgeRegressor` (L2 regularization), `ElasticNetRegressor` (L1+L2 via L-BFGS optimization), and `RlsRegressor` (Recursive Least Squares for online learning).
+**Linear Regression** includes `OlsRegressor` (Ordinary Least Squares with full inference), `WlsRegressor` (Weighted Least Squares), `RidgeRegressor` (L2 regularization), `ElasticNetRegressor` (L1+L2 via L-BFGS optimization), `HuberRegressor` (robust regression with Huber loss, resistant to outliers), and `RlsRegressor` (Recursive Least Squares for online learning).
 
 **Constrained Regression** provides `BlsRegressor` for bounded least squares with box constraints and non-negative least squares (NNLS).
 
-**Generalized Linear Models** include `PoissonRegressor` (count data with log/identity/sqrt links), `BinomialRegressor` (logistic/probit/cloglog), `NegativeBinomialRegressor` (overdispersed counts with theta estimation), and `TweedieRegressor` (Gaussian, Poisson, Gamma, Inverse-Gaussian, Compound Poisson-Gamma).
+**Generalized Linear Models** include `LogisticRegression` (binary classifier with sklearn-like API: `predict`, `predict_proba`, `decision_function`, `score`), `PoissonRegressor` (count data with log/identity/sqrt links), `BinomialRegressor` (logistic/probit/cloglog), `NegativeBinomialRegressor` (overdispersed counts with theta estimation), and `TweedieRegressor` (Gaussian, Poisson, Gamma, Inverse-Gaussian, Compound Poisson-Gamma).
 
 **Augmented Linear Models** via `AlmRegressor` support 24 distribution families: Normal, Laplace, Student-t, Logistic, Asymmetric Laplace, Generalised Normal, S, Log-Normal, Log-Laplace, Log-S, Log-Generalised Normal, Gamma, Inverse Gaussian, Exponential, Folded Normal, Rectified Normal, Beta, Logit-Normal, Poisson, Negative Binomial, Binomial, Geometric, Cumulative Logistic, Cumulative Normal, and Box-Cox Normal.
 
@@ -18,7 +18,7 @@ This comprehensive API documentation covers all regression methods, distribution
 
 **LOWESS** (`lowess_smooth`) provides locally weighted scatterplot smoothing with configurable bandwidth.
 
-**AID** (`AidClassifier`) implements Automatic Identification of Demand for classifying demand patterns (regular vs intermittent, count vs fractional) with distribution recommendation.
+**AID** (`AidClassifier`) implements Automatic Identification of Demand for classifying demand patterns (regular vs intermittent, count vs fractional) with distribution recommendation and optimized closed-form fitting.
 
 ## Loss Functions
 

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-03-28
+
+### Added
+
+- HuberRegressor: robust regression with Huber loss (#12)
+  - IRLS algorithm with adaptive Huber weights
+  - MAD-based scale estimation
+  - L2 regularization via `alpha` parameter
+  - Outlier detection via `outliers()` and `n_outliers()`
+  - Validated against R's `MASS::rlm(method="M", psi=psi.huber)`
+- LogisticRegression: binary classifier with sklearn-like API (#11)
+  - Wraps `BinomialRegressor` with logit link
+  - `predict()` returns class labels (0/1), `predict_proba()` returns probabilities
+  - `decision_function()` returns log-odds, `score()` returns accuracy
+  - L2 regularization via `Penalty::L2(lambda)` or `.c(C)` (sklearn convention)
+  - Validated against R's `glm(family=binomial(link="logit"))`
+
 ## [0.5.3] - 2026-03-28
 
 ### Changed

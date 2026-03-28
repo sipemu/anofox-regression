@@ -21,11 +21,13 @@ This library provides sklearn-style regression estimators with full statistical 
   - Weighted Least Squares (WLS)
   - Ridge Regression (L2 regularization)
   - Elastic Net (L1 + L2 regularization via L-BFGS)
+  - Huber Regression (robust to outliers, IRLS with Huber loss)
   - Recursive Least Squares (RLS) with online learning
   - Bounded Least Squares (BLS/NNLS) with box constraints
   - Dynamic Linear Model (LmDynamic) with time-varying coefficients
 
 - **Generalized Linear Models**
+  - Logistic Regression (binary classification with sklearn-like API)
   - Poisson GLM (Log, Identity, Sqrt links) with offset support
   - Negative Binomial GLM (overdispersed count data with theta estimation)
   - Binomial GLM (Logistic, Probit, Complementary log-log)
@@ -191,6 +193,8 @@ This library is developed using Test-Driven Development (TDD) with R as the orac
 | `OlsRegressor` | `lm()` | stats |
 | `WlsRegressor` | `lm()` with weights | stats |
 | `RidgeRegressor`, `ElasticNetRegressor` | `glmnet()` | glmnet |
+| `HuberRegressor` | `rlm(psi=psi.huber)` | MASS |
+| `LogisticRegression` | `glm(..., family=binomial)` | stats |
 | `BlsRegressor` | `nnls()` | nnls |
 | `PoissonRegressor` | `glm(..., family=poisson)` | stats |
 | `BinomialRegressor` | `glm(..., family=binomial)` | stats |
