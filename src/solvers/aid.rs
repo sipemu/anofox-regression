@@ -39,6 +39,34 @@ use crate::solvers::lm_dynamic::InformationCriterion;
 use crate::solvers::traits::{FittedRegressor, Regressor};
 use faer::{Col, Mat};
 use std::collections::HashMap;
+use std::f64::consts::PI;
+use std::sync::LazyLock;
+use statrs::function::gamma::ln_gamma;
+
+/// Precomputed ln(k!) = ln_gamma(k+1) for k = 0..LN_FACT_SIZE.
+/// Covers demand values up to 256, which handles virtually all practical
+/// demand data without calling the expensive ln_gamma function.
+const LN_FACT_SIZE: usize = 257;
+
+static LN_FACTORIAL: LazyLock<[f64; LN_FACT_SIZE]> = LazyLock::new(|| {
+    let mut table = [0.0; LN_FACT_SIZE];
+    for k in 1..LN_FACT_SIZE {
+        table[k] = table[k - 1] + (k as f64).ln();
+    }
+    table
+});
+
+/// Fast ln_gamma(k+1) = ln(k!) using a lookup table for small integers,
+/// falling back to statrs::ln_gamma for large or non-integer values.
+#[inline(always)]
+fn fast_ln_gamma_p1(v: f64) -> f64 {
+    let k = v as u32;
+    if (k as usize) < LN_FACT_SIZE && v == k as f64 {
+        LN_FACTORIAL[k as usize]
+    } else {
+        ln_gamma(v + 1.0)
+    }
+}
 
 /// Demand pattern type classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,28 +260,96 @@ impl AidClassifier {
             };
         }
 
-        // Step 1: Check if fractional
-        let is_fractional = self.detect_fractional(y);
+        // Pass 1: cheap sums and flags (no transcendental functions)
+        let n_f = n as f64;
+        let mut sum = 0.0;
+        let mut sum_sq = 0.0;
+        let mut zero_count = 0u32;
+        let mut is_fractional = false;
+        let mut has_non_positive = false;
+        let mut n_positive = 0usize;
 
-        // Step 2: Calculate zero proportion and basic statistics
-        let zero_count = y.iter().filter(|&&v| v == 0.0).count();
-        let zero_proportion = zero_count as f64 / n as f64;
+        for &v in y.iter() {
+            sum += v;
+            sum_sq += v * v;
+            if v == 0.0 {
+                zero_count += 1;
+            }
+            if !is_fractional && v != v.round() {
+                is_fractional = true;
+            }
+            if v <= 0.0 {
+                has_non_positive = true;
+            } else {
+                n_positive += 1;
+            }
+        }
 
-        let y_mean: f64 = y.iter().sum::<f64>() / n as f64;
-        let y_var: f64 = y.iter().map(|&v| (v - y_mean).powi(2)).sum::<f64>() / n as f64;
+        let y_mean = sum / n_f;
+        let zero_proportion = zero_count as f64 / n_f;
+        // One-pass variance: Σ(y-mean)² = Σy² - n*mean²
+        let sum_sq_dev = sum_sq - sum * sum / n_f;
+        let y_var = sum_sq_dev / n_f;
 
-        // Step 3: Classify demand type
+        // Determine demand type early so we know which candidates we'll evaluate
         let demand_type = if zero_proportion > self.intermittent_threshold {
             DemandType::Intermittent
         } else {
             DemandType::Regular
         };
 
-        // Step 4: Select candidate distributions
+        // Pass 2 (conditional): only compute expensive sums needed by the
+        // candidate distributions for this data type. This avoids calling
+        // ln_gamma for continuous data and ln() for count data.
+        let mut sum_ln_gamma_yp1 = 0.0;
+        let mut sum_ln_y = 0.0;
+        let mut sum_ln_y_sq = 0.0;
+
+        if !is_fractional {
+            // Count data path: Poisson/NegBin need Σ ln_Γ(y_i+1) = Σ ln(y_i!)
+            // Use lookup table for small integers (typical demand data)
+            for &v in y.iter() {
+                sum_ln_gamma_yp1 += fast_ln_gamma_p1(v.round().max(0.0));
+            }
+        } else if !has_non_positive {
+            // Continuous positive data: Gamma needs Σ ln(y), LogNormal needs Σ ln(y)²
+            let needs_ln_sq = demand_type == DemandType::Regular; // LogNormal candidate
+            for &v in y.iter() {
+                let ln_v = v.ln();
+                sum_ln_y += ln_v;
+                if needs_ln_sq {
+                    sum_ln_y_sq += ln_v * ln_v;
+                }
+            }
+        }
+        // else: fractional with zeros → candidates are RectifiedNormal(ALM), Gamma(skipped), Normal
+        //       no expensive sums needed
+
+        let log_mean_exp = if !has_non_positive && is_fractional && n_positive > 0 {
+            Some((sum_ln_y / n_positive as f64).exp())
+        } else {
+            None
+        };
+
+        let stats = PrecomputedStats {
+            n,
+            y_mean,
+            y_var,
+            zero_proportion,
+            has_non_positive,
+            sum_y: sum,
+            sum_sq_dev,
+            sum_ln_gamma_yp1,
+            sum_ln_y,
+            sum_ln_y_sq,
+            log_mean_exp,
+        };
+
+        // Select candidate distributions
         let candidates = self.get_candidate_distributions(demand_type, is_fractional);
 
-        // Step 5: Fit each distribution and compute IC
-        let mut ic_values: HashMap<DemandDistribution, f64> = HashMap::new();
+        // Fit each distribution and compute IC
+        let mut ic_values = HashMap::with_capacity(3);
         let mut best_dist = candidates[0];
         let mut best_ic = f64::INFINITY;
         let mut best_params = DistributionParameters {
@@ -265,7 +361,7 @@ impl AidClassifier {
         };
 
         for dist in candidates {
-            if let Some((ic, params)) = self.fit_distribution(y, dist) {
+            if let Some((ic, params)) = self.fit_distribution(y, dist, &stats) {
                 ic_values.insert(dist, ic);
                 if ic < best_ic {
                     best_ic = ic;
@@ -294,38 +390,30 @@ impl AidClassifier {
         }
     }
 
-    /// Check if data contains fractional (non-integer) values.
-    fn detect_fractional(&self, y: &Col<f64>) -> bool {
-        y.iter().any(|&v| v != v.round())
-    }
-
     /// Get candidate distributions based on demand type and data type.
+    #[inline]
     fn get_candidate_distributions(
         &self,
         demand_type: DemandType,
         is_fractional: bool,
-    ) -> Vec<DemandDistribution> {
+    ) -> [DemandDistribution; 3] {
         match (demand_type, is_fractional) {
-            // Regular count data
-            (DemandType::Regular, false) => vec![
+            (DemandType::Regular, false) => [
                 DemandDistribution::Poisson,
                 DemandDistribution::NegativeBinomial,
                 DemandDistribution::Normal,
             ],
-            // Regular fractional/continuous data
-            (DemandType::Regular, true) => vec![
+            (DemandType::Regular, true) => [
                 DemandDistribution::Normal,
                 DemandDistribution::Gamma,
                 DemandDistribution::LogNormal,
             ],
-            // Intermittent count data
-            (DemandType::Intermittent, false) => vec![
+            (DemandType::Intermittent, false) => [
                 DemandDistribution::NegativeBinomial,
                 DemandDistribution::Geometric,
                 DemandDistribution::Poisson,
             ],
-            // Intermittent fractional data
-            (DemandType::Intermittent, true) => vec![
+            (DemandType::Intermittent, true) => [
                 DemandDistribution::RectifiedNormal,
                 DemandDistribution::Gamma,
                 DemandDistribution::Normal,
@@ -334,21 +422,23 @@ impl AidClassifier {
     }
 
     /// Fit a distribution to the data and return IC and parameters.
+    ///
+    /// Uses closed-form MLE + O(1) log-likelihood formulas for intercept-only
+    /// models. All expensive sums are precomputed in `stats`. Falls back to
+    /// ALM only for RectifiedNormal which requires numerical optimization.
     fn fit_distribution(
         &self,
         y: &Col<f64>,
         dist: DemandDistribution,
+        stats: &PrecomputedStats,
     ) -> Option<(f64, DistributionParameters)> {
-        let n = y.nrows();
-
-        // Create a simple intercept-only model (constant mean)
-        let x = Mat::from_fn(n, 1, |_, _| 1.0);
-
-        let alm_dist = dist.to_alm_distribution();
+        let n = stats.n;
+        let n_f = n as f64;
+        let mu = stats.y_mean;
+        let var = stats.y_var;
 
         // Skip distributions that require positive data if we have zeros/negatives
-        let has_non_positive = y.iter().any(|&v| v <= 0.0);
-        if has_non_positive
+        if stats.has_non_positive
             && matches!(
                 dist,
                 DemandDistribution::Gamma | DemandDistribution::LogNormal
@@ -357,10 +447,155 @@ impl AidClassifier {
             return None;
         }
 
-        // Fit the model
+        // RectifiedNormal requires numerical optimization — use ALM fallback
+        if dist == DemandDistribution::RectifiedNormal {
+            return self.fit_distribution_via_alm(y, dist);
+        }
+
+        // Compute LL, scale, shape, n_params using closed-form O(1) formulas.
+        // Each formula mirrors the corresponding ll_* function in alm.rs
+        // but for constant mu, expressed in terms of precomputed sums.
+        let (ll, scale, shape, n_params, mu_out) = match dist {
+            DemandDistribution::Poisson => {
+                // ll_poisson: Σ [y_i * ln(λ) - λ - ln_Γ(y_i + 1)]
+                // With constant λ = mu: sum_y * ln(λ) - n*λ - sum_ln_gamma_yp1
+                let lambda = mu.max(1e-10);
+                let ll = stats.sum_y * lambda.ln() - n_f * lambda - stats.sum_ln_gamma_yp1;
+                (ll, 1.0, None, 1, mu)
+            }
+
+            DemandDistribution::NegativeBinomial => {
+                // size = mu² / (var - mu), p = size/(size+mu)
+                // ll_negbin: Σ [ln_Γ(y_i+size) - ln_Γ(size) - ln_Γ(y_i+1)
+                //             + size*ln(p) + y_i*ln(1-p)]
+                // With constant mu: only Σ ln_Γ(y_i+size) needs O(n)
+                let size = if var > mu && mu > 0.0 {
+                    mu * mu / (var - mu)
+                } else {
+                    1.0
+                };
+                let mu_c = mu.max(1e-10);
+                let p = size / (size + mu_c);
+
+                // O(n) for the size-dependent term.
+                // Short-circuit y_i == 0 (very common in intermittent demand)
+                // to avoid expensive ln_gamma calls.
+                let ln_gamma_size = ln_gamma(size);
+                let sum_ln_gamma_y_plus_size: f64 = y
+                    .iter()
+                    .map(|&v| {
+                        if v <= 0.0 {
+                            ln_gamma_size
+                        } else {
+                            ln_gamma(v.round() + size)
+                        }
+                    })
+                    .sum();
+
+                let ll = sum_ln_gamma_y_plus_size
+                    - n_f * ln_gamma_size
+                    - stats.sum_ln_gamma_yp1
+                    + n_f * size * p.ln()
+                    + stats.sum_y * (1.0 - p).ln();
+
+                (ll, 1.0, Some(size), 2, mu)
+            }
+
+            DemandDistribution::Geometric => {
+                // ll_geometric: Σ [ln(p) + k*ln(1-p)]
+                // With constant λ = mu: n*ln(p) + sum_y*ln(1-p)
+                let lambda = mu.max(1e-10);
+                let p = 1.0 / (1.0 + lambda);
+                let ll = n_f * p.ln() + stats.sum_y * (1.0 - p).ln();
+                (ll, 1.0, None, 1, mu)
+            }
+
+            DemandDistribution::Normal => {
+                // ll_normal: -n/2 * ln(2πσ²) - RSS/(2σ²)
+                // RSS = sum_sq_dev, σ = sqrt(RSS/df)
+                let df = (n - 1) as f64;
+                let sigma = (stats.sum_sq_dev / df).sqrt();
+                let sigma2 = sigma * sigma;
+                let ll = -0.5 * n_f * (2.0 * PI * sigma2).ln()
+                    - stats.sum_sq_dev / (2.0 * sigma2);
+                (ll, sigma, None, 2, mu)
+            }
+
+            DemandDistribution::Gamma => {
+                // shape = mu²/var, rate = shape/mu
+                // ll_gamma: Σ [shape*ln(rate) + (shape-1)*ln(y_i) - rate*y_i - ln_Γ(shape)]
+                // With constant mu: n*shape*ln(rate) + (shape-1)*sum_ln_y - rate*sum_y - n*ln_Γ(shape)
+                let shape = if var > 0.0 { mu * mu / var } else { 1.0 };
+                let rate = shape / mu;
+                let ll = n_f * shape * rate.ln()
+                    + (shape - 1.0) * stats.sum_ln_y
+                    - rate * stats.sum_y
+                    - n_f * ln_gamma(shape);
+                (ll, 1.0, Some(shape), 2, mu)
+            }
+
+            DemandDistribution::LogNormal => {
+                // MLE: mu_log = mean(ln(y)), mu_response = exp(mu_log)
+                // σ = sqrt(Σ(ln(y) - mu_log)² / df)
+                // ll_log_normal: Σ [-ln(y) - ln(σ) - 0.5*ln(2π) - (ln(y)-ln(mu))²/(2σ²)]
+                // = -sum_ln_y - n*ln(σ) - n/2*ln(2π) - log_rss/(2σ²)
+                let mu_resp = stats.log_mean_exp.unwrap_or(mu);
+                let log_mu = mu_resp.ln();
+                let df = (n - 1) as f64;
+                // log_rss = Σ(ln(y) - log_mu)² = sum_ln_y_sq - 2*log_mu*sum_ln_y + n*log_mu²
+                let log_rss = stats.sum_ln_y_sq
+                    - 2.0 * log_mu * stats.sum_ln_y
+                    + n_f * log_mu * log_mu;
+                let sigma = (log_rss / df).sqrt();
+                let sigma2 = sigma * sigma;
+                let ll = -stats.sum_ln_y
+                    - n_f * sigma.ln()
+                    - 0.5 * n_f * (2.0 * PI).ln()
+                    - log_rss / (2.0 * sigma2);
+                (ll, sigma, None, 2, mu_resp)
+            }
+
+            DemandDistribution::RectifiedNormal => unreachable!(),
+        };
+
+        if !ll.is_finite() {
+            return None;
+        }
+
+        let ic = self.ic_type.compute(ll, n_params, n);
+
+        // Variance for output: use precomputed when mu_out == y_mean
+        let out_var = if (mu_out - mu).abs() < 1e-15 {
+            var
+        } else {
+            // LogNormal case: mu_out differs, need actual variance
+            y.iter().map(|&v| (v - mu_out).powi(2)).sum::<f64>() / n_f
+        };
+
+        Some((
+            ic,
+            DistributionParameters {
+                mean: mu_out,
+                variance: out_var,
+                shape,
+                zero_prob: Some(stats.zero_proportion),
+                scale: Some(scale),
+            },
+        ))
+    }
+
+    /// Fallback: fit distribution via ALM for distributions that need numerical optimization.
+    fn fit_distribution_via_alm(
+        &self,
+        y: &Col<f64>,
+        dist: DemandDistribution,
+    ) -> Option<(f64, DistributionParameters)> {
+        let n = y.nrows();
+        let x = Mat::from_fn(n, 1, |_, _| 1.0);
+
         let model = AlmRegressor::builder()
-            .distribution(alm_dist)
-            .with_intercept(false) // x is already an intercept column
+            .distribution(dist.to_alm_distribution())
+            .with_intercept(false)
             .compute_inference(false)
             .build();
 
@@ -369,45 +604,27 @@ impl AidClassifier {
                 let result = fitted.result();
                 let scale = fitted.scale();
 
-                // Compute IC
                 let ll = result.log_likelihood;
                 let k = result.n_parameters;
                 let ic = self.ic_type.compute(ll, k, n);
 
-                // Extract parameters
                 let mean = result.fitted_values.iter().sum::<f64>() / n as f64;
-                let residuals = &result.residuals;
-                let variance: f64 = residuals.iter().map(|&r| r.powi(2)).sum::<f64>() / n as f64;
+                let variance: f64 = result
+                    .residuals
+                    .iter()
+                    .map(|&r| r.powi(2))
+                    .sum::<f64>()
+                    / n as f64;
 
                 let zero_count = y.iter().filter(|&&v| v == 0.0).count();
                 let zero_prob = zero_count as f64 / n as f64;
-
-                // Shape parameter estimation (for Gamma, NegBinom)
-                let shape = match dist {
-                    DemandDistribution::Gamma => {
-                        if variance > 0.0 {
-                            Some(mean.powi(2) / variance)
-                        } else {
-                            Some(1.0)
-                        }
-                    }
-                    DemandDistribution::NegativeBinomial => {
-                        // Estimate size parameter: r = mean^2 / (variance - mean)
-                        if variance > mean && mean > 0.0 {
-                            Some(mean.powi(2) / (variance - mean))
-                        } else {
-                            Some(1.0)
-                        }
-                    }
-                    _ => None,
-                };
 
                 Some((
                     ic,
                     DistributionParameters {
                         mean,
                         variance,
-                        shape,
+                        shape: None,
                         zero_prob: Some(zero_prob),
                         scale: Some(scale),
                     },
@@ -510,6 +727,30 @@ impl AidClassifier {
 
         anomalies
     }
+}
+
+/// Precomputed statistics for the input data, shared across distribution fits.
+///
+/// All O(n) sums are computed once so that per-distribution log-likelihood
+/// evaluation is O(1) (except NegBin which needs one O(n) pass for
+/// `ln_gamma(y_i + size)`).
+struct PrecomputedStats {
+    n: usize,
+    y_mean: f64,
+    y_var: f64,
+    zero_proportion: f64,
+    has_non_positive: bool,
+    sum_y: f64,
+    /// Σ (y_i - mean)² = n * variance
+    sum_sq_dev: f64,
+    /// Σ ln_Γ(round(y_i).max(0) + 1) — for Poisson & NegBin LL (count data only)
+    sum_ln_gamma_yp1: f64,
+    /// Σ ln(y_i) for y_i > 0 — for Gamma & LogNormal LL (continuous data only)
+    sum_ln_y: f64,
+    /// Σ (ln(y_i))² for y_i > 0 — for LogNormal LL (continuous regular only)
+    sum_ln_y_sq: f64,
+    /// exp(mean(ln(y))) for positive data — LogNormal MLE on response scale
+    log_mean_exp: Option<f64>,
 }
 
 /// Builder for AidClassifier.

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-03-28
+
+### Changed
+
+- AID classifier performance optimization delivering 50x–800x speedups
+  - Replaced full ALM/IRLS optimizer with closed-form MLE for intercept-only models
+  - Inline O(1) log-likelihood formulas using precomputed sums (eliminates per-distribution O(n) passes)
+  - Conditional precomputation: `ln_gamma` sums only for count data, `ln()` sums only for continuous data
+  - One-pass variance via `Σy² - (Σy)²/n`, eliminating a separate data pass
+  - Lookup table for `ln(k!)` covering k=0..256, avoiding expensive `ln_gamma` calls for typical demand data
+  - Zero short-circuit in Negative Binomial log-likelihood for intermittent demand patterns
+  - Stack-allocated candidate array instead of heap-allocated `Vec`
+
+### Added
+
+- Criterion benchmark suite for AID classifier (`benches/aid_benchmark.rs`)
+
 ## [0.5.1] - 2026-01-16
 
 ### Added

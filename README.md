@@ -41,7 +41,7 @@ This library provides sklearn-style regression estimators with full statistical 
 
 - **Smoothing & Classification**
   - LOWESS (Locally Weighted Scatterplot Smoothing)
-  - AID (Automatic Identification of Demand) classifier
+  - AID (Automatic Identification of Demand) classifier with optimized closed-form fitting
 
 - **Loss Functions**
   - MAE, MSE, RMSE, MAPE, sMAPE, MASE, pinball loss
