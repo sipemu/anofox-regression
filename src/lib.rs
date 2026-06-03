@@ -49,11 +49,11 @@ pub mod prelude {
     pub use crate::inference::{HcInference, HcType};
     pub use crate::solvers::{
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
-        FittedAlm, FittedBinomial, FittedHuber, FittedIsotonic, FittedLogistic,
+        FittedAlm, FittedBinomial, FittedGamma, FittedHuber, FittedIsotonic, FittedLogistic,
         FittedNegativeBinomial, FittedPls, FittedPoisson, FittedQuantile, FittedRegressor,
-        FittedTweedie, HuberRegressor, IsotonicRegressor, LinkFunction, LogisticRegression,
-        NegativeBinomialRegressor, OlsRegressor, OutOfBounds, Penalty, PlsRegressor,
-        PoissonRegressor, QuantileRegressor, Regressor, RidgeRegressor, RlsRegressor,
+        FittedTweedie, GammaRegressor, HuberRegressor, IsotonicRegressor, LinkFunction,
+        LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds, Penalty,
+        PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor, RidgeRegressor, RlsRegressor,
         TweedieRegressor, WlsRegressor,
     };
 }

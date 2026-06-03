@@ -1,10 +1,15 @@
-# R Validation Report
+# Validation Report
 
-This document describes how the Rust `anofox-regression` library is validated against R to ensure numerical accuracy and correctness of statistical implementations.
+This document describes how the Rust `anofox-regression` library is validated against established statistical software to ensure numerical accuracy and correctness.
 
 ## Overview
 
-The validation system uses R as the reference oracle to validate Rust implementations through a Test-Driven Development approach. Reference values are generated using R's established statistical packages with fixed random seeds to ensure reproducibility.
+The validation suite uses two oracle ecosystems, chosen per estimator:
+
+- **R** (`base stats`, `MASS`, `glmnet`, `quantreg`, `greybox`, …) for the GLM-style and classic regression methods. R scripts live under `tests/r_scripts/`.
+- **scikit-learn** (Python) for the estimators whose canonical reference is sklearn — `TheilSenRegressor`, `RANSACRegressor`, `PassiveAggressiveRegressor`, `Lars`, `LassoLars`, `BayesianRidge`, `ARDRegression`. The Python oracle scripts and a pinned, reproducible `uv`-managed venv live under `validation/python/`.
+
+Both pipelines emit a `tests/fixtures/*_validation.rs` file of `const` arrays that Rust integration tests `include!(...)` and assert agreement against, with per-estimator tolerances.
 
 ## Core Architecture
 
@@ -18,11 +23,14 @@ The validation system uses a three-component structure:
 
 ### Reference Generation Scripts
 
+#### R-based oracles
+
 | Script | Purpose |
 |--------|---------|
 | `validation/generate_validation_data.R` | Generates OLS, Ridge, Elastic Net, WLS, and diagnostic test cases |
 | `tests/r_scripts/generate_regression_validation.R` | Validates WLS, Ridge, Elastic Net, and Tweedie regressors |
 | `tests/r_scripts/generate_glm_validation.R` | Validates GLM implementations (Poisson, Binomial, Gamma, etc.) |
+| `tests/r_scripts/generate_gamma_validation.R` | Validates `GammaRegressor` against `glm(family = Gamma(link="log"))` |
 | `tests/r_scripts/generate_alm_validation.R` | Validates ALM implementations (7 core distributions) |
 | `tests/r_scripts/generate_alm_validation_extended.R` | Validates ALM extended distributions (14 additional) |
 | `tests/r_scripts/generate_alm_loss_validation.R` | Validates ALM loss function implementations |
@@ -30,15 +38,35 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_quantile_validation.R` | Validates Quantile Regression using `quantreg` package |
 | `tests/r_scripts/generate_quantile_extended_validation.R` | Extended Quantile validation with Engel/Stackloss datasets |
 | `tests/r_scripts/generate_isotonic_validation.R` | Validates Isotonic Regression using base R `isoreg()` |
+| `tests/r_scripts/generate_huber_validation.R` | Validates `HuberRegressor` against `MASS::rlm` |
+| `tests/r_scripts/generate_logistic_validation.R` | Validates `LogisticRegression` against `glm(family = binomial)` |
+| `tests/r_scripts/generate_pls_validation.R` | Validates PLS regression |
+
+#### scikit-learn-based oracles (Python, `validation/python/`)
+
+| Script | Purpose |
+|--------|---------|
+| `validation/python/generate_theil_sen_validation.py` | `TheilSenRegressor` — univariate exact + multivariate exhaustive branch |
+| `validation/python/generate_ransac_validation.py` | `RANSACRegressor` with `LinearRegression` base estimator |
+| `validation/python/generate_pa_validation.py` | `PassiveAggressiveRegressor` PA-I and PA-II variants |
+| `validation/python/generate_lars_validation.py` | `Lars`, `LassoLars`, plus path truncation by `n_nonzero_coefs` |
+| `validation/python/generate_bayesian_validation.py` | `BayesianRidge` and `ARDRegression` evidence-maximisation fits |
+
+The Python environment is reproducible: `validation/python/requirements.txt` pins `scikit-learn==1.5.2` and `numpy==2.1.3`, and `validation/python/README.md` documents the exact `uv` setup commands. Re-running each script regenerates the corresponding `tests/fixtures/<name>_validation.rs` file bit-for-bit on the pinned versions.
 
 ### R Packages Used
 
 - **base stats**: `lm()`, `glm()`, `isoreg()` for core regression, GLM, and isotonic regression
-- **MASS**: `glm.nb()` for negative binomial regression
+- **MASS**: `glm.nb()` for negative binomial regression, `rlm(method="M", psi=psi.huber)` for Huber
 - **glmnet**: Ridge regression, Elastic Net, Lasso with coordinate descent
 - **statmod**: Tweedie family distributions, inverse Gaussian
 - **greybox**: `alm()` for augmented linear models, `aid()` for demand identification
 - **quantreg**: `rq()` for quantile regression
+
+### Python Packages Used
+
+- **scikit-learn 1.5.2**: `TheilSenRegressor`, `RANSACRegressor`, `PassiveAggressiveRegressor`, `Lars`, `LassoLars`, `BayesianRidge`, `ARDRegression`
+- **numpy 2.1.3**: deterministic `default_rng(seed)` for fixture sampling
 
 ## Validation Categories
 
@@ -374,6 +402,110 @@ Documents that the crate uses f64 exclusively; tests f32-range values work corre
 | Difficult convergence | Heavy outliers (±500, ±1000) |
 | Many ties | 10 unique x with 50 reps each (n=500) |
 
+### 17. Gamma Regression
+
+Validates `GammaRegressor` (a sklearn-style convenience wrapper around `TweedieRegressor` with `var_power = 2`) against R's `glm(family = Gamma(link = "log"))`.
+
+**Oracle**: base R `glm`.
+**Generator**: `tests/r_scripts/generate_gamma_validation.R`.
+**Test file**: `tests/r_validation_gamma.rs`.
+**Tolerance**: `1e-4` for coefficients, `1e-3` for deviance.
+
+| Test | Description |
+|------|-------------|
+| Univariate Gamma | `n = 60`, simulated `y ~ rgamma(shape=2, rate=2/μ)` with `μ = exp(0.5 + 0.4 x)` |
+| Multivariate Gamma | `n = 80`, two predictors, `μ = exp(0.2 + 0.6 x₁ − 0.3 x₂)` |
+
+### 18. Theil-Sen Regression
+
+Validates `TheilSenRegressor` against `sklearn.linear_model.TheilSenRegressor`.
+
+**Algorithm**: For each subsample of `n_features + 1` observations, solve OLS exactly; take the Vardi-Zhang modified Weiszfeld spatial median of the resulting coefficient vectors. Exhaustive enumeration when `C(n, n_subsamples) ≤ max_subpopulation` matches sklearn's deterministic branch.
+**Oracle**: scikit-learn 1.5.2.
+**Generator**: `validation/python/generate_theil_sen_validation.py`.
+**Test file**: `tests/r_validation_theil_sen.rs`.
+**Tolerance**: `1e-10` (univariate, exact); `5e-3` (multivariate spatial median, covers Weiszfeld termination).
+
+| Test | Description |
+|------|-------------|
+| Univariate exhaustive | `n = 30`, 1 feature, outliers injected; identical spatial median to sklearn |
+| Multivariate exhaustive | `n = 14`, 2 features, `C(14, 3) = 364 < 10 000` ⇒ deterministic enumeration |
+
+### 19. RANSAC Regression
+
+Validates `RansacRegressor` against `sklearn.linear_model.RANSACRegressor` with `LinearRegression` base estimator.
+
+**Algorithm**: Random subsample → OLS fit → inliers by `|residual| < threshold`; keep subset with most inliers, refit OLS on the consensus set. Uses Fischler–Bolles stop-probability bound to cap `max_trials` dynamically.
+**Oracle**: scikit-learn 1.5.2 with a deliberately clean inlier/outlier gap so the consensus set is unique. Both implementations refit OLS on identical inlier sets, so coefficients match to machine precision.
+**Generator**: `validation/python/generate_ransac_validation.py`.
+**Test file**: `tests/r_validation_ransac.rs`.
+**Tolerance**: `1e-9` for coefficients and intercept, exact match on inlier mask.
+
+| Test | Description |
+|------|-------------|
+| Univariate | `n = 65` (50 inliers + 15 outliers), residual_threshold = 0.5 |
+| Multivariate | `n = 100`, `p = 2`, 80 inliers / 20 outliers, residual_threshold = 0.3 |
+
+### 20. Passive-Aggressive Regression
+
+Validates `PassiveAggressiveRegressor` (online learning, PA-I and PA-II) against `sklearn.linear_model.PassiveAggressiveRegressor`.
+
+**Algorithm**: For each sample, leave weights unchanged if epsilon-insensitive loss is zero; otherwise step `τ` such that the constraint is exactly satisfied (PA-I clamps to `C`; PA-II uses squared loss). `||x||²` is the bare feature norm (not augmented with `1` for the bias), matching sklearn's `_sgd_fast.pyx`. Multi-epoch `fit` uses sklearn's `best_loss` / `no_improvement_count` early-stopping criterion (5 epochs without `tol*n` improvement).
+**Oracle**: scikit-learn 1.5.2 with `shuffle=False` so the per-epoch traversal order is identical and the algorithm is fully deterministic.
+**Generator**: `validation/python/generate_pa_validation.py`.
+**Test file**: `tests/r_validation_passive_aggressive.rs`.
+**Tolerance**: `2e-2` for coefficients and intercept.
+
+| Test | Description |
+|------|-------------|
+| PA-I univariate | `n = 100`, epsilon-insensitive loss, C = 1.0, ε = 0.1 |
+| PA-I multivariate | `n = 80`, `p = 3`, epsilon-insensitive |
+| PA-II multivariate | `n = 100`, `p = 2`, squared epsilon-insensitive, C = 0.5 |
+
+### 21. LARS and LassoLars
+
+Validates `LarsRegressor` (plain LARS) and the Lasso variant against `sklearn.linear_model.Lars` and `LassoLars`.
+
+**Algorithm**: Efron–Hastie–Johnstone–Tibshirani LARS (2004). At each step adds the most-correlated predictor, walks the equiangular direction, and chooses step size by the joining condition (LARS) or by the joining/dropping condition (LassoLars). For `LassoLars` the returned coefficients are linearly interpolated between path knots so the result corresponds to exactly the requested `alpha` (matches sklearn's `lasso_path` convention).
+**Oracle**: scikit-learn 1.5.2.
+**Generator**: `validation/python/generate_lars_validation.py`.
+**Test file**: `tests/r_validation_lars.rs`.
+**Tolerance**: `1e-6` for plain LARS (deterministic linear algebra); `5e-3` for `LassoLars` (path-interpolation precision).
+
+| Test | Description |
+|------|-------------|
+| LARS full path | `n = 60`, `p = 4`, all coefficients reach OLS (= unregularised OLS) |
+| LARS truncated | `n = 80`, `p = 6`, `n_nonzero_coefs = 2` (two-step path) |
+| LassoLars | `n = 100`, `p = 8`, `alpha = 0.1` with sklearn-style `(1/2n)` parametrisation |
+
+### 22. BayesianRidge
+
+Validates `BayesianRidge` against `sklearn.linear_model.BayesianRidge`.
+
+**Algorithm**: SVD-based evidence maximisation (MacKay 1992 / Tipping 2001). Jointly updates noise precision α and weight precision λ via closed-form gamma-prior updates of `γ = Σ s² / (αs² + λ)`. Convergence on `Σ_j |β_new − β_old| < tol` matches sklearn.
+**Oracle**: scikit-learn 1.5.2 with default gamma-prior shapes `α₁ = α₂ = λ₁ = λ₂ = 1e-6`.
+**Generator**: `validation/python/generate_bayesian_validation.py`.
+**Test file**: `tests/r_validation_bayesian.rs`.
+**Tolerance**: `5e-3` for coefficients/intercept; `0.5` on α and `0.05` on λ.
+
+| Test | Description |
+|------|-------------|
+| BayesianRidge defaults | `n = 100`, `p = 4`, `α ≈ 25.3`, `λ ≈ 0.6` |
+
+### 23. ARD Regression
+
+Validates `ArdRegression` against `sklearn.linear_model.ARDRegression`.
+
+**Algorithm**: ARD prior with per-feature precisions `λ_j`. Per-iteration: Cholesky on `αX'X + diag(λ)` for the subset of un-pruned features; update γ_j and λ_j; prune features with `λ_j > threshold_lambda`.
+**Oracle**: scikit-learn 1.5.2.
+**Generator**: `validation/python/generate_bayesian_validation.py`.
+**Test file**: `tests/r_validation_bayesian.rs`.
+**Tolerance**: `5e-2` for active coefficients; pruning verified structurally (irrelevant features either have `λ > 10` or `|β| < 0.05`).
+
+| Test | Description |
+|------|-------------|
+| Sparse recovery | `n = 120`, `p = 6`, two features pruned (true β = 0) |
+
 ## Test Coverage
 
 | Category | Tests | Tolerance |
@@ -394,16 +526,23 @@ Documents that the crate uses f64 exclusively; tests f32-range values work corre
 | Quantile | 39+ | 0.01 |
 | Isotonic | 34+ | 1e-6 |
 | Stress Tests | 19 | Varies |
-| **Total** | **456+** | - |
+| Gamma | 2 | 1e-4 |
+| Theil-Sen | 2 | 1e-10 / 5e-3 |
+| RANSAC | 2 | 1e-9 |
+| Passive-Aggressive | 3 | 2e-2 |
+| LARS / LassoLars | 3 | 1e-6 / 5e-3 |
+| Bayesian Ridge / ARD | 2 | 5e-3 / 5e-2 |
+| **Total** | **470+** | - |
 
 ## Reproducibility
 
 All validation is reproducible through:
 
-1. **Fixed random seeds**: All R scripts use `set.seed(42)`
-2. **Version-controlled data**: Reference output stored in `validation/validation_output.txt`
-3. **CI/CD verification**: Tests run automatically on every commit
-4. **Transparent documentation**: R code embedded in Rust test comments
+1. **Fixed random seeds**: All R scripts use `set.seed(42)`; all Python scripts use `np.random.default_rng(42)` (or another small constant)
+2. **Pinned versions**: R packages from CRAN are loaded at the version installed in CI; the Python venv pins `scikit-learn==1.5.2` and `numpy==2.1.3` via `validation/python/requirements.txt`
+3. **Version-controlled data**: Reference output stored as Rust `const` arrays in `tests/fixtures/*_validation.rs`
+4. **CI/CD verification**: Tests run automatically on every commit
+5. **Transparent documentation**: R/Python code embedded in Rust test comments
 
 ## Running Validation
 
@@ -412,6 +551,34 @@ All validation is reproducible through:
 ```bash
 cd validation
 Rscript generate_validation_data.R > validation_output.txt
+```
+
+For per-estimator R fixtures (Huber, Logistic, Gamma, …):
+
+```bash
+Rscript tests/r_scripts/generate_gamma_validation.R    > tests/fixtures/gamma_validation.rs
+Rscript tests/r_scripts/generate_huber_validation.R    > tests/fixtures/huber_validation.rs
+Rscript tests/r_scripts/generate_logistic_validation.R > tests/fixtures/logistic_validation.rs
+```
+
+### Regenerate Python (sklearn) references
+
+One-time environment bootstrap (requires [`uv`](https://github.com/astral-sh/uv)):
+
+```bash
+cd validation/python
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+```
+
+Then regenerate any of the sklearn-based fixtures:
+
+```bash
+.venv/bin/python generate_theil_sen_validation.py > ../../tests/fixtures/theil_sen_validation.rs
+.venv/bin/python generate_ransac_validation.py    > ../../tests/fixtures/ransac_validation.rs
+.venv/bin/python generate_pa_validation.py        > ../../tests/fixtures/pa_validation.rs
+.venv/bin/python generate_lars_validation.py      > ../../tests/fixtures/lars_validation.rs
+.venv/bin/python generate_bayesian_validation.py  > ../../tests/fixtures/bayesian_validation.rs
 ```
 
 ### Run All Rust Tests
@@ -432,6 +599,13 @@ cargo test r_validation
 # Diagnostic validation
 cargo test test_leverage
 cargo test test_cooks_distance
+
+# New-in-0.5.5 sklearn-backed validations
+cargo test --test r_validation_theil_sen
+cargo test --test r_validation_ransac
+cargo test --test r_validation_passive_aggressive
+cargo test --test r_validation_lars
+cargo test --test r_validation_bayesian
 ```
 
 ## Implementation Notes
