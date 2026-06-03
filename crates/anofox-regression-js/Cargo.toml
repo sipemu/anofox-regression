@@ -1,6 +1,6 @@
 [package]
 name = "anofox-regression-js"
-version = "0.5.0"
+version = "0.5.4"
 authors = ["Simon M"]
 edition = "2021"
 description = "WebAssembly bindings for anofox-regression statistical regression library"

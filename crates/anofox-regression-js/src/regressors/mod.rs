@@ -1,11 +1,15 @@
 //! Regression model wrappers for WebAssembly.
 
+mod aid;
 mod alm;
 mod binomial;
 mod bls;
 mod elastic_net;
+mod huber;
 mod isotonic;
 mod lm_dynamic;
+mod logistic;
+mod lowess;
 mod negative_binomial;
 mod ols;
 mod pls;
@@ -16,12 +20,16 @@ mod rls;
 mod tweedie;
 mod wls;
 
+pub use aid::*;
 pub use alm::*;
 pub use binomial::*;
 pub use bls::*;
 pub use elastic_net::*;
+pub use huber::*;
 pub use isotonic::*;
 pub use lm_dynamic::*;
+pub use logistic::*;
+pub use lowess::*;
 pub use negative_binomial::*;
 pub use ols::*;
 pub use pls::*;
