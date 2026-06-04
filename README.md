@@ -77,22 +77,40 @@ anofox-regression = "0.5"
 The library includes runnable examples demonstrating each major feature:
 
 ```bash
-cargo run --example ols              # Ordinary Least Squares
-cargo run --example wls              # Weighted Least Squares
-cargo run --example ridge            # Ridge regression
-cargo run --example elastic_net      # Elastic Net
-cargo run --example rls              # Recursive Least Squares
-cargo run --example bls              # Bounded/Non-negative LS
-cargo run --example poisson          # Poisson GLM
-cargo run --example negative_binomial # Negative Binomial GLM
-cargo run --example binomial         # Logistic regression
-cargo run --example tweedie          # Tweedie GLM
-cargo run --example alm              # Augmented Linear Model
-cargo run --example lm_dynamic       # Dynamic Linear Model
-cargo run --example lowess           # LOWESS smoothing
-cargo run --example aid              # Demand classification
-cargo run --example quantile         # Quantile regression
-cargo run --example isotonic         # Isotonic regression
+# Linear
+cargo run --example ols                 # Ordinary Least Squares
+cargo run --example wls                 # Weighted Least Squares
+cargo run --example ridge               # Ridge regression
+cargo run --example elastic_net         # Elastic Net
+cargo run --example rls                 # Recursive Least Squares
+cargo run --example bls                 # Bounded/Non-negative LS
+cargo run --example pls                 # Partial Least Squares
+cargo run --example lars                # LARS and LassoLars
+cargo run --example lm_dynamic          # Dynamic Linear Model
+
+# Robust & Bayesian
+cargo run --example huber               # Huber regression (robust)
+cargo run --example theil_sen           # Theil–Sen estimator
+cargo run --example ransac              # RANSAC regression
+cargo run --example bayesian            # Bayesian Ridge + ARD
+
+# Online
+cargo run --example passive_aggressive  # PA-I / PA-II + partial_fit
+
+# GLMs
+cargo run --example poisson             # Poisson GLM
+cargo run --example negative_binomial   # Negative Binomial GLM
+cargo run --example binomial            # Binomial GLM (logit/probit/cloglog)
+cargo run --example logistic            # LogisticRegression (sklearn-style)
+cargo run --example tweedie             # Tweedie GLM
+cargo run --example gamma               # Gamma GLM (log link)
+
+# Other
+cargo run --example alm                 # Augmented Linear Model
+cargo run --example lowess              # LOWESS smoothing
+cargo run --example aid                 # Demand classification
+cargo run --example quantile            # Quantile regression
+cargo run --example isotonic            # Isotonic regression
 ```
 
 ## Quick Start
