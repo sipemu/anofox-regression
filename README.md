@@ -10,7 +10,7 @@
 >
 > **Need to use this in a React Dashboard?** Use our [npm package](https://www.npmjs.com/package/@sipemu/anofox-regression)
 
-A robust statistics library for regression analysis in Rust, validated against R ([VALIDATION](validation/VALIDATION.md)).
+A robust statistics library for regression analysis in Rust, validated against R and scikit-learn ([VALIDATION](validation/VALIDATION.md)).
 
 This library provides sklearn-style regression estimators with full statistical inference support including standard errors, t-statistics, p-values, confidence intervals, and prediction intervals.
 
@@ -25,6 +25,13 @@ This library provides sklearn-style regression estimators with full statistical 
   - Recursive Least Squares (RLS) with online learning
   - Bounded Least Squares (BLS/NNLS) with box constraints
   - Dynamic Linear Model (LmDynamic) with time-varying coefficients
+  - Least Angle Regression (LARS) and LassoLars with full coefficient path
+
+- **Robust & Bayesian Regression**
+  - Theil-Sen (Vardi-Zhang spatial-median, ~29.3% breakdown point)
+  - RANSAC (consensus-set refit with Fischler-Bolles stop-probability)
+  - Bayesian Ridge (SVD evidence maximisation)
+  - ARD Regression (per-feature precisions with relevance pruning)
 
 - **Generalized Linear Models**
   - Logistic Regression (binary classification with sklearn-like API)
@@ -32,6 +39,10 @@ This library provides sklearn-style regression estimators with full statistical 
   - Negative Binomial GLM (overdispersed count data with theta estimation)
   - Binomial GLM (Logistic, Probit, Complementary log-log)
   - Tweedie GLM (Gaussian, Poisson, Gamma, Inverse-Gaussian, Compound Poisson-Gamma)
+  - Gamma Regression (sklearn-style wrapper for Tweedie(power=2), log link)
+
+- **Online Learning**
+  - Passive-Aggressive Regressor (PA-I and PA-II) with `partial_fit`
 
 - **Augmented Linear Model (ALM)**
   - 24 distributions: Normal, Laplace, Student-t, Gamma, Beta, Log-Normal, and more
@@ -186,7 +197,9 @@ let predictions = fitted.predict_1d(&x_new);
 
 ## Validation
 
-This library is developed using Test-Driven Development (TDD) with R as the oracle (ground truth). All implementations are validated against R's statistical functions:
+This library is developed using Test-Driven Development (TDD) against established statistical oracles. Most estimators are validated against R; the sklearn-style estimators added in v0.5.5 are validated against scikit-learn 1.5.2 via a pinned reproducible Python environment under [`validation/python/`](validation/python/).
+
+### R-validated estimators
 
 | Rust | R Equivalent | Package |
 |------|--------------|---------|
@@ -200,14 +213,26 @@ This library is developed using Test-Driven Development (TDD) with R as the orac
 | `BinomialRegressor` | `glm(..., family=binomial)` | stats |
 | `NegativeBinomialRegressor` | `glm.nb()` | MASS |
 | `TweedieRegressor` | `tweedie()` | statmod |
+| `GammaRegressor` | `glm(family=Gamma(link="log"))` | stats |
 | `AlmRegressor` | `alm()` | greybox |
 | `QuantileRegressor` | `rq()` | quantreg |
 | `IsotonicRegressor` | `isoreg()` | stats |
 | Diagnostics | `cooks.distance()`, `hatvalues()`, `vif()` | stats, car |
 
-All 485+ test cases ensure numerical agreement with R within appropriate tolerances.
+### scikit-learn-validated estimators
 
-**For complete transparency on the validation process, see [`validation/VALIDATION.md`](validation/VALIDATION.md)**, which documents tolerance rationale for each method and reproduction instructions.
+| Rust | scikit-learn equivalent |
+|------|-------------------------|
+| `TheilSenRegressor` | `linear_model.TheilSenRegressor` |
+| `RansacRegressor` | `linear_model.RANSACRegressor` |
+| `PassiveAggressiveRegressor` | `linear_model.PassiveAggressiveRegressor` |
+| `LarsRegressor`, LassoLars variant | `linear_model.Lars`, `linear_model.LassoLars` |
+| `BayesianRidge` | `linear_model.BayesianRidge` |
+| `ArdRegression` | `linear_model.ARDRegression` |
+
+All 499+ test cases ensure numerical agreement with the chosen oracle within appropriate tolerances.
+
+**For complete transparency on the validation process, see [`validation/VALIDATION.md`](validation/VALIDATION.md)**, which documents the per-estimator tolerance rationale and reproduction instructions for both the R and Python pipelines.
 
 ## Dependencies
 

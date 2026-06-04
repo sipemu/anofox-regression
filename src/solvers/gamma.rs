@@ -98,8 +98,8 @@ impl FittedRegressor for FittedGamma {
 
 /// Builder for [`GammaRegressor`].
 ///
-/// Mirrors the subset of [`crate::solvers::TweedieRegressorBuilder`] relevant
-/// for Gamma regression (var_power is fixed to `2.0`).
+/// Mirrors the subset of `TweedieRegressorBuilder` relevant for Gamma
+/// regression (var_power is fixed to `2.0`).
 #[derive(Debug, Clone)]
 pub struct GammaRegressorBuilder {
     with_intercept: bool,
