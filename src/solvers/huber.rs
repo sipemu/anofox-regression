@@ -176,7 +176,10 @@ impl HuberRegressor {
         }
         abs_residuals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        let median_abs = if n.is_multiple_of(2) {
+        // `n % 2 == 0` rather than `usize::is_multiple_of` — the latter is
+        // unstable on Rust < 1.87. See #20.
+        #[allow(clippy::manual_is_multiple_of)]
+        let median_abs = if n % 2 == 0 {
             (abs_residuals[n / 2 - 1] + abs_residuals[n / 2]) / 2.0
         } else {
             abs_residuals[n / 2]

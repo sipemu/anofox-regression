@@ -246,7 +246,9 @@ fn mad(y: &Col<f64>) -> f64 {
 fn median_in_place(v: &mut [f64]) -> f64 {
     v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let n = v.len();
-    if n.is_multiple_of(2) {
+    // `usize::is_multiple_of` is unstable on Rust < 1.87. See #20.
+    #[allow(clippy::manual_is_multiple_of)]
+    if n % 2 == 0 {
         0.5 * (v[n / 2 - 1] + v[n / 2])
     } else {
         v[n / 2]
