@@ -74,6 +74,40 @@ impl OlsRegressor {
     }
 }
 
+/// Guard against the "garbage coefficient" failure mode reported in #21:
+/// a coefficient that comes back NaN/±∞ or implausibly large for a column
+/// the model marked as active. Aliased coefficients are skipped because
+/// they are deliberately set to NaN.
+pub(crate) fn check_coefficients_finite(
+    coefficients: &Col<f64>,
+    aliased: &[bool],
+) -> Result<(), RegressionError> {
+    // 1e120 is well above any legitimate OLS coefficient on well-conditioned
+    // data (the reporter saw -1.2e+149) and well below f64::MAX.
+    const ABSURD: f64 = 1.0e120;
+    for j in 0..coefficients.nrows() {
+        if j < aliased.len() && aliased[j] {
+            continue;
+        }
+        let c = coefficients[j];
+        if !c.is_finite() {
+            return Err(RegressionError::NumericalError(format!(
+                "non-finite coefficient at index {}: {} \
+                 (likely a numerical / memory corruption issue; see anofox-regression#21)",
+                j, c
+            )));
+        }
+        if c.abs() > ABSURD {
+            return Err(RegressionError::NumericalError(format!(
+                "implausibly large coefficient at index {}: {} \
+                 (likely a numerical / memory corruption issue; see anofox-regression#21)",
+                j, c
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl Regressor for OlsRegressor {
     type Fitted = FittedOls;
 
@@ -112,6 +146,31 @@ impl Regressor for OlsRegressor {
             });
         }
 
+        // Reject inputs that contain non-finite values. Without this guard
+        // a single NaN or ±∞ in `x`/`y` can propagate silently through the
+        // centering + QR/SVD path and produce coefficients that look like
+        // legitimate floats (often huge values in the 1e120+ range). Catching
+        // it here turns a confusing downstream symptom into a clean error.
+        // See #21.
+        for j in 0..n_features {
+            for i in 0..n_samples {
+                if !x[(i, j)].is_finite() {
+                    return Err(RegressionError::NumericalError(format!(
+                        "X contains a non-finite value at row {}, column {}",
+                        i, j
+                    )));
+                }
+            }
+        }
+        for i in 0..n_samples {
+            if !y[i].is_finite() {
+                return Err(RegressionError::NumericalError(format!(
+                    "y contains a non-finite value at row {}",
+                    i
+                )));
+            }
+        }
+
         // Detect constant columns
         let constant_cols = detect_constant_columns(x, self.options.rank_tolerance);
 
@@ -131,6 +190,14 @@ impl Regressor for OlsRegressor {
                     self.solve_with_cholesky(&x_centered, &y_centered, &constant_cols)?
                 }
             };
+
+            // Sanity-check the solver output. Non-aliased coefficients must
+            // be finite and within a reasonable magnitude; aliased ones are
+            // intentionally NaN. This catches the rare "garbage coefficient"
+            // failure mode reported in #21 (e.g. coef = -1.2e+149) and
+            // surfaces it to the caller as a clean error instead of a
+            // silent corrupt prediction.
+            check_coefficients_finite(&coefficients, &aliased)?;
 
             // Compute intercept: intercept = y_mean - x_means' * coefficients
             let mut intercept = y_mean;
@@ -189,6 +256,9 @@ impl Regressor for OlsRegressor {
                 SolverType::Svd => self.solve_with_svd(x, y, &constant_cols)?,
                 SolverType::Cholesky => self.solve_with_cholesky(x, y, &constant_cols)?,
             };
+
+            // See the corresponding intercept branch above and #21.
+            check_coefficients_finite(&coefficients, &aliased)?;
 
             // Compute fitted values and residuals
             let mut fitted_values = Col::zeros(n_samples);
@@ -938,5 +1008,80 @@ mod tests {
 
         assert!((preds[0] - (2.0 + 3.0 * 10.0)).abs() < 1e-10);
         assert!((preds[1] - (2.0 + 3.0 * 11.0)).abs() < 1e-10);
+    }
+
+    // Tests for the #21 input/output guards.
+
+    #[test]
+    fn rejects_nan_in_x() {
+        let mut x = Mat::from_fn(5, 1, |i, _| i as f64);
+        x[(2, 0)] = f64::NAN;
+        let y = Col::from_fn(5, |i| 2.0 + 3.0 * i as f64);
+        let err = OlsRegressor::builder()
+            .with_intercept(true)
+            .build()
+            .fit(&x, &y)
+            .unwrap_err();
+        match err {
+            RegressionError::NumericalError(msg) => {
+                assert!(msg.contains("X contains a non-finite value"));
+            }
+            other => panic!("expected NumericalError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rejects_inf_in_y() {
+        let x = Mat::from_fn(5, 1, |i, _| i as f64);
+        let y = Col::from_fn(5, |i| if i == 3 { f64::INFINITY } else { i as f64 });
+        let err = OlsRegressor::builder()
+            .with_intercept(true)
+            .build()
+            .fit(&x, &y)
+            .unwrap_err();
+        match err {
+            RegressionError::NumericalError(msg) => {
+                assert!(msg.contains("y contains a non-finite value"));
+            }
+            other => panic!("expected NumericalError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn coefficient_guard_accepts_aliased_nan() {
+        // A perfectly-aliased coefficient is intentionally NaN; the guard
+        // must skip those.
+        let coefs = Col::from_fn(3, |i| if i == 1 { f64::NAN } else { 1.5 });
+        let aliased = [false, true, false];
+        check_coefficients_finite(&coefs, &aliased).expect("aliased NaN must pass");
+    }
+
+    #[test]
+    fn coefficient_guard_rejects_active_nan() {
+        let coefs = Col::from_fn(3, |i| if i == 1 { f64::NAN } else { 1.5 });
+        let aliased = [false, false, false];
+        let err = check_coefficients_finite(&coefs, &aliased).unwrap_err();
+        match err {
+            RegressionError::NumericalError(msg) => {
+                assert!(msg.contains("non-finite coefficient at index 1"));
+                assert!(msg.contains("#21"));
+            }
+            other => panic!("expected NumericalError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn coefficient_guard_rejects_implausibly_large() {
+        // The reporter's symptom was values like -1.2e+149.
+        let coefs = Col::from_fn(3, |i| if i == 2 { -1.2e149 } else { 0.5 });
+        let aliased = [false, false, false];
+        let err = check_coefficients_finite(&coefs, &aliased).unwrap_err();
+        match err {
+            RegressionError::NumericalError(msg) => {
+                assert!(msg.contains("implausibly large coefficient at index 2"));
+                assert!(msg.contains("#21"));
+            }
+            other => panic!("expected NumericalError, got {:?}", other),
+        }
     }
 }

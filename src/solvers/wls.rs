@@ -186,6 +186,11 @@ impl Regressor for WlsRegressor {
                 }
             };
 
+            // Guard against the "garbage coefficient" failure mode tracked
+            // in #21 (NaN / implausibly-large values on otherwise valid
+            // inputs).
+            super::ols::check_coefficients_finite(&coefficients, &aliased)?;
+
             // Compute intercept in original (unweighted) space
             let mut intercept = y_mean;
             for j in 0..n_features {
@@ -243,6 +248,9 @@ impl Regressor for WlsRegressor {
                     self.solve_with_cholesky(&x_weighted, &y_weighted, &constant_cols)?
                 }
             };
+
+            // See the intercept branch above and #21.
+            super::ols::check_coefficients_finite(&coefficients, &aliased)?;
 
             // Compute fitted values and residuals
             let mut fitted_values = Col::zeros(n_samples);
