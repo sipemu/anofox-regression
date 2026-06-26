@@ -13,6 +13,7 @@ mod lars;
 pub mod lm_dynamic;
 mod logistic;
 pub mod lowess;
+mod moments;
 mod negative_binomial;
 mod ols;
 mod passive_aggressive;
@@ -49,6 +50,7 @@ pub use lm_dynamic::{
     FittedLmDynamic, InformationCriterion, LmDynamicRegressor, LmDynamicRegressorBuilder, ModelSpec,
 };
 pub use logistic::{FittedLogistic, LogisticRegression, LogisticRegressionBuilder, Penalty};
+pub use moments::MomentAccumulator;
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
 pub use ols::{FittedOls, OlsRegressor, OlsRegressorBuilder};
 pub use passive_aggressive::{

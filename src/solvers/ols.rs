@@ -72,6 +72,150 @@ impl OlsRegressor {
         }
         true
     }
+
+    /// Fit OLS from pre-accumulated moments.
+    ///
+    /// This is the streaming entry point for very large panels where the
+    /// full `N × p` design matrix can't be materialised. Mathematically
+    /// identical to [`Self::fit`] when the centered Gram is well-
+    /// conditioned: builds `Gc = XᵀX − Σx Σxᵀ / n` and
+    /// `cc = Xᵀy − Σx Σy / n`, then solves `Gc β = cc` via Cholesky and
+    /// recovers the intercept as `ȳ − x̄ᵀβ`.
+    ///
+    /// Unlike [`Self::fit`], the streaming path **cannot detect rank-
+    /// deficiency through pivoting** — only the moments survive, and column
+    /// permutations don't show up. If `Gc` (or `XᵀX` when `with_intercept
+    /// = false`) is singular within tolerance, this method returns
+    /// [`RegressionError::SingularMatrix`]. Callers that need rank-deficient
+    /// handling should fall back to [`Self::fit`] on the explicit rows.
+    ///
+    /// Statistics that require per-row data (residuals, R², MSE, AIC, …)
+    /// are returned as `NaN` / empty since the input rows are not
+    /// retained.
+    ///
+    /// See also: [`crate::solvers::MomentAccumulator`],
+    /// [`Self::fit_from_accumulator`].
+    pub fn fit_from_moments(
+        &self,
+        xtx: &Mat<f64>,
+        xty: &Col<f64>,
+        sum_x: &Col<f64>,
+        sum_y: f64,
+        n: usize,
+    ) -> Result<FittedOls, RegressionError> {
+        let p = xtx.nrows();
+
+        if xtx.ncols() != p {
+            return Err(RegressionError::NumericalError(format!(
+                "xtx must be square: got {}x{}",
+                p,
+                xtx.ncols()
+            )));
+        }
+        if xty.nrows() != p {
+            return Err(RegressionError::DimensionMismatch {
+                x_rows: p,
+                y_len: xty.nrows(),
+            });
+        }
+        if sum_x.nrows() != p {
+            return Err(RegressionError::DimensionMismatch {
+                x_rows: p,
+                y_len: sum_x.nrows(),
+            });
+        }
+        let min_n = p + if self.options.with_intercept { 1 } else { 0 };
+        if n < min_n {
+            return Err(RegressionError::InsufficientObservations {
+                needed: min_n,
+                got: n,
+            });
+        }
+
+        let n_f = n as f64;
+
+        let (coefficients, intercept) = if self.options.with_intercept {
+            let mut gc = Mat::<f64>::zeros(p, p);
+            for i in 0..p {
+                for j in 0..p {
+                    gc[(i, j)] = xtx[(i, j)] - sum_x[i] * sum_x[j] / n_f;
+                }
+            }
+            let mut cc = Col::<f64>::zeros(p);
+            for i in 0..p {
+                cc[i] = xty[i] - sum_x[i] * sum_y / n_f;
+            }
+            // Diagonal singularity check for a cleaner error than faer's.
+            for i in 0..p {
+                if gc[(i, i)].abs() < self.options.rank_tolerance {
+                    return Err(RegressionError::SingularMatrix);
+                }
+            }
+            let llt = gc
+                .llt(faer::Side::Lower)
+                .map_err(|_| RegressionError::SingularMatrix)?;
+            let beta = llt.solve(&cc);
+            let y_mean = sum_y / n_f;
+            let mut b0 = y_mean;
+            for i in 0..p {
+                b0 -= (sum_x[i] / n_f) * beta[i];
+            }
+            (beta, Some(b0))
+        } else {
+            let g = xtx.clone();
+            for i in 0..p {
+                if g[(i, i)].abs() < self.options.rank_tolerance {
+                    return Err(RegressionError::SingularMatrix);
+                }
+            }
+            let llt = g
+                .llt(faer::Side::Lower)
+                .map_err(|_| RegressionError::SingularMatrix)?;
+            let beta = llt.solve(xty);
+            (beta, None)
+        };
+
+        // Defensive #21 guard on the produced coefficients.
+        let aliased = vec![false; p];
+        check_coefficients_finite(&coefficients, &aliased)?;
+
+        let mut result = RegressionResult::empty(p, n);
+        result.coefficients = coefficients;
+        result.intercept = intercept;
+        result.rank = p;
+        result.n_parameters = p + if self.options.with_intercept { 1 } else { 0 };
+        result.n_observations = n;
+        result.aliased = aliased;
+        result.rank_tolerance = self.options.rank_tolerance;
+        result.confidence_level = self.options.confidence_level;
+        // Per-row data unavailable in the streaming flow.
+        result.r_squared = f64::NAN;
+        result.adj_r_squared = f64::NAN;
+        result.rmse = f64::NAN;
+        result.mse = f64::NAN;
+        result.f_statistic = f64::NAN;
+        result.f_pvalue = f64::NAN;
+        result.aic = f64::NAN;
+        result.aicc = f64::NAN;
+        result.bic = f64::NAN;
+        result.log_likelihood = f64::NAN;
+
+        Ok(FittedOls {
+            options: self.options.clone(),
+            result,
+            xtx_inverse: None,
+            aliased: vec![false; p],
+        })
+    }
+
+    /// Fit OLS directly from a [`crate::solvers::MomentAccumulator`].
+    /// Convenience wrapper around [`Self::fit_from_moments`].
+    pub fn fit_from_accumulator(
+        &self,
+        acc: &crate::solvers::moments::MomentAccumulator,
+    ) -> Result<FittedOls, RegressionError> {
+        self.fit_from_moments(acc.xtx(), acc.xty(), acc.sum_x(), acc.sum_y(), acc.n())
+    }
 }
 
 /// Guard against the "garbage coefficient" failure mode reported in #21:

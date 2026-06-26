@@ -26,6 +26,10 @@ This library provides sklearn-style regression estimators with full statistical 
   - Bounded Least Squares (BLS/NNLS) with box constraints
   - Dynamic Linear Model (LmDynamic) with time-varying coefficients
   - Least Angle Regression (LARS) and LassoLars with full coefficient path
+  - **Streaming fits** via `MomentAccumulator` — OLS and Ridge accept
+    pre-accumulated sufficient statistics `(n, Σx, Σy, XᵀX, Xᵀy)`, so
+    panels with millions of rows can be fit without ever materialising
+    the full design matrix (see `cargo run --example streaming_ridge`)
 
 - **Robust & Bayesian Regression**
   - Theil-Sen (Vardi-Zhang spatial-median, ~29.3% breakdown point)
@@ -85,6 +89,7 @@ cargo run --example elastic_net         # Elastic Net
 cargo run --example rls                 # Recursive Least Squares
 cargo run --example bls                 # Bounded/Non-negative LS
 cargo run --example pls                 # Partial Least Squares
+cargo run --example streaming_ridge     # Streaming fit via MomentAccumulator
 cargo run --example lars                # LARS and LassoLars
 cargo run --example lm_dynamic          # Dynamic Linear Model
 

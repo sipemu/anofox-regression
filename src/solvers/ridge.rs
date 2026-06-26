@@ -5,6 +5,7 @@ use crate::core::{
     RegressionResult, SolverType,
 };
 use crate::inference::{compute_prediction_intervals, CoefficientInference};
+use crate::solvers::moments::MomentAccumulator;
 use crate::solvers::ols::OlsRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
@@ -198,6 +199,148 @@ impl Regressor for RidgeRegressor {
 }
 
 impl RidgeRegressor {
+    /// Fit Ridge from pre-accumulated moments.
+    ///
+    /// This is the streaming entry point for very large panels where the
+    /// full `N × p` design matrix can't be materialised. Mathematically
+    /// identical to [`Self::fit`] when `with_intercept = true`: builds the
+    /// centered Gram `Gc = XᵀX − Σx Σxᵀ / n` and centered cross-moment
+    /// `cc = Xᵀy − Σx Σy / n`, then solves `(Gc + λ_eff · I) β = cc` via
+    /// Cholesky and recovers the intercept as `ȳ − x̄ᵀβ`. `λ_eff` honors
+    /// the configured [`LambdaScaling`].
+    ///
+    /// Statistics that require per-row data (residuals, R², MSE, AIC, …)
+    /// are returned as `NaN` / empty since the input rows are not
+    /// retained.
+    ///
+    /// See also: [`MomentAccumulator`], [`Self::fit_from_accumulator`].
+    pub fn fit_from_moments(
+        &self,
+        xtx: &Mat<f64>,
+        xty: &Col<f64>,
+        sum_x: &Col<f64>,
+        sum_y: f64,
+        n: usize,
+    ) -> Result<FittedRidge, RegressionError> {
+        let p = xtx.nrows();
+
+        // Dimension validation.
+        if xtx.ncols() != p {
+            return Err(RegressionError::NumericalError(format!(
+                "xtx must be square: got {}x{}",
+                p,
+                xtx.ncols()
+            )));
+        }
+        if xty.nrows() != p {
+            return Err(RegressionError::DimensionMismatch {
+                x_rows: p,
+                y_len: xty.nrows(),
+            });
+        }
+        if sum_x.nrows() != p {
+            return Err(RegressionError::DimensionMismatch {
+                x_rows: p,
+                y_len: sum_x.nrows(),
+            });
+        }
+        let min_n = if self.options.with_intercept { 2 } else { 1 };
+        if n < min_n {
+            return Err(RegressionError::InsufficientObservations {
+                needed: min_n,
+                got: n,
+            });
+        }
+
+        let lambda_eff = self.effective_lambda(n);
+        let n_f = n as f64;
+
+        let (coefficients, intercept) = if self.options.with_intercept {
+            // Centered Gram and centered cross-moment.
+            let mut gc = Mat::<f64>::zeros(p, p);
+            for i in 0..p {
+                for j in 0..p {
+                    gc[(i, j)] = xtx[(i, j)] - sum_x[i] * sum_x[j] / n_f;
+                }
+            }
+            let mut cc = Col::<f64>::zeros(p);
+            for i in 0..p {
+                cc[i] = xty[i] - sum_x[i] * sum_y / n_f;
+            }
+            // (Gc + λI)
+            for i in 0..p {
+                gc[(i, i)] += lambda_eff;
+            }
+            let llt = gc
+                .llt(faer::Side::Lower)
+                .map_err(|_| RegressionError::SingularMatrix)?;
+            let beta = llt.solve(&cc);
+            // Intercept on the original scale.
+            let y_mean = sum_y / n_f;
+            let mut b0 = y_mean;
+            for i in 0..p {
+                b0 -= (sum_x[i] / n_f) * beta[i];
+            }
+            (beta, Some(b0))
+        } else {
+            // (XᵀX + λI) β = Xᵀy
+            let mut g = xtx.clone();
+            for i in 0..p {
+                g[(i, i)] += lambda_eff;
+            }
+            let llt = g
+                .llt(faer::Side::Lower)
+                .map_err(|_| RegressionError::SingularMatrix)?;
+            let beta = llt.solve(xty);
+            (beta, None)
+        };
+
+        // Defensive #21 guard on the produced coefficients.
+        let aliased = vec![false; p];
+        crate::solvers::ols::check_coefficients_finite(&coefficients, &aliased)?;
+
+        let mut result = RegressionResult::empty(p, n);
+        result.coefficients = coefficients;
+        result.intercept = intercept;
+        result.rank = p;
+        result.n_parameters = p + if self.options.with_intercept { 1 } else { 0 };
+        result.n_observations = n;
+        result.aliased = aliased;
+        result.rank_tolerance = self.options.rank_tolerance;
+        result.confidence_level = self.options.confidence_level;
+        // Per-row data is unavailable in the streaming flow — leave the
+        // statistics as NaN so consumers can't accidentally trust stale
+        // values from `RegressionResult::empty`.
+        result.r_squared = f64::NAN;
+        result.adj_r_squared = f64::NAN;
+        result.rmse = f64::NAN;
+        result.mse = f64::NAN;
+        result.f_statistic = f64::NAN;
+        result.f_pvalue = f64::NAN;
+        result.aic = f64::NAN;
+        result.aicc = f64::NAN;
+        result.bic = f64::NAN;
+        result.log_likelihood = f64::NAN;
+
+        Ok(FittedRidge {
+            options: self.options.clone(),
+            result,
+            // We could form `(Gc + λI)⁻¹` here, but exposing it without
+            // a meaningful `mse` would produce prediction intervals that
+            // silently equal NaN anyway. Skip until callers want it.
+            xtx_reg_inverse: None,
+        })
+    }
+
+    /// Fit Ridge directly from a [`MomentAccumulator`]. Convenience wrapper
+    /// around [`Self::fit_from_moments`].
+    pub fn fit_from_accumulator(
+        &self,
+        acc: &MomentAccumulator,
+    ) -> Result<FittedRidge, RegressionError> {
+        self.fit_from_moments(acc.xtx(), acc.xty(), acc.sum_x(), acc.sum_y(), acc.n())
+    }
+
     /// Compute (X_aug'X_aug + λI_aug)⁻¹ for models with intercept.
     fn compute_xtx_reg_inverse_augmented(&self, x: &Mat<f64>) -> Option<Mat<f64>> {
         let n_samples = x.nrows();
