@@ -19,6 +19,7 @@ mod ols;
 mod passive_aggressive;
 mod pls;
 mod poisson;
+mod pspline;
 mod quantile;
 mod ransac;
 mod ridge;
@@ -59,6 +60,7 @@ pub use passive_aggressive::{
 };
 pub use pls::{FittedPls, PlsRegressor};
 pub use poisson::{FittedPoisson, PoissonRegressor};
+pub use pspline::{FittedPSpline, PSplineRegressor};
 pub use quantile::{FittedQuantile, QuantileRegressor, QuantileRegressorBuilder};
 pub use ransac::{FittedRansac, RansacRegressor, RansacRegressorBuilder};
 pub use ridge::{FittedRidge, RidgeRegressor, RidgeRegressorBuilder};

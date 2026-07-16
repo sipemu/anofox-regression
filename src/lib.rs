@@ -50,11 +50,11 @@ pub mod prelude {
     pub use crate::solvers::{
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
         FittedAlm, FittedBinomial, FittedGamma, FittedHuber, FittedIsotonic, FittedLogistic,
-        FittedNegativeBinomial, FittedPls, FittedPoisson, FittedQuantile, FittedRegressor,
-        FittedTweedie, GammaRegressor, HuberRegressor, IsotonicRegressor, LinkFunction,
-        LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds, Penalty,
-        PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor, RidgeRegressor, RlsRegressor,
-        TweedieRegressor, WlsRegressor,
+        FittedNegativeBinomial, FittedPSpline, FittedPls, FittedPoisson, FittedQuantile,
+        FittedRegressor, FittedTweedie, GammaRegressor, HuberRegressor, IsotonicRegressor,
+        LinkFunction, LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds,
+        PSplineRegressor, Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor,
+        RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
     };
 }
 
@@ -66,7 +66,7 @@ pub use crate::core::{
 };
 pub use crate::inference::{HcInference, HcType};
 pub use crate::solvers::{
-    BinomialRegressor, FittedBinomial, FittedIsotonic, FittedNegativeBinomial, FittedPoisson,
-    FittedQuantile, FittedRegressor, IsotonicRegressor, NegativeBinomialRegressor, OutOfBounds,
-    PoissonRegressor, QuantileRegressor, Regressor,
+    BinomialRegressor, FittedBinomial, FittedIsotonic, FittedNegativeBinomial, FittedPSpline,
+    FittedPoisson, FittedQuantile, FittedRegressor, IsotonicRegressor, NegativeBinomialRegressor,
+    OutOfBounds, PSplineRegressor, PoissonRegressor, QuantileRegressor, Regressor,
 };

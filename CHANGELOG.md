@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.10] - 2026-07-16
+
+### Added
+
+- **Penalized B-spline (P-spline) smoother — `PSplineRegressor` / `FittedPSpline`.** A one-dimensional GAM-style smoother (Eilers & Marx, 1996): a cubic B-spline basis over the predictor range with an order-2 difference penalty, the smoothing parameter λ selected by minimizing GCV (or fixed via `with_lambda`). This is the estimator behind ggplot2's `geom_smooth(method = "gam")`.
+  - Follows the standard `Regressor` / `FittedRegressor` traits. `fit(x, y)` takes the raw predictor as a single-column design matrix (`n × 1`) and builds the basis internally; builder knobs `with_n_basis` (0 = auto ≈ n/4, clamped), `with_penalty_order` (default 2), `with_lambda` (fixed λ, else GCV).
+  - `predict_with_interval` returns pointwise standard errors and t-based confidence/prediction intervals from the Bayesian posterior covariance `σ²·(BᵀB + λP)⁻¹` (the `mgcv` default), using the residual effective degrees of freedom.
+  - `FittedPSpline::edf()` / `sigma2()` expose the effective degrees of freedom and residual variance.
+  - Numerically exact on linear signals (the 2nd-difference penalty leaves linear functions unpenalized), partition-of-unity basis, recovers smooth trends; tests cover all four properties.
+
 ## [0.5.9] - 2026-06-24
 
 ### Added
