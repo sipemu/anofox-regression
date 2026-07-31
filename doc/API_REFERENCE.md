@@ -10,6 +10,8 @@ This comprehensive API documentation covers all regression methods, distribution
 
 **Generalized Linear Models** include `LogisticRegression` (binary classifier with sklearn-like API: `predict`, `predict_proba`, `decision_function`, `score`), `PoissonRegressor` (count data with log/identity/sqrt links), `BinomialRegressor` (logistic/probit/cloglog), `NegativeBinomialRegressor` (overdispersed counts with theta estimation), and `TweedieRegressor` (Gaussian, Poisson, Gamma, Inverse-Gaussian, Compound Poisson-Gamma).
 
+**Generalized Linear Mixed Models** via `GlmmRegressor` fit a random intercept, optional random slopes, and crossed / nested factors, `g(μ_ij) = x_ij'β + z_ij'b_j` with `b_j ~ N(0, Σ)` and unstructured `Σ`. `GlmmRegressor::gaussian()` is a linear mixed model fit by profiled REML/ML (matches `lme4::lmer`); `GlmmRegressor::poisson()` / `GlmmRegressor::binomial()` use Laplace-approximate PIRLS (match `glmer(nAGQ = 0)`). `random_slopes(cols)` names the `x` columns carrying a random slope. `fit(x, y, group)` handles a single grouping factor; `fit_crossed(x, y, &[&a, &b, …])` handles crossed `(1|a) + (1|b)` and nested `(1|a/b)` (via the `a:b` interaction id) random intercepts. `FittedGlmm` exposes fixed effects and their standard errors, per-group random-effect BLUPs (`random_effects` / `random_effects_matrix`), the covariance (`random_cov` / `random_sd` / `random_corr`), per-factor summaries for crossed/nested fits (`factors` / `n_factors`), the scalar variance components (`theta`, `sigma`, `sd_random`, `var_random`), `deviance` / `log_likelihood`, and `converged`.
+
 **Augmented Linear Models** via `AlmRegressor` support 24 distribution families: Normal, Laplace, Student-t, Logistic, Asymmetric Laplace, Generalised Normal, S, Log-Normal, Log-Laplace, Log-S, Log-Generalised Normal, Gamma, Inverse Gaussian, Exponential, Folded Normal, Rectified Normal, Beta, Logit-Normal, Poisson, Negative Binomial, Binomial, Geometric, Cumulative Logistic, Cumulative Normal, and Box-Cox Normal.
 
 **Dynamic Models** include `LmDynamic` for time-varying coefficient regression using pointwise information criteria.
@@ -38,7 +40,9 @@ Key enums control regression behavior:
 
 **RegressionResult** contains coefficients, intercept, standard errors, t-statistics, p-values, confidence intervals, R², adjusted R², MSE, RMSE, F-statistic, AIC, AICc, BIC, log-likelihood, residuals, and fitted values.
 
-**GLM Results** (Poisson, Binomial, NegativeBinomial, Tweedie) add deviance, null deviance, dispersion, and iteration count. NegativeBinomial includes estimated theta parameter.
+**GLM Results** (Poisson, Binomial, NegativeBinomial, Tweedie) add deviance, null deviance, dispersion, iteration count, and a `converged` flag. NegativeBinomial includes the estimated theta parameter. By default a non-converged IRLS fit returns `Err(ConvergenceFailed)`; call `error_on_non_convergence(false)` on the builder to instead return the last iterate with `converged == false`. `FittedGamma` exposes `converged()` (it wraps Tweedie).
+
+**GLMM Results** (`FittedGlmm`) contain fixed effects and their standard errors, per-group random-intercept BLUPs, variance components (`theta = σ_b/σ`, `sigma`, `sd_random`, `var_random`), deviance, log-likelihood, group count, and a `converged` flag.
 
 **ALM Results** include log-likelihood, scale parameter, and distribution-specific diagnostics.
 

@@ -50,6 +50,10 @@ pub struct PoissonRegressor {
     options: RegressionOptions,
     family: PoissonFamily,
     offset: Option<Col<f64>>,
+    /// If `true` (the default), a fit that fails to converge within
+    /// `max_iterations` returns `Err(ConvergenceFailed)`. If `false`, the last
+    /// iterate is returned with `converged = false` on the fitted model.
+    error_on_non_convergence: bool,
 }
 
 impl PoissonRegressor {
@@ -59,6 +63,7 @@ impl PoissonRegressor {
             options,
             family,
             offset: None,
+            error_on_non_convergence: true,
         }
     }
 
@@ -202,7 +207,7 @@ impl PoissonRegressor {
             }
         }
 
-        if !converged {
+        if !converged && self.error_on_non_convergence {
             return Err(RegressionError::ConvergenceFailed {
                 iterations: max_iter,
             });
@@ -212,7 +217,7 @@ impl PoissonRegressor {
         let aliased = detect_constant_columns(x, self.options.rank_tolerance);
 
         self.build_result(
-            x, y, &x_design, &beta, &mu, &eta, n_params, iterations, aliased,
+            x, y, &x_design, &beta, &mu, &eta, n_params, iterations, aliased, converged,
         )
     }
 
@@ -386,6 +391,7 @@ impl PoissonRegressor {
         n_params: usize,
         iterations: usize,
         aliased: Vec<bool>,
+        converged: bool,
     ) -> Result<FittedPoisson, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
@@ -545,6 +551,7 @@ impl PoissonRegressor {
             null_deviance,
             dispersion,
             iterations,
+            converged,
             y_values: y.clone(),
             xtwx_inverse,
             offset: self.offset.clone(),
@@ -720,6 +727,10 @@ pub struct FittedPoisson {
     pub dispersion: f64,
     /// Number of IRLS iterations.
     pub iterations: usize,
+    /// Whether the IRLS loop met its convergence criterion. `false` only when
+    /// the regressor was built with `error_on_non_convergence(false)` and the
+    /// fit exhausted `max_iterations`.
+    pub converged: bool,
     /// Original y values.
     y_values: Col<f64>,
     /// (X'WX)⁻¹ matrix for prediction SE.
@@ -966,6 +977,10 @@ pub struct PoissonRegressorBuilder {
     options_builder: RegressionOptionsBuilder,
     link: PoissonLink,
     offset: Option<Col<f64>>,
+    /// When `true`, non-convergence is reported via `FittedPoisson::converged`
+    /// instead of returning an error. Defaults to `false` (error), so the
+    /// derived `Default` preserves the historical behaviour.
+    allow_non_convergence: bool,
 }
 
 impl PoissonRegressorBuilder {
@@ -1028,12 +1043,25 @@ impl PoissonRegressorBuilder {
         self
     }
 
+    /// Control what happens when IRLS fails to converge within
+    /// `max_iterations`.
+    ///
+    /// When `true` (the default), the fit returns
+    /// `Err(RegressionError::ConvergenceFailed)`. When `false`, the fit instead
+    /// returns the last iterate with `FittedPoisson::converged == false`, so the
+    /// caller can decide how to handle a non-converged model.
+    pub fn error_on_non_convergence(mut self, error: bool) -> Self {
+        self.allow_non_convergence = !error;
+        self
+    }
+
     /// Build the regressor.
     pub fn build(self) -> PoissonRegressor {
         PoissonRegressor {
             options: self.options_builder.build_unchecked(),
             family: PoissonFamily::new(self.link),
             offset: self.offset,
+            error_on_non_convergence: !self.allow_non_convergence,
         }
     }
 }
@@ -1230,6 +1258,55 @@ mod tests {
 
         // Coefficient should be positive
         assert!(fitted.result.coefficients[0] > 0.0);
+    }
+
+    #[test]
+    fn test_converged_flag_true_on_normal_fit() {
+        let (x, y) = create_poisson_data(50);
+        let fitted = PoissonRegressor::log()
+            .with_intercept(true)
+            .build()
+            .fit(&x, &y)
+            .expect("model should fit");
+        assert!(
+            fitted.converged,
+            "a normal fit must report converged = true"
+        );
+    }
+
+    #[test]
+    fn test_non_convergence_errors_by_default() {
+        let (x, y) = create_poisson_data(50);
+        // One iteration is not enough to satisfy the tolerance.
+        let res = PoissonRegressor::log()
+            .with_intercept(true)
+            .max_iterations(1)
+            .tolerance(1e-12)
+            .build()
+            .fit(&x, &y);
+        assert!(
+            matches!(res, Err(RegressionError::ConvergenceFailed { .. })),
+            "default behaviour must surface non-convergence as an error"
+        );
+    }
+
+    #[test]
+    fn test_non_convergence_reported_when_opted_in() {
+        let (x, y) = create_poisson_data(50);
+        let fitted = PoissonRegressor::log()
+            .with_intercept(true)
+            .max_iterations(1)
+            .tolerance(1e-12)
+            .error_on_non_convergence(false)
+            .build()
+            .fit(&x, &y)
+            .expect("opting out of the error must return the last iterate");
+        assert!(
+            !fitted.converged,
+            "a fit that exhausted max_iterations must report converged = false"
+        );
+        // The last iterate is still a usable model (finite coefficients).
+        assert!(fitted.result.coefficients[0].is_finite());
     }
 
     #[test]

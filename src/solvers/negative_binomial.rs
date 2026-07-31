@@ -56,6 +56,10 @@ pub struct NegativeBinomialRegressor {
     estimate_theta: bool,
     theta_max_iter: usize,
     theta_tol: f64,
+    /// If `true` (the default), a fit that fails to converge returns
+    /// `Err(ConvergenceFailed)`. If `false`, the last iterate is returned with
+    /// `converged = false` on the fitted model.
+    error_on_non_convergence: bool,
 }
 
 impl NegativeBinomialRegressor {
@@ -68,6 +72,7 @@ impl NegativeBinomialRegressor {
             estimate_theta: true,
             theta_max_iter: 25,
             theta_tol: 1e-6,
+            error_on_non_convergence: true,
         }
     }
 
@@ -182,7 +187,7 @@ impl NegativeBinomialRegressor {
                 }
             }
 
-            if !inner_converged && !self.estimate_theta {
+            if !inner_converged && !self.estimate_theta && self.error_on_non_convergence {
                 return Err(RegressionError::ConvergenceFailed {
                     iterations: total_iterations,
                 });
@@ -208,7 +213,7 @@ impl NegativeBinomialRegressor {
             }
         }
 
-        if !converged {
+        if !converged && self.error_on_non_convergence {
             return Err(RegressionError::ConvergenceFailed {
                 iterations: total_iterations,
             });
@@ -224,6 +229,7 @@ impl NegativeBinomialRegressor {
             total_iterations,
             family,
             aliased,
+            converged,
         )
     }
 
@@ -404,6 +410,7 @@ impl NegativeBinomialRegressor {
         iterations: usize,
         family: NegativeBinomialFamily,
         aliased: Vec<bool>,
+        converged: bool,
     ) -> Result<FittedNegativeBinomial, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
@@ -563,6 +570,7 @@ impl NegativeBinomialRegressor {
             dispersion,
             theta: family.theta,
             iterations,
+            converged,
             y_values: y.clone(),
             xtwx_inverse,
             offset: self.offset.clone(),
@@ -739,6 +747,10 @@ pub struct FittedNegativeBinomial {
     pub theta: f64,
     /// Number of iterations.
     pub iterations: usize,
+    /// Whether the fit met its convergence criterion. `false` only when the
+    /// regressor was built with `error_on_non_convergence(false)` and the fit
+    /// exhausted its iteration budget.
+    pub converged: bool,
     /// Original y values.
     y_values: Col<f64>,
     /// (X'WX)⁻¹ matrix for prediction SE.
@@ -997,6 +1009,7 @@ pub struct NegativeBinomialRegressorBuilder {
     estimate_theta: bool,
     theta_max_iter: usize,
     theta_tol: f64,
+    error_on_non_convergence: bool,
 }
 
 impl Default for NegativeBinomialRegressorBuilder {
@@ -1008,6 +1021,7 @@ impl Default for NegativeBinomialRegressorBuilder {
             estimate_theta: true,
             theta_max_iter: 25,
             theta_tol: 1e-6,
+            error_on_non_convergence: true,
         }
     }
 }
@@ -1095,6 +1109,16 @@ impl NegativeBinomialRegressorBuilder {
         self
     }
 
+    /// Control what happens when the fit fails to converge.
+    ///
+    /// When `true` (the default), the fit returns
+    /// `Err(RegressionError::ConvergenceFailed)`. When `false`, the fit instead
+    /// returns the last iterate with `FittedNegativeBinomial::converged == false`.
+    pub fn error_on_non_convergence(mut self, error: bool) -> Self {
+        self.error_on_non_convergence = error;
+        self
+    }
+
     /// Build the regressor.
     pub fn build(self) -> NegativeBinomialRegressor {
         NegativeBinomialRegressor {
@@ -1104,6 +1128,7 @@ impl NegativeBinomialRegressorBuilder {
             estimate_theta: self.estimate_theta,
             theta_max_iter: self.theta_max_iter,
             theta_tol: self.theta_tol,
+            error_on_non_convergence: self.error_on_non_convergence,
         }
     }
 }
@@ -1123,6 +1148,43 @@ mod tests {
             (mu + extra + 0.5 * ((i % 5) as f64 - 2.0)).max(0.0).round()
         });
         (x, y)
+    }
+
+    #[test]
+    fn test_converged_flag_and_opt_in() {
+        let (x, y) = create_overdispersed_data(100);
+
+        // Normal fit reports convergence.
+        let fitted = NegativeBinomialRegressor::builder()
+            .with_intercept(true)
+            .max_iterations(100)
+            .build()
+            .fit(&x, &y)
+            .expect("model should fit");
+        assert!(fitted.converged);
+
+        // Fixed theta, one IRLS step, default behaviour: error.
+        let res = NegativeBinomialRegressor::with_theta(2.0)
+            .with_intercept(true)
+            .max_iterations(1)
+            .tolerance(1e-12)
+            .build()
+            .fit(&x, &y);
+        assert!(matches!(
+            res,
+            Err(RegressionError::ConvergenceFailed { .. })
+        ));
+
+        // Same, but opted in: Ok with converged = false.
+        let fitted = NegativeBinomialRegressor::with_theta(2.0)
+            .with_intercept(true)
+            .max_iterations(1)
+            .tolerance(1e-12)
+            .error_on_non_convergence(false)
+            .build()
+            .fit(&x, &y)
+            .expect("opting out must return the last iterate");
+        assert!(!fitted.converged);
     }
 
     #[test]

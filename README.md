@@ -45,6 +45,9 @@ This library provides sklearn-style regression estimators with full statistical 
   - Tweedie GLM (Gaussian, Poisson, Gamma, Inverse-Gaussian, Compound Poisson-Gamma)
   - Gamma Regression (sklearn-style wrapper for Tweedie(power=2), log link)
 
+- **Generalized Linear Mixed Models**
+  - GLMM with a random intercept, optional random slopes, and crossed / nested factors (`GlmmRegressor`): Gaussian (profiled REML/ML, matches `lme4::lmer`), Poisson and Binomial (Laplace PIRLS, matches `glmer(nAGQ=0)`). Unstructured random-effects covariance profiled by golden-section (intercept) or Nelder–Mead (slopes / multiple factors); `fit_crossed` handles `(1|a) + (1|b)` and `(1|a/b)`.
+
 - **Online Learning**
   - Passive-Aggressive Regressor (PA-I and PA-II) with `partial_fit`
 
@@ -237,6 +240,7 @@ This library is developed using Test-Driven Development (TDD) against establishe
 | `NegativeBinomialRegressor` | `glm.nb()` | MASS |
 | `TweedieRegressor` | `tweedie()` | statmod |
 | `GammaRegressor` | `glm(family=Gamma(link="log"))` | stats |
+| `GlmmRegressor` | `lmer()` / `glmer(nAGQ=0)` | lme4 |
 | `AlmRegressor` | `alm()` | greybox |
 | `QuantileRegressor` | `rq()` | quantreg |
 | `IsotonicRegressor` | `isoreg()` | stats |

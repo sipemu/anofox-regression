@@ -71,6 +71,22 @@ impl FittedGamma {
         self.inner.predict_eta(x)
     }
 
+    /// Mean predictions with a new per-row offset (for rate modeling).
+    ///
+    /// The offset enters the linear predictor: `η = Xβ + offset`. For rate
+    /// modeling with exposure, use `offset = log(exposure)`. Mirrors
+    /// [`FittedTweedie::predict_with_offset`] and the sibling GLM families.
+    pub fn predict_with_offset(&self, x: &Mat<f64>, offset: &Col<f64>) -> Col<f64> {
+        self.inner.predict_with_offset(x, offset)
+    }
+
+    /// Whether the underlying IRLS loop met its convergence criterion. `false`
+    /// only when the regressor was built with `error_on_non_convergence(false)`
+    /// and the fit exhausted `max_iterations`.
+    pub fn converged(&self) -> bool {
+        self.inner.converged
+    }
+
     /// Access the wrapped [`FittedTweedie`] for full GLM diagnostics.
     pub fn inner(&self) -> &FittedTweedie {
         &self.inner
@@ -110,6 +126,7 @@ pub struct GammaRegressorBuilder {
     lambda: f64,
     link_power: Option<f64>,
     offset: Option<Col<f64>>,
+    error_on_non_convergence: bool,
 }
 
 impl Default for GammaRegressorBuilder {
@@ -123,6 +140,7 @@ impl Default for GammaRegressorBuilder {
             lambda: 0.0,
             link_power: None,
             offset: None,
+            error_on_non_convergence: true,
         }
     }
 }
@@ -178,6 +196,17 @@ impl GammaRegressorBuilder {
         self
     }
 
+    /// Control what happens when IRLS fails to converge within
+    /// `max_iterations`.
+    ///
+    /// When `true` (the default), the fit returns
+    /// `Err(RegressionError::ConvergenceFailed)`. When `false`, the fit instead
+    /// returns the last iterate with `FittedGamma::converged() == false`.
+    pub fn error_on_non_convergence(mut self, error: bool) -> Self {
+        self.error_on_non_convergence = error;
+        self
+    }
+
     /// Build the [`GammaRegressor`].
     pub fn build(self) -> GammaRegressor {
         let mut tw = TweedieRegressor::gamma()
@@ -186,6 +215,7 @@ impl GammaRegressorBuilder {
             .confidence_level(self.confidence_level)
             .max_iterations(self.max_iterations)
             .tolerance(self.tolerance)
+            .error_on_non_convergence(self.error_on_non_convergence)
             .lambda(self.lambda);
 
         if let Some(q) = self.link_power {
@@ -264,6 +294,85 @@ mod tests {
         for i in 0..x.nrows() {
             assert!((mu[i] - mu_link[i]).abs() < 1e-12);
             assert!(mu[i] > 0.0, "Gamma predictions must be positive");
+        }
+    }
+
+    #[test]
+    fn predict_with_offset_delegates_to_tweedie() {
+        let (x, y) = dataset();
+        let gamma_fit = GammaRegressor::builder()
+            .compute_inference(false)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+
+        // A negative log-offset (half the exposure) shrinks the predicted mean.
+        let offset = Col::from_fn(x.nrows(), |_| 0.5_f64.ln());
+        let mu = gamma_fit.predict(&x);
+        let mu_off = gamma_fit.predict_with_offset(&x, &offset);
+        for i in 0..x.nrows() {
+            assert!(mu_off[i] > 0.0, "Gamma predictions must be positive");
+            assert!(
+                mu_off[i] < mu[i],
+                "negative offset should shrink the predicted mean"
+            );
+            // log link: predict_with_offset == predict * exp(offset).
+            assert!((mu_off[i] - mu[i] * 0.5).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn converged_accessor_reflects_fit() {
+        let (x, y) = dataset();
+
+        let ok = GammaRegressor::builder()
+            .compute_inference(false)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+        assert!(ok.converged());
+
+        let last = GammaRegressor::builder()
+            .compute_inference(false)
+            .max_iterations(1)
+            .tolerance(1e-12)
+            .error_on_non_convergence(false)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+        assert!(!last.converged());
+    }
+
+    #[test]
+    fn fit_with_offset_matches_tweedie() {
+        let (x, y) = dataset();
+        let offset = Col::from_fn(x.nrows(), |i| ((i + 1) as f64).ln());
+
+        let tweedie_fit = TweedieRegressor::gamma()
+            .with_intercept(true)
+            .compute_inference(false)
+            .max_iterations(50)
+            .tolerance(1e-10)
+            .offset(offset.clone())
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+
+        let gamma_fit = GammaRegressor::builder()
+            .with_intercept(true)
+            .compute_inference(false)
+            .max_iterations(50)
+            .tolerance(1e-10)
+            .offset(offset)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+
+        let a = tweedie_fit.result();
+        let b = gamma_fit.result();
+        assert!((a.intercept.unwrap() - b.intercept.unwrap()).abs() < 1e-12);
+        for i in 0..a.coefficients.nrows() {
+            assert!((a.coefficients[i] - b.coefficients[i]).abs() < 1e-12);
         }
     }
 }

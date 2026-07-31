@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.12] - 2026-07-31
+
+### Added
+
+- **Generalized linear mixed models — `GlmmRegressor` / `FittedGlmm` (#25).** A random intercept and optional random slopes over one grouping factor, and crossed / nested random-intercept factors, `g(μ_ij) = x_ij'β + z_ij'b_j` with `b_j ~ N(0, Σ)` and unstructured `Σ`. This completes Phases A–C of the mixed-model work.
+  - Follows the `lme4` profiled-deviance formulation (Bates et al., JSS 2015). The random effects are `b = Λ_θ u` with a `q×q` lower-triangular relative-covariance factor `T(θ)` per group, so `Σ = σ²·T Tᵀ`. For a random intercept (`q=1`) the single scale-free ratio `θ = σ_b/σ` is profiled by golden-section search; with random slopes (`q>1`) the `q(q+1)/2` entries of `T` are profiled by Nelder–Mead, matching `lme4`'s derivative-free optimization over the Cholesky factor. The single-factor random block is eliminated by a per-group Schur complement (inverting a `q×q`).
+  - `GlmmRegressor::gaussian()` fits a linear mixed model by exact profiled REML (or ML via `.reml(false)`); `GlmmRegressor::poisson()` and `GlmmRegressor::binomial()` fit non-Gaussian families by Laplace-approximate PIRLS. Because the fixed effects are part of the penalized conditional mode, the GLMM path matches `glmer(nAGQ = 0)`. `random_slopes(cols)` names the `x` columns that get a random slope alongside the intercept.
+  - **Crossed / nested factors** via `fit_crossed(x, y, &[&group_a, &group_b, …])`: each factor contributes a random intercept with its own variance component (`(1|a) + (1|b)`; nesting `(1|a/b)` is expressed by passing the `a:b` interaction id). The combined random block is no longer block-diagonal, so the elimination uses a dense combined solve over all random levels; one ratio `θ_f` per factor is profiled by Nelder–Mead. `FittedGlmm::factors()` returns per-factor SDs and BLUPs; `n_factors()` reports the count.
+  - `fit(x, y, group)` takes a per-observation grouping-factor id (any `usize`, compacted internally). `FittedGlmm` exposes `fixed_effects` / `intercept` / `slopes` / `std_errors`, the BLUP `random_effects` (intercept) and `random_effects_matrix` (full per-group vectors), the covariance `random_cov` / `random_sd` / `random_corr`, the scalar variance components (`theta`, `sigma`, `sd_random`, `var_random`), `deviance` / `log_likelihood`, `converged`, and `predict_fixed`.
+  - Validated against `lme4` across 12 scenarios (VALIDATION.md §24, `tests/r_validation_glmm.rs`): the Gaussian LMM (intercept, intercept+slope, crossed, nested, ML, unbalanced, boundary/singular, no-intercept) matches `lmer` to ~5–6 digits on fixed effects, **fixed-effect standard errors** (vs `vcov`), residual and random-effect SDs, the intercept–slope correlation, **per-group / per-factor BLUPs** (vs `ranef`), and log-likelihood; the boundary case confirms θ → 0 collapses to OLS. The Poisson and binomial GLMMs match `glmer(nAGQ = 0)` on fixed effects, SEs, the random-intercept SD, and BLUPs. Fits are deterministic (bitwise-identical across runs).
+
+- **`converged` on the GLM fitted structs (#23).** `FittedPoisson`, `FittedBinomial`, `FittedTweedie`, and `FittedNegativeBinomial` gain a public `converged: bool` field; `FittedGamma` gains a `converged()` accessor (it wraps Tweedie). Previously the IRLS convergence flag was computed internally but never surfaced — non-convergence could only be observed as an `Err(ConvergenceFailed)`.
+  - Each builder gains `error_on_non_convergence(bool)`. The default (`true`) preserves the historical behaviour of erroring on non-convergence. Setting it to `false` returns the last iterate with `converged == false`, letting callers (e.g. the DuckDB extension's GLM aggregates) report convergence rather than collapsing it into a NULL/error.
+
+- **`FittedGamma::predict_with_offset` (#24).** Gamma gains the per-row offset prediction helper (delegating to the wrapped Tweedie), for parity with `FittedPoisson` / `FittedBinomial` / `FittedTweedie` / `FittedNegativeBinomial`. Offset support in the GLM solvers was already complete; this closes the one prediction-API gap and adds gamma offset round-trip tests.
+
 ## [0.5.11] - 2026-07-17
 
 ### Added

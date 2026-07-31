@@ -49,12 +49,13 @@ pub mod prelude {
     pub use crate::inference::{HcInference, HcType};
     pub use crate::solvers::{
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
-        FittedAlm, FittedBinomial, FittedGamma, FittedHuber, FittedIsotonic, FittedLogistic,
-        FittedNegativeBinomial, FittedPSpline, FittedPls, FittedPoisson, FittedQuantile,
-        FittedRegressor, FittedTweedie, GammaRegressor, HuberRegressor, IsotonicRegressor,
-        LinkFunction, LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds,
-        PSplineRegressor, Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor,
-        RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
+        FactorSummary, FittedAlm, FittedBinomial, FittedGamma, FittedGlmm, FittedHuber,
+        FittedIsotonic, FittedLogistic, FittedNegativeBinomial, FittedPSpline, FittedPls,
+        FittedPoisson, FittedQuantile, FittedRegressor, FittedTweedie, GammaRegressor,
+        GlmmRegressor, GlmmRegressorBuilder, HuberRegressor, IsotonicRegressor, LinkFunction,
+        LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds, PSplineRegressor,
+        Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor, RidgeRegressor,
+        RlsRegressor, TweedieRegressor, WlsRegressor,
     };
 }
 
@@ -66,7 +67,8 @@ pub use crate::core::{
 };
 pub use crate::inference::{HcInference, HcType};
 pub use crate::solvers::{
-    BinomialRegressor, FittedBinomial, FittedIsotonic, FittedNegativeBinomial, FittedPSpline,
-    FittedPoisson, FittedQuantile, FittedRegressor, IsotonicRegressor, NegativeBinomialRegressor,
-    OutOfBounds, PSplineRegressor, PoissonRegressor, QuantileRegressor, Regressor,
+    BinomialRegressor, FactorSummary, FittedBinomial, FittedGlmm, FittedIsotonic,
+    FittedNegativeBinomial, FittedPSpline, FittedPoisson, FittedQuantile, FittedRegressor,
+    GlmmRegressor, GlmmRegressorBuilder, IsotonicRegressor, NegativeBinomialRegressor, OutOfBounds,
+    PSplineRegressor, PoissonRegressor, QuantileRegressor, Regressor,
 };

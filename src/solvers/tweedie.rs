@@ -55,6 +55,10 @@ pub struct TweedieRegressor {
     options: RegressionOptions,
     family: TweedieFamily,
     offset: Option<Col<f64>>,
+    /// If `true` (the default), a fit that fails to converge within
+    /// `max_iterations` returns `Err(ConvergenceFailed)`. If `false`, the last
+    /// iterate is returned with `converged = false` on the fitted model.
+    error_on_non_convergence: bool,
 }
 
 impl TweedieRegressor {
@@ -64,6 +68,7 @@ impl TweedieRegressor {
             options,
             family,
             offset: None,
+            error_on_non_convergence: true,
         }
     }
 
@@ -233,7 +238,7 @@ impl TweedieRegressor {
             }
         }
 
-        if !converged {
+        if !converged && self.error_on_non_convergence {
             return Err(RegressionError::ConvergenceFailed {
                 iterations: max_iter,
             });
@@ -251,6 +256,7 @@ impl TweedieRegressor {
             iterations,
             self.offset.clone(),
             aliased,
+            converged,
         )
     }
 
@@ -431,6 +437,7 @@ impl TweedieRegressor {
         iterations: usize,
         offset: Option<Col<f64>>,
         aliased: Vec<bool>,
+        converged: bool,
     ) -> Result<FittedTweedie, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
@@ -569,6 +576,7 @@ impl TweedieRegressor {
             null_deviance,
             dispersion,
             iterations,
+            converged,
             y_values: y.clone(),
             xtwx_inverse,
             offset,
@@ -756,6 +764,10 @@ pub struct FittedTweedie {
     pub dispersion: f64,
     /// Number of IRLS iterations.
     pub iterations: usize,
+    /// Whether the IRLS loop met its convergence criterion. `false` only when
+    /// the regressor was built with `error_on_non_convergence(false)` and the
+    /// fit exhausted `max_iterations`.
+    pub converged: bool,
     /// Original y values (for residual calculation).
     y_values: Col<f64>,
     /// (X'WX)⁻¹ matrix (for prediction standard errors).
@@ -1042,6 +1054,10 @@ pub struct TweedieRegressorBuilder {
     var_power: f64,
     link_power: Option<f64>,
     offset: Option<Col<f64>>,
+    /// When `true`, non-convergence is reported via `FittedTweedie::converged`
+    /// instead of returning an error. Defaults to `false` (error), so the
+    /// derived `Default` preserves the historical behaviour.
+    allow_non_convergence: bool,
 }
 
 impl TweedieRegressorBuilder {
@@ -1052,6 +1068,7 @@ impl TweedieRegressorBuilder {
             var_power: 1.5, // Default: compound Poisson-Gamma
             link_power: None,
             offset: None,
+            allow_non_convergence: false,
         }
     }
 
@@ -1132,6 +1149,17 @@ impl TweedieRegressorBuilder {
         self
     }
 
+    /// Control what happens when IRLS fails to converge within
+    /// `max_iterations`.
+    ///
+    /// When `true` (the default), the fit returns
+    /// `Err(RegressionError::ConvergenceFailed)`. When `false`, the fit instead
+    /// returns the last iterate with `FittedTweedie::converged == false`.
+    pub fn error_on_non_convergence(mut self, error: bool) -> Self {
+        self.allow_non_convergence = !error;
+        self
+    }
+
     /// Build the regressor.
     pub fn build(self) -> TweedieRegressor {
         let link_power = self.link_power.unwrap_or(1.0 - self.var_power);
@@ -1141,6 +1169,7 @@ impl TweedieRegressorBuilder {
             options: self.options_builder.build_unchecked(),
             family,
             offset: self.offset,
+            error_on_non_convergence: !self.allow_non_convergence,
         }
     }
 }
@@ -1148,6 +1177,41 @@ impl TweedieRegressorBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_converged_flag_and_opt_in() {
+        // Gamma-shaped positive data.
+        let x = Mat::from_fn(40, 1, |i, _| (i as f64) / 8.0);
+        let y = Col::from_fn(40, |i| (0.5 + 0.3 * (i as f64) / 8.0).exp());
+
+        let fitted = TweedieRegressor::gamma()
+            .with_intercept(true)
+            .build()
+            .fit(&x, &y)
+            .expect("model should fit");
+        assert!(fitted.converged);
+
+        let res = TweedieRegressor::gamma()
+            .with_intercept(true)
+            .max_iterations(1)
+            .tolerance(1e-12)
+            .build()
+            .fit(&x, &y);
+        assert!(matches!(
+            res,
+            Err(RegressionError::ConvergenceFailed { .. })
+        ));
+
+        let fitted = TweedieRegressor::gamma()
+            .with_intercept(true)
+            .max_iterations(1)
+            .tolerance(1e-12)
+            .error_on_non_convergence(false)
+            .build()
+            .fit(&x, &y)
+            .expect("opting out must return the last iterate");
+        assert!(!fitted.converged);
+    }
 
     #[test]
     fn test_gaussian_regression() {

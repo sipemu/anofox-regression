@@ -41,6 +41,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_huber_validation.R` | Validates `HuberRegressor` against `MASS::rlm` |
 | `tests/r_scripts/generate_logistic_validation.R` | Validates `LogisticRegression` against `glm(family = binomial)` |
 | `tests/r_scripts/generate_pls_validation.R` | Validates PLS regression |
+| `tests/r_scripts/generate_glmm_validation.R` | Validates `GlmmRegressor` (random intercept, slopes, crossed/nested) against `lme4::lmer` / `glmer(nAGQ=0)` |
 
 #### scikit-learn-based oracles (Python, `validation/python/`)
 
@@ -62,6 +63,7 @@ The Python environment is reproducible: `validation/python/requirements.txt` pin
 - **statmod**: Tweedie family distributions, inverse Gaussian
 - **greybox**: `alm()` for augmented linear models, `aid()` for demand identification
 - **quantreg**: `rq()` for quantile regression
+- **lme4**: `lmer()` / `glmer()` for generalized linear mixed models (random intercept, random slopes, crossed / nested factors)
 
 ### Python Packages Used
 
@@ -506,6 +508,69 @@ Validates `ArdRegression` against `sklearn.linear_model.ARDRegression`.
 |------|-------------|
 | Sparse recovery | `n = 120`, `p = 6`, two features pruned (true β = 0) |
 
+### 24. GLMM (random intercept, random slopes, crossed / nested factors)
+
+Validates `GlmmRegressor` — a generalized linear mixed model with a random
+intercept and optional random slopes over a single grouping factor, and crossed
+/ nested random-intercept factors, `g(μ_ij) = x_ij'β + z_ij'b_j`,
+`b_j ~ N(0, Σ)` with unstructured `Σ` — against R's `lme4`.
+
+**Algorithm**: profiled-deviance formulation of `lme4` (Bates, Mächler, Bolker &
+Walker, *Fitting Linear Mixed-Effects Models Using lme4*, JSS 2015). The random
+effects are `b = Λ_θ u` with a `q×q` lower-triangular relative-covariance factor
+`T(θ)` per group, so `Σ = σ²·T Tᵀ`. For a single random intercept (`q = 1`) the
+ratio `θ = σ_b/σ` is profiled by golden-section search; with random slopes
+(`q > 1`) the `q(q+1)/2` entries of `T` are profiled by Nelder–Mead; with several
+crossed / nested factors one ratio `θ_f` per factor is profiled by Nelder–Mead.
+The single-factor random block is eliminated by a per-group Schur complement; the
+crossed case uses a dense combined solve over all random levels (the block is no
+longer block-diagonal). The Gaussian case is solved as an exact profiled-REML
+linear mixed model; the Poisson and binomial cases use Laplace-approximate PIRLS
+with the fixed effects in the penalized conditional mode, which corresponds to
+`glmer(nAGQ = 0)`.
+
+**Oracle**: `lme4::lmer(REML = TRUE)` (Gaussian) and `lme4::glmer(nAGQ = 0)`
+(Poisson, binomial).
+**Generator**: `tests/r_scripts/generate_glmm_validation.R` (random-slope
+scenario also uses `MASS::mvrnorm`).
+**Test file**: `tests/r_validation_glmm.rs`.
+**Tolerance**: `2e-3` for the Gaussian LMM (fixed effects, σ, random SDs,
+intercept–slope correlation, per-group BLUPs, log-likelihood — matches `lmer` to
+~5–6 digits; the tolerance covers the golden-section / Nelder–Mead resolution);
+`1e-2` for the Poisson/binomial GLMM (fixed effects and σ_b vs `glmer(nAGQ = 0)`,
+covering the PIRLS convergence threshold).
+
+Beyond the point estimates, the suite checks **fixed-effect standard errors**
+(vs `sqrt(diag(vcov(m)))`), **per-group / per-factor BLUPs** (vs `ranef(m)`), and
+the **log-likelihood**, and exercises the **ML** path, an **unbalanced** panel, a
+**boundary** (singular, variance → 0) fit, a **no-intercept** model, and
+**determinism**.
+
+| Test | Description |
+|------|-------------|
+| Gaussian LMM, 1 covariate | `n = 80`, `J = 8`; `y ~ x + (1\|g)`, REML. fixef, σ, σ_b, all 8 BLUPs, logLik, SEs |
+| Gaussian LMM, 2 covariates | `n = 72`, `J = 6`; `y ~ x1 + x2 + (1\|g)`, REML |
+| Gaussian LMM, random slope | `n = 120`, `J = 10`; `y ~ x + (x\|g)`, REML. fixef, σ, sd(int), sd(slope), corr, SEs, per-group intercept+slope BLUPs |
+| Gaussian LMM, crossed | `n = 120`, `6 × 5` crossed; `y ~ x + (1\|a) + (1\|b)`, REML. fixef, σ, sd(a), sd(b), logLik, SEs, per-factor BLUPs |
+| Gaussian LMM, nested | `n = 120`, `5 × 4`; `y ~ x + (1\|a/b)`, REML. fixef, σ, sd(a), sd(a:b), SEs, per-factor BLUPs |
+| Gaussian LMM, ML | `y ~ x + (1\|g)`, `REML = FALSE`. fixef, σ, σ_b, ML logLik |
+| Gaussian LMM, unbalanced | groups of size 2–14; fixef, σ, σ_b, SEs |
+| Gaussian LMM, boundary | zero group variance ⇒ `lme4` singular fit; θ → 0, collapses to OLS |
+| Gaussian LMM, no intercept | `y ~ 0 + x + (1\|g)`; slope, σ, σ_b, SE |
+| Poisson GLMM | `n = 80`, `J = 8`; `y ~ x + (1\|g)`, `nAGQ = 0`. fixef, σ_b, SEs, BLUPs |
+| Poisson GLMM, 2 covariates | `n = 96`, `J = 8`; `y ~ x1 + x2 + (1\|g)`, `nAGQ = 0`. fixef (3), σ_b, SEs (3) |
+| Binomial GLMM | `n = 120`, `J = 10`; `y ~ x + (1\|g)`, `nAGQ = 0`. fixef, σ_b, SEs, BLUPs |
+| `predict_fixed` | population-level `Xβ` vs `predict(m, re.form = NA)` on scenario 1 |
+| Determinism | same input ⇒ bitwise-identical fixef / σ_b / deviance |
+
+The `GlmmRegressor` unit tests additionally cover error paths (dimension
+mismatch, out-of-range random-slope column, single group / factor, empty factor
+list) and that `fit_crossed` with one factor equals `fit`.
+
+**Scope note**: random slopes combined with multiple crossed/nested factors, and
+the default `glmer(nAGQ = 1)` joint `(θ, β)` refinement, are follow-ups beyond
+the estimators validated here.
+
 ## Test Coverage
 
 | Category | Tests | Tolerance |
@@ -532,7 +597,8 @@ Validates `ArdRegression` against `sklearn.linear_model.ARDRegression`.
 | Passive-Aggressive | 3 | 2e-2 |
 | LARS / LassoLars | 3 | 1e-6 / 5e-3 |
 | Bayesian Ridge / ARD | 2 | 5e-3 / 5e-2 |
-| **Total** | **470+** | - |
+| GLMM (intercept, slopes, crossed/nested) | 13 | 2e-3 / 1e-2 |
+| **Total** | **483+** | - |
 
 ## Reproducibility
 
@@ -559,7 +625,10 @@ For per-estimator R fixtures (Huber, Logistic, Gamma, …):
 Rscript tests/r_scripts/generate_gamma_validation.R    > tests/fixtures/gamma_validation.rs
 Rscript tests/r_scripts/generate_huber_validation.R    > tests/fixtures/huber_validation.rs
 Rscript tests/r_scripts/generate_logistic_validation.R > tests/fixtures/logistic_validation.rs
+Rscript tests/r_scripts/generate_glmm_validation.R     > tests/fixtures/glmm_validation.rs
 ```
+
+The GLMM generator requires the `lme4` package (`install.packages("lme4")`).
 
 ### Regenerate Python (sklearn) references
 
@@ -817,6 +886,7 @@ These tests verify robustness rather than exact numerical agreement with a refer
 | AID | Classification | Zero proportion threshold | Classification |
 | Quantile | Iterative (IRLS) | Check function non-differentiability | 0.01 |
 | Isotonic | Deterministic (PAVA) | Exact monotonic solution | 1e-6 |
+| GLMM (intercept, slopes, crossed/nested) | Iterative (profiled REML / Laplace PIRLS) | Variance-component profiling (golden-section / Nelder–Mead) | 2e-3 / 1e-2 |
 | Stress Tests | Mixed | Numerical robustness, API edge cases | Varies |
 
 ### Known Differences from R
