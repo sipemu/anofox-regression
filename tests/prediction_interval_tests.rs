@@ -484,12 +484,18 @@ fn test_ols_prediction_interval_constant_column() {
     // Intervals should be computed correctly
     let pi = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
 
+    // This fixture is a noiseless, rank-deficient perfect fit (x2 = 2*x0 and
+    // y = 1 + 8*x0), so the residual variance is exactly 0 and the prediction
+    // interval collapses to the point estimate. The meaningful invariant is
+    // finiteness and ordering, not a strictly positive width. (Before the
+    // col-pivot unpermute fix, a scrambled coefficient vector gave a non-zero
+    // residual variance here, which is why the old strict `<`/`>` passed.)
     for i in 0..3 {
         assert!(pi.fit[i].is_finite(), "fit[{}] should be finite", i);
         assert!(pi.lower[i].is_finite(), "lower[{}] should be finite", i);
         assert!(pi.upper[i].is_finite(), "upper[{}] should be finite", i);
-        assert!(pi.lower[i] < pi.fit[i], "lower should be < fit");
-        assert!(pi.upper[i] > pi.fit[i], "upper should be > fit");
+        assert!(pi.lower[i] <= pi.fit[i], "lower should be <= fit");
+        assert!(pi.upper[i] >= pi.fit[i], "upper should be >= fit");
     }
 }
 

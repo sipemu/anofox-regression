@@ -376,9 +376,15 @@ impl BinomialRegressor {
                 }
             }
 
+            // Unpermute: beta_perm[i] is the coefficient for the column at pivot
+            // position i, i.e. original column perm.arrays().0[i] (the forward
+            // array). perm.inverse() scatters into the wrong slots for a
+            // non-involutive pivot permutation (harmless here because IRLS
+            // re-solves each pass, but corrected for consistency).
             let mut beta = Col::zeros(n_params);
+            let perm_fwd = perm.arrays().0;
             for i in 0..n_params {
-                beta[perm.inverse().arrays().0[i]] = beta_perm[i];
+                beta[perm_fwd[i]] = beta_perm[i];
             }
 
             Ok(beta)

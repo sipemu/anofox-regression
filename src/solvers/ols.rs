@@ -465,16 +465,30 @@ impl OlsRegressor {
         let r = qr.R();
         let perm = qr.P();
 
-        // Build permutation mapping: perm_fwd[i] = which original column is at position i
-        // perm_inv[j] = where original column j ended up
-        let perm_arr = perm.arrays().0;
+        // Build permutation mapping: perm_fwd[i] = which original column is at
+        // pivot position i (col_piv_qr factorises A·P = Q·R). perm_inv is its
+        // inverse: perm_inv[j] = the pivot position of original column j, which
+        // is what the aliasing test and the coefficient gather below index by.
+        // (Copying perm_fwd here without inverting scrambles the coefficients on
+        // any non-involutive pivot — e.g. columns on different scales.)
+        let perm_fwd = perm.arrays().0;
         let mut perm_inv: Vec<usize> = vec![0; n_features];
-        perm_inv[..n_features].copy_from_slice(&perm_arr[..n_features]);
+        for (pos, &orig) in perm_fwd.iter().enumerate().take(n_features) {
+            perm_inv[orig] = pos;
+        }
 
-        // Determine numerical rank from R diagonal
+        // Determine numerical rank from the R diagonal, relative to the largest
+        // pivot. col_piv_qr orders pivots by decreasing magnitude, so |R[0,0]|
+        // is the largest; a relative threshold detects exact collinearity
+        // regardless of the columns' absolute scale (an absolute tolerance
+        // misses collinear columns whose magnitude is large — e.g. x2 = 2·x1
+        // with x1 ~ 1e3).
         let mut rank = 0;
-        for i in 0..n_features.min(n_samples) {
-            if r[(i, i)].abs() > self.options.rank_tolerance {
+        let n_diag = n_features.min(n_samples);
+        let r_max = if n_diag > 0 { r[(0, 0)].abs() } else { 0.0 };
+        let threshold = self.options.rank_tolerance * r_max;
+        for i in 0..n_diag {
+            if r[(i, i)].abs() > threshold {
                 rank += 1;
             } else {
                 break;
@@ -1126,6 +1140,41 @@ impl OlsRegressorBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Regression test for the col-pivot unpermute bug (#26): column norms are
+    // chosen so `col_piv_qr`'s pivot order is a genuine 3-cycle (not an
+    // involution or the identity), and `y` has the exact solution [7, 2, 0.5].
+    // A wrong unpermute scatters the coefficients into the wrong slots.
+    fn three_cycle_design() -> (Mat<f64>, Col<f64>, [f64; 3]) {
+        let n = 12;
+        let x = Mat::from_fn(n, 3, |i, j| match j {
+            0 => ((i % 4) as f64) * 0.001 + 0.001,
+            1 => (((i * 3) % 5) as f64) * 1000.0 + 5.0,
+            _ => (((i * 7) % 6) as f64) * 10.0 + 1.0,
+        });
+        let truth = [7.0, 2.0, 0.5];
+        let y = Col::from_fn(n, |i| (0..3).map(|j| truth[j] * x[(i, j)]).sum());
+        (x, y, truth)
+    }
+
+    #[test]
+    fn ols_recovers_exact_solution_under_nontrivial_pivot() {
+        let (x, y, truth) = three_cycle_design();
+        let fit = OlsRegressor::builder()
+            .with_intercept(false)
+            .compute_inference(false)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+        for j in 0..3 {
+            assert!(
+                (fit.result().coefficients[j] - truth[j]).abs() < 1e-6,
+                "coef[{j}] = {} vs {}",
+                fit.result().coefficients[j],
+                truth[j]
+            );
+        }
+    }
 
     #[test]
     fn test_simple_fit() {

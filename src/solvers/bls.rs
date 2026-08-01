@@ -292,10 +292,15 @@ impl BlsRegressor {
             }
         }
 
-        // Unpermute
+        // Unpermute. `col_piv_qr` factorises A·P = Q·R, so the back-substituted
+        // `beta_perm[i]` is the coefficient for the column at pivot position `i`,
+        // which is original column `perm.arrays().0[i]` (the forward array).
+        // Writing through `perm.inverse()` scatters coefficients into the wrong
+        // slots whenever the pivot permutation is not an involution.
         let mut beta = Col::zeros(n_passive);
+        let perm_fwd = perm.arrays().0;
         for i in 0..n_passive {
-            beta[perm.inverse().arrays().0[i]] = beta_perm[i];
+            beta[perm_fwd[i]] = beta_perm[i];
         }
 
         Ok(beta)
@@ -785,6 +790,35 @@ impl BlsRegressor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nnls_recovers_exact_solution_under_nontrivial_pivot() {
+        // Regression test for the col-pivot unpermute bug (#26): a 3-cycle pivot
+        // order with an exact, strictly-positive solution [7, 2, 0.5], so the
+        // NNLS active set is empty and it must reduce to OLS. A wrong unpermute
+        // scatters coefficients into the wrong slots (RSS ~ 1e8 instead of 0).
+        let n = 12;
+        let x = Mat::from_fn(n, 3, |i, j| match j {
+            0 => ((i % 4) as f64) * 0.001 + 0.001,
+            1 => (((i * 3) % 5) as f64) * 1000.0 + 5.0,
+            _ => (((i * 7) % 6) as f64) * 10.0 + 1.0,
+        });
+        let truth = [7.0, 2.0, 0.5];
+        let y = Col::from_fn(n, |i| (0..3).map(|j| truth[j] * x[(i, j)]).sum());
+        let fit = BlsRegressor::nnls()
+            .with_intercept(false)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+        for j in 0..3 {
+            assert!(
+                (fit.coefficients()[j] - truth[j]).abs() < 1e-6,
+                "coef[{j}] = {} vs {}",
+                fit.coefficients()[j],
+                truth[j]
+            );
+        }
+    }
 
     #[test]
     fn test_nnls_simple() {

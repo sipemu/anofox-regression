@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.13] - 2026-08-01
+
+### Fixed
+
+- **Column-pivot unpermute bug — silent wrong coefficients (#26, upstream #114).** `col_piv_qr` factorises `A·P = Q·R`, so the back-substituted solution is in pivot order and must be mapped back through the pivot permutation. Five solvers undid this incorrectly, scattering coefficients into the wrong slots whenever the pivot permutation was not an involution — i.e. **whenever the design's columns are on different scales** (very common). Invisible on well-scaled designs (identity/involutive pivot), which is why the test suites and R-validations — all well-scaled — never caught it.
+  - **`BlsRegressor` / NNLS**: one-shot solve, so nothing corrected it. On a randomised multi-scale sweep, 196/200 fits were wrong (RSS ~1e8 where the exact solution has RSS 0). Now 0/200.
+  - **`OlsRegressor` and `WlsRegressor`**: the same class of defect via the mirror idiom (a coefficient *gather* through the forward pivot array instead of its inverse). 186/200 multi-scale fits returned scrambled coefficients (and therefore wrong predictions, RSS ~6e8). This affected the most fundamental solvers on any differently-scaled design. Now 0/200, and validated against R `lm()` (coefficients, standard errors, and fitted values match to ~1e-9 on non-trivially-pivoted designs).
+  - **`PoissonRegressor` / `BinomialRegressor` / `NegativeBinomialRegressor` / `TweedieRegressor`**: the same wrong line, but self-corrected by the IRLS fixed-point iteration; fixed for correctness and consistency.
+  - `AlmRegressor` already used the correct idiom and was unaffected; ridge, elastic-net, LARS, Huber, RANSAC, Theil-Sen, quantile, PLS, and isotonic do not use pivoted QR (audited).
+  - New regression coverage: 3-cycle-pivot recovery tests for OLS/WLS/NNLS, and `tests/r_validation_ols_pivot.rs` (non-trivial pivots vs `lm()`), verified to fail if the bug is reintroduced.
+
+- **Rank detection missed exact collinearity in large-magnitude columns.** OLS/WLS determined numerical rank with an **absolute** `rank_tolerance` against the `R` diagonal, so an exact dependency among high-magnitude columns (e.g. `x3 = 2·x1` with `x1 ~ 1e3`) went undetected — the column was not aliased and the fit was subtly wrong. Rank is now assessed **relative** to the largest pivot (`rank_tolerance · |R[0,0]|`), matching the convention WLS's SVD path already used and R's behaviour. Regression-tested against `lm()` (fitted values match to ~1e-10 with the collinear column correctly aliased).
+
 ## [0.5.12] - 2026-07-31
 
 ### Added

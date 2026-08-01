@@ -362,14 +362,23 @@ impl WlsRegressor {
         let r = qr.R();
         let perm = qr.P();
 
-        let perm_arr = perm.arrays().0;
+        // perm_inv[j] = pivot position of original column j (inverse of the
+        // forward pivot array). Copying the forward array without inverting
+        // scrambles coefficients on any non-involutive pivot (see ols.rs).
+        let perm_fwd = perm.arrays().0;
         let mut perm_inv: Vec<usize> = vec![0; n_features];
-        perm_inv[..n_features].copy_from_slice(&perm_arr[..n_features]);
+        for (pos, &orig) in perm_fwd.iter().enumerate().take(n_features) {
+            perm_inv[orig] = pos;
+        }
 
-        // Determine rank
+        // Determine rank relative to the largest pivot (see ols.rs): an
+        // absolute tolerance misses collinear columns of large magnitude.
         let mut rank = 0;
-        for i in 0..n_features.min(n_samples) {
-            if r[(i, i)].abs() > self.options.rank_tolerance {
+        let n_diag = n_features.min(n_samples);
+        let r_max = if n_diag > 0 { r[(0, 0)].abs() } else { 0.0 };
+        let threshold = self.options.rank_tolerance * r_max;
+        for i in 0..n_diag {
+            if r[(i, i)].abs() > threshold {
                 rank += 1;
             } else {
                 break;
@@ -980,6 +989,35 @@ impl WlsRegressorBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wls_recovers_exact_solution_under_nontrivial_pivot() {
+        // Regression test for the col-pivot unpermute bug (#26): a 3-cycle pivot
+        // order with an exact solution [7, 2, 0.5]. Unit weights ⇒ WLS == OLS.
+        let n = 12;
+        let x = Mat::from_fn(n, 3, |i, j| match j {
+            0 => ((i % 4) as f64) * 0.001 + 0.001,
+            1 => (((i * 3) % 5) as f64) * 1000.0 + 5.0,
+            _ => (((i * 7) % 6) as f64) * 10.0 + 1.0,
+        });
+        let truth = [7.0, 2.0, 0.5];
+        let y = Col::from_fn(n, |i| (0..3).map(|j| truth[j] * x[(i, j)]).sum());
+        let fit = WlsRegressor::builder()
+            .with_intercept(false)
+            .compute_inference(false)
+            .weights(Col::from_fn(n, |_| 1.0))
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+        for j in 0..3 {
+            assert!(
+                (fit.result().coefficients[j] - truth[j]).abs() < 1e-6,
+                "coef[{j}] = {} vs {}",
+                fit.result().coefficients[j],
+                truth[j]
+            );
+        }
+    }
 
     #[test]
     fn test_wls_equal_weights_equals_ols() {
