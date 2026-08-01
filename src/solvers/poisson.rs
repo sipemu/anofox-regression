@@ -372,7 +372,14 @@ impl PoissonRegressor {
 
             let mut beta = Col::zeros(n_params);
             for i in 0..n_params {
-                beta[perm.inverse().arrays().0[i]] = beta_perm[i];
+                // `col_piv_qr` factorises `A * P = Q * R`, so the back-substitution result
+                // `beta_perm[i]` belongs to ORIGINAL column `perm[i]` -- the forward
+                // permutation. Writing through `perm.inverse()` scatters the coefficients
+                // into the wrong slots. The error is invisible whenever the pivot
+                // permutation is the identity or an involution, which is why it survived:
+                // a well-scaled design usually pivots trivially. See the 3-cycle regression
+                // test in tests/col_piv_qr_unpermute.rs.
+                beta[perm.arrays().0[i]] = beta_perm[i];
             }
 
             Ok(beta)
