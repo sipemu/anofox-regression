@@ -147,7 +147,7 @@ impl CoefficientInference {
 
         // Compute inverse using QR decomposition
         let qr = xtx_aug.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
 
         // Check if R is singular
@@ -230,7 +230,7 @@ impl CoefficientInference {
 
         // Compute inverse using QR decomposition
         let qr: faer::linalg::solvers::Qr<f64> = xtwx_aug.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
 
         // Check if R is singular
@@ -297,7 +297,7 @@ impl CoefficientInference {
 
         // Compute inverse using QR decomposition (more numerically stable)
         let qr = xtx.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
 
         // Check if R is singular

@@ -462,7 +462,7 @@ pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'st
     let n = matrix.nrows();
 
     let qr: faer::linalg::solvers::Qr<f64> = matrix.qr();
-    let q = qr.compute_Q();
+    let q = qr.compute_thin_Q();
     let r = qr.R();
 
     // Check if R is singular

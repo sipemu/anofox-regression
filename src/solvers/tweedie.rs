@@ -357,7 +357,7 @@ impl TweedieRegressor {
 
             // Solve using QR decomposition
             let qr = xtwx.qr();
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r: Mat<f64> = qr.R().to_owned();
 
             // Solve R β = Q' (X'Wz)
@@ -392,7 +392,7 @@ impl TweedieRegressor {
 
             // Solve via QR decomposition
             let qr = x_weighted.col_piv_qr();
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
             let perm = qr.P();
 
@@ -613,7 +613,7 @@ impl TweedieRegressor {
 
         // Invert via QR
         let qr = xtwx.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R().to_owned();
 
         // Compute inverse column by column

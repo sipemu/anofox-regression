@@ -271,7 +271,7 @@ impl BlsRegressor {
 
         // Solve X_P * beta_P = y using QR decomposition
         let qr = x_passive.col_piv_qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
         let perm = qr.P();
 

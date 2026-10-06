@@ -461,7 +461,7 @@ impl OlsRegressor {
 
         // Perform column-pivoted QR decomposition
         let qr = x.col_piv_qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
         let perm = qr.P();
 
@@ -556,7 +556,7 @@ impl OlsRegressor {
         let mut aliased = constant_cols.to_vec();
 
         // Compute SVD: X = U S V'
-        let svd = x.svd().map_err(|_| RegressionError::SingularMatrix)?;
+        let svd = x.thin_svd().map_err(|_| RegressionError::SingularMatrix)?;
         let u = svd.U();
         let s = svd.S();
         let s_col = s.column_vector();

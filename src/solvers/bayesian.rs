@@ -109,7 +109,7 @@ impl Regressor for BayesianRidge {
         let yc = Col::from_fn(n, |i| y[i] - y_mean);
 
         // SVD: xc = U diag(s) V'.
-        let svd = xc.svd().map_err(|_| RegressionError::SingularMatrix)?;
+        let svd = xc.thin_svd().map_err(|_| RegressionError::SingularMatrix)?;
         let u_mat = svd.U().to_owned();
         let v_mat = svd.V().to_owned();
         let s_col_view = svd.S().column_vector().to_owned();

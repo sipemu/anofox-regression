@@ -372,7 +372,7 @@ impl RidgeRegressor {
 
         // Invert using QR
         let qr: faer::linalg::solvers::Qr<f64> = xtx_aug.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
 
         for i in 0..aug_size {
@@ -413,7 +413,7 @@ impl RidgeRegressor {
 
         // Invert using QR
         let qr: faer::linalg::solvers::Qr<f64> = xtx_reg.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
 
         for i in 0..n_features {
@@ -464,7 +464,7 @@ impl RidgeRegressor {
 
         // Solve (X'X + λI) β = X'y using QR decomposition
         let qr = xtx_reg.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
 
         // Check if R is singular
@@ -499,7 +499,7 @@ impl RidgeRegressor {
         let lambda = self.effective_lambda(n_samples);
 
         // Compute SVD: X = U S V'
-        let svd = x.svd().map_err(|_| RegressionError::SingularMatrix)?;
+        let svd = x.thin_svd().map_err(|_| RegressionError::SingularMatrix)?;
         let u = svd.U();
         let s = svd.S();
         let s_col = s.column_vector();
@@ -721,7 +721,7 @@ impl RidgeRegressor {
 
         // Invert using QR
         let qr = xtx_reg.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
 
         let mut xtx_inv = Mat::zeros(n_features, n_features);

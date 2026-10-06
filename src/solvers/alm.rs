@@ -1576,7 +1576,7 @@ impl AlmRegressor {
             let qr = x_aug.col_piv_qr();
             let perm = qr.P();
             let perm_arr = perm.arrays().0;
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
             let ncols = p + 1;
 
@@ -1604,7 +1604,7 @@ impl AlmRegressor {
             let qr = x.col_piv_qr();
             let perm = qr.P();
             let perm_arr = perm.arrays().0;
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
 
             let qty = q.transpose() * y;
@@ -1683,7 +1683,7 @@ impl AlmRegressor {
             let perm = qr.P();
             let perm_arr = perm.arrays().0;
 
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
             let ncols = p + 1;
 
@@ -1714,7 +1714,7 @@ impl AlmRegressor {
             let perm = qr.P();
             let perm_arr = perm.arrays().0;
 
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
 
             let qty = q.transpose() * &y_init;
@@ -1971,7 +1971,7 @@ impl AlmRegressor {
             let perm = qr.P();
             let perm_arr = perm.arrays().0;
 
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
 
             let qty = q.transpose() * &zw;
@@ -2011,7 +2011,7 @@ impl AlmRegressor {
             let perm = qr.P();
             let perm_arr = perm.arrays().0;
 
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
 
             let qty = q.transpose() * &zw;
