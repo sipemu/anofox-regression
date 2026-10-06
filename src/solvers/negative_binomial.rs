@@ -130,8 +130,9 @@ impl NegativeBinomialRegressor {
         let max_outer_iter = if self.estimate_theta { 25 } else { 1 };
         let mut total_iterations = 0;
         let mut converged = false;
+        let mut beta_prev_outer = Col::<f64>::zeros(n_params);
 
-        for _outer in 0..max_outer_iter {
+        for outer in 0..max_outer_iter {
             // Inner IRLS loop for given theta
             let mut eta: Vec<f64> = mu
                 .iter()
@@ -200,9 +201,20 @@ impl NegativeBinomialRegressor {
                 theta = theta.clamp(0.01, 1e8);
                 family = NegativeBinomialFamily::new(theta);
 
-                // Check outer convergence
-                if (theta - old_theta).abs() < self.theta_tol * old_theta.max(1.0)
-                    && inner_converged
+                // Check outer convergence: θ has settled, or the fitted
+                // coefficients no longer move between alternations. The latter
+                // covers data that are not overdispersed, where the profile
+                // likelihood in θ is flat (MLE θ → ∞) and the Newton iterate only
+                // jitters at a huge θ while the fit is already the Poisson limit.
+                let beta_change = beta
+                    .iter()
+                    .zip(beta_prev_outer.iter())
+                    .map(|(a, b)| (a - b).abs())
+                    .fold(0.0_f64, f64::max);
+                beta_prev_outer = beta.clone();
+                if inner_converged
+                    && ((theta - old_theta).abs() < self.theta_tol * old_theta.max(1.0)
+                        || (outer > 0 && beta_change < self.options.tolerance))
                 {
                     converged = true;
                     break;
