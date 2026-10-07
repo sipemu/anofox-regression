@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.14] - 2026-10-07
+
+### Fixed
+
+- **O(n²) memory in QR/SVD solvers — OOM on large inputs.** Every QR-based solve called `compute_Q()`, and the SVD paths `svd()`, which materialise the full `n × n` orthogonal factor (8·n² bytes: ~3 GB at n = 20 000, ~320 GB at n = 200 000) although only its first `min(n, p)` columns are used. Affected `OlsRegressor`, `WlsRegressor`, `BlsRegressor`/NNLS, the IRLS GLMs (Poisson, Binomial, NegativeBinomial, Tweedie, Gamma), `AlmRegressor`, the SVD solvers of OLS/WLS/Ridge and `BayesianRidge`, and the condition-number diagnostics. All now use the thin factors (`compute_thin_Q()` / `thin_svd()`); results are bitwise identical. OLS with inference at n = 20k: 2.8 s / 3.1 GB → 0.007 s / 12 MB; n = 200k now takes 0.04 s / 36 MB. Regression tests in `tests/large_n_tests.rs`.
+- **Negative binomial with zero counts.** The unit deviance for `y = 0` had the wrong sign (`2θ·ln(θ/(μ+θ))` instead of `2θ·ln(1 + μ/θ)`), giving negative deviances on any data containing zeros, and the θ estimator used a simplified score without the digamma terms (collapsing to the 0.01 clamp). θ is now estimated exactly as `MASS::theta.ml`; the θ/IRLS alternation also stops once the coefficients are stable (non-overdispersed data, θ → ∞). Matches `MASS::glm.nb` to ≤ 1e-6.
+- **Quantile regression stopped short of the optimum.** The smoothed IRLS could stall at a non-optimal point (e.g. τ = 0.62 on small data). Its result now warm-starts exact simplex pivots on the check loss, so fits match `quantreg::rq(method = "br")` (coefficients to ~1e-13 on 100 random problems; previously up to 0.18 % above the optimal objective).
+- **Theil–Sen with one feature** now returns the classical estimator (median of pairwise slopes over pairs with distinct x, intercept `median(y − b·x)`), exact at any n via slope-counting selection for large inputs. sklearn's 1-D spatial-median behaviour remains available with `univariate_pairwise(false)`.
+- **GLMs with a constant feature column and an intercept** (Poisson, Binomial, NegativeBinomial, Tweedie, Gamma, LogisticRegression) now drop the column like OLS / R `glm`: NaN coefficient and inference, `aliased = true`, ignored in predictions. Previously the intercept was zeroed and the constant column absorbed it, with garbage standard errors.
+
 ## [0.5.13] - 2026-08-01
 
 ### Fixed
