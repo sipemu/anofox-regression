@@ -157,6 +157,11 @@ impl QuantileRegressor {
             }
         }
 
+        // IRLS with a smoothed weight only approaches the LP optimum; finish
+        // with exact simplex pivots on the check loss (the solution of the
+        // quantile-regression LP is a vertex interpolating p observations).
+        let beta = self.exact_polish(&x_aug, y, beta);
+
         // Extract intercept and coefficients
         if self.with_intercept {
             let intercept = beta[0];
@@ -286,6 +291,196 @@ impl QuantileRegressor {
         }
 
         Ok(x)
+    }
+
+    /// Weighted check-loss objective `Σ w_i ρ_τ(y_i − x_i'β)`.
+    fn objective(&self, x: &Mat<f64>, y: &Col<f64>, beta: &Col<f64>) -> f64 {
+        let r = y - x * beta;
+        (0..r.nrows())
+            .map(|i| {
+                let w = self.weights.as_ref().map_or(1.0, |w| w[i]);
+                let ri = r[i];
+                w * if ri >= 0.0 {
+                    self.tau * ri
+                } else {
+                    (self.tau - 1.0) * ri
+                }
+            })
+            .sum()
+    }
+
+    /// Move from a near-optimal point to the exact LP optimum of the
+    /// (weighted) check loss by simplex-type vertex pivots.
+    ///
+    /// The quantile-regression LP attains its optimum at a vertex: a basis `B`
+    /// of `p` observations with zero residual, `β = X_B⁻¹ y_B`. Starting from
+    /// the basis made of the observations with the smallest residuals at the
+    /// IRLS solution, each pivot releases the basis observation whose edge has
+    /// the most negative directional derivative and moves along that edge to
+    /// the minimiser of the (convex, piecewise-linear) objective — a weighted
+    /// median of the breakpoints — where a new observation enters the basis
+    /// (Barrodale–Roberts / Koenker–d'Orey). It stops when no edge descends,
+    /// which is the optimality certificate of the LP. The better of the
+    /// polished and the starting point is returned.
+    fn exact_polish(&self, x: &Mat<f64>, y: &Col<f64>, beta0: Col<f64>) -> Col<f64> {
+        use faer::linalg::solvers::Solve;
+
+        let n = x.nrows();
+        let p = x.ncols();
+        let tau = self.tau;
+        if p == 0 || n < p || !(tau > 0.0 && tau < 1.0) || beta0.iter().any(|b| !b.is_finite()) {
+            return beta0;
+        }
+        let w = |i: usize| self.weights.as_ref().map_or(1.0, |w| w[i]);
+        let y_scale = (0..n).fold(0.0_f64, |m, i| m.max(y[i].abs())).max(1.0);
+        let zero_tol = 1e-11 * y_scale;
+
+        // Initial basis: smallest |residual| rows that are linearly independent
+        // (greedy modified Gram-Schmidt on the rows).
+        let r0 = y - x * &beta0;
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| r0[a].abs().total_cmp(&r0[b].abs()));
+        let mut basis: Vec<usize> = Vec::with_capacity(p);
+        let mut ortho: Vec<Vec<f64>> = Vec::with_capacity(p);
+        for &i in &order {
+            let mut v: Vec<f64> = (0..p).map(|j| x[(i, j)]).collect();
+            let norm0 = v.iter().map(|a| a * a).sum::<f64>().sqrt();
+            if norm0 == 0.0 {
+                continue;
+            }
+            for q in &ortho {
+                let d: f64 = v.iter().zip(q).map(|(a, b)| a * b).sum();
+                for (vj, qj) in v.iter_mut().zip(q) {
+                    *vj -= d * qj;
+                }
+            }
+            let norm = v.iter().map(|a| a * a).sum::<f64>().sqrt();
+            if norm > 1e-8 * norm0 {
+                v.iter_mut().for_each(|a| *a /= norm);
+                ortho.push(v);
+                basis.push(i);
+                if basis.len() == p {
+                    break;
+                }
+            }
+        }
+        if basis.len() < p {
+            return beta0; // rank-deficient design: keep the IRLS solution
+        }
+
+        let mut in_basis = vec![false; n];
+        for &i in &basis {
+            in_basis[i] = true;
+        }
+        let identity = Mat::<f64>::identity(p, p);
+        let max_pivots = 50 * p + 1000;
+        let mut best: Option<Col<f64>> = None;
+        let mut breaks: Vec<(f64, f64, usize)> = Vec::new();
+
+        for _ in 0..max_pivots {
+            let xb = Mat::from_fn(p, p, |a, j| x[(basis[a], j)]);
+            let inv = xb.full_piv_lu().solve(&identity);
+            let yb = Col::from_fn(p, |a| y[basis[a]]);
+            let beta = &inv * &yb;
+            if beta.iter().any(|b| !b.is_finite()) {
+                break;
+            }
+            let mut r = y - x * &beta;
+            for &i in &basis {
+                r[i] = 0.0;
+            }
+            // a[(i, k)] = x_i' d_k, d_k = k-th column of X_B⁻¹.
+            let a = x * &inv;
+
+            // Most negative directional derivative over the 2p edges.
+            let mut best_g = 0.0_f64;
+            let mut best_edge: Option<(usize, f64)> = None;
+            for k in 0..p {
+                // Contribution of non-basis observations for s = +1; for s = −1
+                // the linear parts flip sign, the zero-residual kinks do not.
+                let mut lin = 0.0;
+                let mut kink_plus = 0.0;
+                let mut kink_minus = 0.0;
+                for i in 0..n {
+                    if in_basis[i] {
+                        continue;
+                    }
+                    let ai = a[(i, k)];
+                    let wi = w(i);
+                    if r[i] > zero_tol {
+                        lin -= tau * ai * wi;
+                    } else if r[i] < -zero_tol {
+                        lin += (1.0 - tau) * ai * wi;
+                    } else if ai > 0.0 {
+                        // r_i = 0: the one-sided slope is ≥ 0 in either direction.
+                        kink_plus += (1.0 - tau) * ai * wi;
+                        kink_minus += tau * ai * wi;
+                    } else {
+                        kink_plus -= tau * ai * wi;
+                        kink_minus -= (1.0 - tau) * ai * wi;
+                    }
+                }
+                let wk = w(basis[k]);
+                // s = +1: the released basis residual turns negative; s = −1: positive.
+                let g_plus = wk * (1.0 - tau) + lin + kink_plus;
+                if g_plus < best_g {
+                    best_g = g_plus;
+                    best_edge = Some((k, 1.0));
+                }
+                let g_minus = wk * tau - lin + kink_minus;
+                if g_minus < best_g {
+                    best_g = g_minus;
+                    best_edge = Some((k, -1.0));
+                }
+            }
+
+            let scale: f64 = (0..n).map(w).sum::<f64>().max(1.0);
+            let (k, sgn) = match best_edge {
+                Some(e) if best_g < -1e-12 * scale => e,
+                _ => {
+                    best = Some(beta);
+                    break; // optimal vertex
+                }
+            };
+
+            // Line search along d = sgn·d_k: f(t) = Σ w_i ρ(r_i − t a_i).
+            breaks.clear();
+            for i in 0..n {
+                if in_basis[i] {
+                    continue;
+                }
+                let ai = sgn * a[(i, k)];
+                if ai == 0.0 {
+                    continue;
+                }
+                let t = r[i] / ai;
+                if t > 0.0 && r[i].abs() > zero_tol {
+                    breaks.push((t, w(i) * ai.abs(), i));
+                }
+            }
+            breaks.sort_by(|u, v| u.0.total_cmp(&v.0));
+            let mut slope = best_g;
+            let mut entering = None;
+            for &(_, jump, i) in &breaks {
+                slope += jump;
+                if slope >= 0.0 {
+                    entering = Some(i);
+                    break;
+                }
+            }
+            let Some(i_in) = entering else {
+                best = Some(beta);
+                break; // unbounded direction cannot occur for 0 < τ < 1; bail out
+            };
+            in_basis[basis[k]] = false;
+            basis[k] = i_in;
+            in_basis[i_in] = true;
+        }
+
+        match best {
+            Some(b) if self.objective(x, y, &b) <= self.objective(x, y, &beta0) => b,
+            _ => beta0,
+        }
     }
 
     /// Compute the check function (quantile loss).
