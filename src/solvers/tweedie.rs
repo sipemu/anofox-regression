@@ -575,6 +575,7 @@ impl TweedieRegressor {
         }
 
         Ok(FittedTweedie {
+            reduced: None,
             result,
             options: self.options.clone(),
             family: self.family,
@@ -710,6 +711,20 @@ impl Regressor for TweedieRegressor {
             }
         }
 
+        if let Some(keep) = super::glm_alias::columns_to_keep(
+            x,
+            self.options.with_intercept,
+            self.options.rank_tolerance,
+        ) {
+            let x_kept = super::glm_alias::select_columns(x, &keep);
+            let inner = self.fit_irls(&x_kept, y)?;
+            let mut outer = inner.clone();
+            outer.result = super::glm_alias::expand_result(&inner.result, &keep, n_features);
+            outer.aliased = outer.result.aliased.clone();
+            outer.reduced = Some((Box::new(inner), keep));
+            return Ok(outer);
+        }
+
         self.fit_irls(x, y)
     }
 }
@@ -759,6 +774,9 @@ impl Regressor for TweedieRegressor {
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedTweedie {
+    /// When constant columns were dropped (intercept model): the fit on the
+    /// kept columns and their indices. Predictions delegate to it.
+    reduced: Option<(Box<FittedTweedie>, Vec<usize>)>,
     result: RegressionResult,
     options: RegressionOptions,
     family: TweedieFamily,
@@ -826,6 +844,9 @@ impl FittedTweedie {
     /// The offset enters the linear predictor: η = Xβ + offset.
     /// For rate modeling with exposure, use offset = log(exposure).
     pub fn predict_with_offset(&self, x: &Mat<f64>, offset: &Col<f64>) -> Col<f64> {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict_with_offset(&super::glm_alias::select_columns(x, keep), offset);
+        }
         let n_samples = x.nrows();
         let n_features = x.ncols();
         let intercept = self.result.intercept.unwrap_or(0.0);
@@ -862,6 +883,14 @@ impl FittedTweedie {
         interval: Option<IntervalType>,
         level: f64,
     ) -> PredictionResult {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict_with_se(
+                &super::glm_alias::select_columns(x, keep),
+                pred_type,
+                interval,
+                level,
+            );
+        }
         let n_new = x.nrows();
         let n_features = x.ncols();
 
@@ -985,6 +1014,9 @@ impl FittedTweedie {
 
 impl FittedRegressor for FittedTweedie {
     fn predict(&self, x: &Mat<f64>) -> Col<f64> {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict(&super::glm_alias::select_columns(x, keep));
+        }
         let n_samples = x.nrows();
         let n_features = x.ncols();
         let intercept = self.result.intercept.unwrap_or(0.0);

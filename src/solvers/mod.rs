@@ -7,6 +7,7 @@ mod binomial;
 mod bls;
 mod elastic_net;
 mod gamma;
+mod glm_alias;
 mod glmm;
 mod huber;
 mod isotonic;
