@@ -466,11 +466,14 @@ impl TweedieRegressor {
         let deviance = self.family.deviance(&y_vec, mu);
         let null_deviance = self.family.null_deviance(&y_vec);
 
-        // Estimate dispersion parameter φ
-        // φ = D / (n - p) where D is deviance
+        // Dispersion φ by the Pearson statistic Σ (y − μ)² / V(μ) / (n − p),
+        // as R's summary.glm / vcov.glm (and statsmodels scale = "X2").
         let df_resid = (n_samples.saturating_sub(n_params)) as f64;
         let dispersion = if df_resid > 0.0 {
-            deviance / df_resid
+            let pearson: f64 = (0..n_samples)
+                .map(|i| (y[i] - mu[i]).powi(2) / self.family.variance(mu[i]))
+                .sum();
+            pearson / df_resid
         } else {
             1.0
         };
@@ -514,20 +517,12 @@ impl TweedieRegressor {
             f64::NAN
         };
 
-        // Information criteria
-        // For GLM: log-likelihood ≈ -D / (2φ) + constant
+        // Information criteria from the family log-likelihood (R logLik.glm).
         let n = n_samples as f64;
-        let k = n_params as f64;
-        let log_likelihood = -deviance / (2.0 * dispersion)
-            - n * (2.0 * std::f64::consts::PI * dispersion).ln() / 2.0;
+        let (log_likelihood, k) =
+            tweedie_log_likelihood(self.family.var_power, &y_vec, mu, deviance, n_params);
 
-        let aic = 2.0 * k - 2.0 * log_likelihood;
-        let aicc = if (n - k - 1.0) > 0.0 {
-            aic + 2.0 * k * (k + 1.0) / (n - k - 1.0)
-        } else {
-            f64::NAN
-        };
-        let bic = k * n.ln() - 2.0 * log_likelihood;
+        let (aic, aicc, bic) = super::fit_stats::information_criteria(log_likelihood, k, n);
 
         // Determine rank
         let rank = n_params; // Full rank assumed for converged model
@@ -726,6 +721,55 @@ impl Regressor for TweedieRegressor {
         }
 
         self.fit_irls(x, y)
+    }
+}
+
+/// Log-likelihood and parameter count `k` of a Tweedie GLM at the fitted mean,
+/// as R's `logLik(glm)`:
+///
+/// * `p = 0` (Gaussian): `−n/2 · (ln(2π D/n) + 1)`, `k = rank + 1`.
+/// * `p = 1` (Poisson): `Σ (y ln μ − μ − ln y!)`, `k = rank`.
+/// * `p = 2` (Gamma): `Σ log dgamma(y; shape = 1/φ, scale = μφ)` with
+///   `φ = D/n` (R's `Gamma()$aic`), `k = rank + 1`.
+/// * `p = 3` (inverse Gaussian): `−½ (n (ln(2π D/n) + 1) + 3 Σ ln y)`,
+///   `k = rank + 1`.
+/// * Other powers have no closed-form density: NaN.
+fn tweedie_log_likelihood(
+    var_power: f64,
+    y: &[f64],
+    mu: &[f64],
+    deviance: f64,
+    rank: usize,
+) -> (f64, f64) {
+    use statrs::function::gamma::ln_gamma;
+    let n = y.len() as f64;
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let k1 = rank as f64 + 1.0;
+    if var_power == 0.0 {
+        (-0.5 * n * ((two_pi * deviance / n).ln() + 1.0), k1)
+    } else if var_power == 1.0 {
+        (super::fit_stats::poisson_log_likelihood(y, mu), rank as f64)
+    } else if var_power == 2.0 {
+        let disp = deviance / n;
+        let shape = 1.0 / disp;
+        let ll = y
+            .iter()
+            .zip(mu)
+            .map(|(&yi, &mi)| {
+                let scale = mi * disp;
+                (shape - 1.0) * yi.ln() - yi / scale - ln_gamma(shape) - shape * scale.ln()
+            })
+            .sum();
+        (ll, k1)
+    } else if var_power == 3.0 {
+        let disp = deviance / n;
+        let sum_log_y: f64 = y.iter().map(|v| v.ln()).sum();
+        (
+            -0.5 * (n * ((two_pi * disp).ln() + 1.0) + 3.0 * sum_log_y),
+            k1,
+        )
+    } else {
+        (f64::NAN, k1)
     }
 }
 
