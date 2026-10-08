@@ -1356,6 +1356,35 @@ mod tests {
         assert!(fitted.deviance < fitted.null_deviance);
     }
 
+    /// Offset round trip (#24): the fit matches R
+    /// `glm(y ~ x + offset(off), family = binomial)` and `predict_with_offset`
+    /// on the training rows reproduces the fitted probabilities.
+    #[test]
+    fn test_offset_round_trip_matches_r() {
+        let (x, y) = create_test_data(100);
+        let offset = Col::from_fn(100, |i| 0.1 * (i as f64 - 50.0) / 50.0);
+
+        let fitted = BinomialRegressor::logistic()
+            .with_intercept(true)
+            .offset(offset.clone())
+            .build()
+            .fit(&x, &y)
+            .expect("model should fit");
+
+        // R: coef = (0.108444608463, 5.372230423156), deviance 30.3322383756.
+        assert!((fitted.result.intercept.unwrap() - 0.108444608463).abs() < 1e-5);
+        assert!((fitted.result.coefficients[0] - 5.372230423156).abs() < 1e-5);
+        assert!((fitted.deviance - 30.3322383756).abs() < 1e-6);
+
+        let mu = fitted.predict_with_offset(&x, &offset);
+        for i in 0..100 {
+            assert!((mu[i] - fitted.result.fitted_values[i]).abs() < 1e-10);
+        }
+        // Without the offset the prediction differs wherever offset != 0.
+        let mu0 = fitted.predict(&x);
+        assert!((mu0[0] - mu[0]).abs() > 1e-6);
+    }
+
     #[test]
     fn test_convergence_failure() {
         // Create difficult data that won't converge in 1 iteration
