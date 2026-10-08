@@ -94,7 +94,7 @@ pub enum DispersionRule {
 
 impl DispersionRule {
     /// The multiplier applied to `(X'WX + P)^-1` when forming the covariance.
-    fn covariance_scale(&self, estimated: f64) -> f64 {
+    pub fn covariance_scale(&self, estimated: f64) -> f64 {
         match self {
             DispersionRule::Fixed | DispersionRule::Given(_) => 1.0,
             DispersionRule::Pearson | DispersionRule::PearsonFlooredAtOne => estimated,

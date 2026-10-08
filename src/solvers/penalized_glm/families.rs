@@ -134,7 +134,7 @@ pub fn fit_poisson(
 /// Fit a Binomial (Logistic) regression model (for binary outcomes)
 ///
 /// # Arguments
-/// * `y` - Response variable (0 or 1 for binary, or proportion in [0,1])
+/// * `y` - Response variable (0 or 1 for binary, or proportion in `[0, 1]`)
 /// * `x` - Feature matrix (n observations x p features, column-major)
 /// * `options` - Fitting options
 pub fn fit_binomial(
