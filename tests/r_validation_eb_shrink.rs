@@ -2,6 +2,8 @@
 //! `blup()`. Reference values from `tests/r_scripts/generate_eb_shrink_validation.R`
 //! (metafor 4.x).
 
+#![allow(clippy::excessive_precision)]
+
 use anofox_regression::solvers::eb_shrink::{eb_shrink, EbShrinkOptions, TauMethod};
 
 const TOL: f64 = 1e-10;
