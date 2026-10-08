@@ -125,7 +125,13 @@ pub fn fit_poisson(
         y,
         x,
         &engine_opts,
-        DispersionRule::PearsonFlooredAtOne,
+        // R's `glm(family = poisson)` fixes the dispersion at 1; the Pearson
+        // estimate (R's `quasipoisson`) is opt-in.
+        if options.estimate_dispersion {
+            DispersionRule::Pearson
+        } else {
+            DispersionRule::Fixed
+        },
         |_| LogLikKind::Poisson,
     )?;
     Ok(fit.into())

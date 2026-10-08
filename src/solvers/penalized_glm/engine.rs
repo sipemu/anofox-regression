@@ -82,7 +82,9 @@ pub enum DispersionRule {
     /// Fixed at 1.0 (Poisson, Binomial).
     Fixed,
     /// Pearson chi-squared over residual degrees of freedom, floored at 1.0.
-    /// This is what the upstream Poisson solver does for quasi-Poisson behaviour.
+    /// No longer used by any family in this crate (Poisson defaults to
+    /// [`Self::Fixed`] like R, and uses [`Self::Pearson`] when asked to estimate
+    /// the dispersion); kept for callers of [`fit`].
     PearsonFlooredAtOne,
     /// Pearson chi-squared over residual degrees of freedom, unfloored
     /// (Gamma, Tweedie).

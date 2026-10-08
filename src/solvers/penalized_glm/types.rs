@@ -156,6 +156,10 @@ pub struct PoissonOptions {
     /// predictor with coefficient fixed at 1 and dropped from the design).
     /// `None` = no offset. The value is used as-is; take logs upstream if needed.
     pub offset_column: Option<usize>,
+    /// Scale the covariance by the Pearson dispersion `sum(pearson^2) / df_resid`
+    /// (R's `quasipoisson`). Default `false`: dispersion fixed at 1, matching R's
+    /// `glm(family = poisson)` / `summary.glm`.
+    pub estimate_dispersion: bool,
 }
 
 impl Default for PoissonOptions {
@@ -170,6 +174,7 @@ impl Default for PoissonOptions {
             lambda: 0.0,
             prior_opts: GlmPriorOptions::default(),
             offset_column: None,
+            estimate_dispersion: false,
         }
     }
 }
