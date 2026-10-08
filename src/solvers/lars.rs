@@ -101,12 +101,31 @@ impl Regressor for LarsRegressor {
         let (xs, x_mean, x_norm, ys, y_mean) =
             preprocess(x, y, self.fit_intercept, self.standardize);
 
-        // 2. Path computation.
+        // 2. Alias linearly dependent columns (issue #62). An exactly
+        // collinear column would otherwise enter the active set or not
+        // depending on last-bit rounding of its residual correlation, and
+        // when it does the active Gram matrix is singular. Detect
+        // dependence up front with a scale-relative tolerance and alias the
+        // later column (NaN coefficient), as R's `lm` does.
+        let aliased = detect_aliased_columns(&xs, ALIAS_TOL);
+        let kept: Vec<usize> = (0..p).filter(|&j| !aliased[j]).collect();
+        let xs_kept = Mat::from_fn(n, kept.len(), |i, jj| xs[(i, kept[jj])]);
+
+        // 3. Path computation on the full-rank subset.
         let max_active = self.n_nonzero_coefs.unwrap_or(p.min(n.saturating_sub(1)));
-        let max_active = max_active.min(p);
-        let path = lars_path(&xs, &ys, self.method, self.alpha, max_active, self.eps)?;
+        let max_active = max_active.min(kept.len());
+        let path = lars_path(&xs_kept, &ys, self.method, self.alpha, max_active, self.eps)?;
         let alphas = path.alphas.clone();
-        let coefs_path = path.coefs.clone();
+        // Expand the path back to all p columns (aliased columns stay 0 on
+        // the path — they never enter the model).
+        let expand = |reduced: &[f64]| -> Vec<f64> {
+            let mut full = vec![0.0_f64; p];
+            for (jj, &j) in kept.iter().enumerate() {
+                full[j] = reduced[jj];
+            }
+            full
+        };
+        let coefs_path: Vec<Vec<f64>> = path.coefs.iter().map(|c| expand(c)).collect();
 
         // For LassoLars: linearly interpolate the path so the returned
         // coefficients correspond to exactly the requested alpha. (sklearn
@@ -116,20 +135,26 @@ impl Regressor for LarsRegressor {
             if self.method == LarsMethod::Lasso && self.alpha > 0.0 && coefs_path.len() >= 2 {
                 interpolate_lasso_path(&coefs_path, &alphas, self.alpha)
             } else {
-                path.last_coefs()
+                coefs_path.last().cloned().expect("path is empty")
             };
 
-        // 3. Undo the column scaling so coefficients live on the original
-        // input scale.
+        // 4. Undo the column scaling so coefficients live on the original
+        // input scale. Aliased columns are reported as NaN.
         let mut beta = vec![0.0_f64; p];
         for j in 0..p {
-            beta[j] = beta_scaled[j] / x_norm[j];
+            beta[j] = if aliased[j] {
+                f64::NAN
+            } else {
+                beta_scaled[j] / x_norm[j]
+            };
         }
 
         let intercept = if self.fit_intercept {
             let mut acc = y_mean;
             for j in 0..p {
-                acc -= beta[j] * x_mean[j];
+                if !aliased[j] {
+                    acc -= beta[j] * x_mean[j];
+                }
             }
             Some(acc)
         } else {
@@ -140,15 +165,19 @@ impl Regressor for LarsRegressor {
         let fitted_values = Col::from_fn(n, |i| {
             let mut v = intercept.unwrap_or(0.0);
             for j in 0..p {
-                v += x[(i, j)] * beta[j];
+                if !aliased[j] {
+                    v += x[(i, j)] * beta[j];
+                }
             }
             v
         });
         let residuals = Col::from_fn(n, |i| y[i] - fitted_values[i]);
 
-        let n_params = p + if self.fit_intercept { 1 } else { 0 };
+        let n_aliased = aliased.iter().filter(|&&a| a).count();
+        let n_params = p - n_aliased + if self.fit_intercept { 1 } else { 0 };
         let mut result = RegressionResult::empty(p, n);
         result.coefficients = coefficients;
+        result.aliased = aliased;
         result.intercept = intercept;
         result.residuals = residuals;
         result.fitted_values = fitted_values;
@@ -168,6 +197,49 @@ impl Regressor for LarsRegressor {
             fit_intercept: self.fit_intercept,
         })
     }
+}
+
+/// Relative tolerance for aliasing a column: a column is linearly
+/// dependent on the earlier kept columns when the norm of its residual after
+/// projecting them out is at most `ALIAS_TOL` times its own norm (the same
+/// criterion and default as R's `lm` / `qr(tol = 1e-7)`).
+const ALIAS_TOL: f64 = 1e-7;
+
+/// Flag columns that are (numerically) linear combinations of earlier
+/// columns, scanning in column order so the *later* column of a dependent
+/// pair is aliased. Uses modified Gram-Schmidt with one re-orthogonalisation
+/// pass; the decision is scale-relative, so exact dependence (residual at
+/// rounding level, ~1e-16) is classified identically on every platform.
+/// All-zero columns (constant columns after centering) are not aliased:
+/// their correlation is exactly 0, so they never enter the path and keep a
+/// 0 coefficient.
+fn detect_aliased_columns(x: &Mat<f64>, tol: f64) -> Vec<bool> {
+    let n = x.nrows();
+    let p = x.ncols();
+    let mut aliased = vec![false; p];
+    let mut basis: Vec<Vec<f64>> = Vec::new();
+    for j in 0..p {
+        let mut r: Vec<f64> = (0..n).map(|i| x[(i, j)]).collect();
+        let norm0 = r.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if norm0 == 0.0 || !norm0.is_finite() {
+            continue;
+        }
+        for _pass in 0..2 {
+            for q in &basis {
+                let d: f64 = q.iter().zip(&r).map(|(a, b)| a * b).sum();
+                for i in 0..n {
+                    r[i] -= d * q[i];
+                }
+            }
+        }
+        let rn = r.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if rn <= tol * norm0 {
+            aliased[j] = true;
+        } else {
+            basis.push(r.iter().map(|v| v / rn).collect());
+        }
+    }
+    aliased
 }
 
 fn compute_r_squared(y: &Col<f64>, residuals: &Col<f64>) -> f64 {
@@ -240,12 +312,6 @@ struct LarsPath {
     alphas: Vec<f64>,
 }
 
-impl LarsPath {
-    fn last_coefs(&self) -> Vec<f64> {
-        self.coefs.last().cloned().expect("path is empty")
-    }
-}
-
 fn interpolate_lasso_path(coefs: &[Vec<f64>], alphas: &[f64], target: f64) -> Vec<f64> {
     let p = coefs[0].len();
     // alphas decrease monotonically along the path. Find consecutive
@@ -307,6 +373,7 @@ fn lars_path(
         alphas: vec![c.iter().fold(0.0_f64, |acc, &v| acc.max(v.abs()))],
     };
 
+    let alpha0 = path.alphas[0];
     let max_steps = (max_active * 4).max(2 * p);
     let mut step = 0;
     while step < max_steps {
@@ -323,7 +390,9 @@ fn lars_path(
                 best_j = j;
             }
         }
-        if best_j == usize::MAX || best_c < eps {
+        // Scale-relative stop: correlations at rounding level relative to
+        // the initial max correlation are treated as zero.
+        if best_j == usize::MAX || best_c <= eps * alpha0 {
             break;
         }
         // Add it (sign matches sign of correlation).
@@ -493,7 +562,9 @@ impl FittedRegressor for FittedLars {
         Col::from_fn(n, |i| {
             let mut v = intercept;
             for j in 0..p {
-                v += x[(i, j)] * self.result.coefficients[j];
+                if !self.result.aliased[j] {
+                    v += x[(i, j)] * self.result.coefficients[j];
+                }
             }
             v
         })
