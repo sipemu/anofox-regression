@@ -1207,7 +1207,9 @@ fn test_r_validation_poisson_offset() {
 /// m2 <- glm(y ~ x, family = negative.binomial(2), control = ctl)
 /// coef(m2); deviance(m2); sqrt(diag(vcov(m2)))
 /// # -0.376446912626645  0.141630533445631 ; 12.3683603809573
-/// # SE 0.853518269241255 0.126278622279598
+/// # SE 0.853518269241255 0.126278622279598   (summary.glm: Pearson dispersion)
+/// sqrt(diag(summary(m2, dispersion = 1)$cov.scaled))
+/// # SE 0.821015602566479 0.121469830111912   (glm.nb convention, dispersion 1)
 /// m <- glm.nb(y ~ x, control = ctl)
 /// coef(m); m$theta; deviance(m); m$null.deviance
 /// # -0.413484320657350 0.147818215991649 ; theta 1.40131473643685
@@ -1229,6 +1231,27 @@ fn test_negative_binomial_zero_counts_vs_r() {
     assert_relative_eq!(r.intercept.unwrap(), -0.376446912626645, epsilon = 1e-6);
     assert_relative_eq!(r.coefficients[0], 0.141630533445631, epsilon = 1e-6);
     assert_relative_eq!(fixed.deviance, 12.3683603809573, epsilon = 1e-6);
+    // Default: dispersion 1 (MASS::glm.nb convention, #49).
+    assert_relative_eq!(
+        r.std_errors.as_ref().unwrap()[0],
+        0.121469830111912,
+        epsilon = 1e-5
+    );
+    assert_relative_eq!(
+        r.intercept_std_error.unwrap(),
+        0.821015602566479,
+        epsilon = 1e-5
+    );
+
+    // estimate_dispersion(true): summary.glm's Pearson dispersion, = vcov(m2).
+    let fixed_pearson = NegativeBinomialRegressor::with_theta(2.0)
+        .with_intercept(true)
+        .compute_inference(true)
+        .estimate_dispersion(true)
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    let r = fixed_pearson.result();
     assert_relative_eq!(
         r.std_errors.as_ref().unwrap()[0],
         0.126278622279598,
