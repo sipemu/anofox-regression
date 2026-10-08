@@ -56,6 +56,10 @@ pub struct NegativeBinomialRegressor {
     estimate_theta: bool,
     theta_max_iter: usize,
     theta_tol: f64,
+    /// Scale the covariance by the Pearson χ²/df (R's `summary.glm` default for
+    /// `glm(family = negative.binomial(θ))`) instead of using dispersion 1
+    /// (`MASS::glm.nb`). Default `false`.
+    estimate_dispersion: bool,
     /// If `true` (the default), a fit that fails to converge returns
     /// `Err(ConvergenceFailed)`. If `false`, the last iterate is returned with
     /// `converged = false` on the fitted model.
@@ -72,6 +76,7 @@ impl NegativeBinomialRegressor {
             estimate_theta: true,
             theta_max_iter: 25,
             theta_tol: 1e-6,
+            estimate_dispersion: false,
             error_on_non_convergence: true,
         }
     }
@@ -448,16 +453,21 @@ impl NegativeBinomialRegressor {
         let deviance = family.deviance(&y_vec, mu);
         let null_deviance = family.null_deviance(&y_vec);
 
-        // Estimate dispersion (typically 1 for NB, but can estimate)
+        // The negative binomial variance mu + mu^2/theta already carries the
+        // overdispersion, so the dispersion is fixed at 1 — the likelihood
+        // (Fisher-information) covariance at the given theta, exactly as
+        // `summary(MASS::glm.nb(...))` / `vcov()` and `predict.glm(se.fit)`.
+        // (A Pearson-based max(1, chi^2/df) scaling inflated the SEs relative
+        // to MASS whenever chi^2/df > 1; see #49.)
+        // `estimate_dispersion(true)` opts into R's `summary.glm` convention
+        // for `glm(family = negative.binomial(θ))`: the (unfloored) Pearson
+        // χ²/df, a quasi-likelihood scaling.
         let df_resid = (n_samples.saturating_sub(n_params)) as f64;
-        let dispersion = if df_resid > 0.0 {
+        let dispersion = if self.estimate_dispersion && df_resid > 0.0 {
             let pearson_chi2: f64 = (0..n_samples)
-                .map(|i| {
-                    let v = family.variance(mu[i]);
-                    (y[i] - mu[i]).powi(2) / v
-                })
+                .map(|i| (y[i] - mu[i]).powi(2) / family.variance(mu[i]))
                 .sum();
-            (pearson_chi2 / df_resid).max(1.0)
+            pearson_chi2 / df_resid
         } else {
             1.0
         };
@@ -781,7 +791,11 @@ pub struct FittedNegativeBinomial {
     pub deviance: f64,
     /// Null deviance (intercept-only model).
     pub null_deviance: f64,
-    /// Dispersion parameter.
+    /// Dispersion used for the covariance / standard errors. `1.0` by default:
+    /// the negative binomial variance `μ + μ²/θ` models the overdispersion
+    /// itself (as in `MASS::glm.nb`). With
+    /// [`estimate_dispersion(true)`](NegativeBinomialRegressorBuilder::estimate_dispersion)
+    /// it is the Pearson χ²/df.
     pub dispersion: f64,
     /// Estimated theta (size/dispersion parameter).
     pub theta: f64,
@@ -1063,6 +1077,7 @@ pub struct NegativeBinomialRegressorBuilder {
     estimate_theta: bool,
     theta_max_iter: usize,
     theta_tol: f64,
+    estimate_dispersion: bool,
     error_on_non_convergence: bool,
 }
 
@@ -1075,6 +1090,7 @@ impl Default for NegativeBinomialRegressorBuilder {
             estimate_theta: true,
             theta_max_iter: 25,
             theta_tol: 1e-6,
+            estimate_dispersion: false,
             error_on_non_convergence: true,
         }
     }
@@ -1173,6 +1189,18 @@ impl NegativeBinomialRegressorBuilder {
         self
     }
 
+    /// Scale the coefficient covariance by the Pearson χ²/df.
+    ///
+    /// `false` (the default) uses dispersion 1, the likelihood covariance at
+    /// the given θ — `summary(MASS::glm.nb(...))`, `vcov()` and
+    /// `predict.glm(se.fit = TRUE)`. `true` reproduces R's `summary.glm`
+    /// default for `glm(y ~ x, family = MASS::negative.binomial(θ))`, which
+    /// estimates the dispersion like a quasi-likelihood model.
+    pub fn estimate_dispersion(mut self, estimate: bool) -> Self {
+        self.estimate_dispersion = estimate;
+        self
+    }
+
     /// Build the regressor.
     pub fn build(self) -> NegativeBinomialRegressor {
         NegativeBinomialRegressor {
@@ -1182,6 +1210,7 @@ impl NegativeBinomialRegressorBuilder {
             estimate_theta: self.estimate_theta,
             theta_max_iter: self.theta_max_iter,
             theta_tol: self.theta_tol,
+            estimate_dispersion: self.estimate_dispersion,
             error_on_non_convergence: self.error_on_non_convergence,
         }
     }
