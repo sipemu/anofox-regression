@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`ModelInfo` / `HasModelInfo` (#66).** `anofox_regression::core::ModelInfo { model_type: &'static str, family: Option<&'static str>, link: &'static str }` and the trait `HasModelInfo { fn model_info(&self) -> ModelInfo }`, implemented by every fitted model (least squares, penalised, robust, quantile, PLS, isotonic, ALM, all GLMs incl. the penalized GLM, AFT, GLMM, ...). Stable snake_case names; `family` uses R's family names and is `None` for estimators without a likelihood.
+- **`diagnostics::augment` (#66).** `augment(&fit, &x, &y, weights) -> Result<Augment, RegressionError>` and `augment_with(.., ResidualType)` return per-observation `fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits` for OLS, WLS and the GLMs (Poisson, binomial / logistic, negative binomial, Tweedie, Gamma), matching R 4.6's `rstandard`, `rstudent`, `cooks.distance`, `dffits` and `broom::augment` (deviance residuals by default for GLMs, Pearson via `ResidualType::Pearson`). Leverage is computed from the thin QR of the IRLS-weighted design, never the n x n hat matrix (O(n p) memory). New public items: `Augment`, `Augmentable`, `AugmentSpec`, `ResidualType`.
+- **Intercept inference on every GLM (#66).** Binomial, Poisson, negative binomial, Tweedie and Gamma fits now fill `intercept_t_statistic`, `intercept_p_value`, `intercept_conf_interval` and the slope `conf_interval_lower/upper` (Wald, R's `confint.default`); Tweedie / Gamma additionally report statistics and p-values (t on the residual df, as `summary.glm`), which were missing. `GlmInferenceResult` (penalized GLM) gains `intercept_std_error`, `intercept_z_value`, `intercept_p_value`, `intercept_ci_lower`, `intercept_ci_upper`; `AftInference` gains the same z / p / CI fields.
+- R validation of the above and of the linear `logLik` / `AIC` / `BIC` (R's `logLik.lm`, sigma counted as a parameter) for OLS, WLS and Ridge (lambda = 0): `tests/r_validation_m1a.rs`, generator `tests/r_scripts/generate_m1a_validation.R`, VALIDATION.md section 24c.
+
+### Fixed
+
+- **Probit link accuracy (#66).** The binomial probit link used an Abramowitz-Stegun erf (absolute error 1.5e-7) for the normal CDF and an AS 241 quantile with a mistyped coefficient, which put probit standard errors off R in the 5th digit. Both now use `statrs` `erfc` / `erfc_inv`.
+- Wald p-values of the GLMs use the survival function, so very small p-values no longer underflow to 0.
 ## [0.5.19] - 2026-10-08
 
 ### Fixed
