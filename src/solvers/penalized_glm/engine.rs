@@ -172,6 +172,46 @@ impl EngineFit {
     }
 }
 
+/// Null deviance as R's `glm.fit` defines it.
+///
+/// * With an intercept and no offset: the deviance at `mu = mean(y)` (the closed
+///   form of the intercept-only fit, for any link).
+/// * With an intercept and an offset: the deviance of the unpenalized
+///   intercept-only model **with the offset**, fitted by IRLS (R refits
+///   `glm.fit(x = intercept, offset = offset)`).
+/// * Without an intercept: the deviance at `mu = linkinv(offset)`, or
+///   `linkinv(0)` when there is no offset.
+pub fn null_deviance<F: GlmFamily + ?Sized>(
+    family: &F,
+    y: &[f64],
+    offset: Option<&[f64]>,
+    fit_intercept: bool,
+    config: &IrlsConfig,
+) -> GlmEngineResult<f64> {
+    let n = y.len();
+    match (fit_intercept, offset) {
+        (true, None) => Ok(family.null_deviance(y)),
+        (true, Some(off)) => {
+            let ones = faer::Mat::from_fn(n, 1, |_, _| 1.0);
+            let null_fit = irls::fit_irls(
+                family,
+                &ones,
+                y,
+                Some(off),
+                &super::penalty::Penalty::none(1),
+                config,
+            )?;
+            Ok(null_fit.deviance)
+        }
+        (false, off) => {
+            let mu: Vec<f64> = (0..n)
+                .map(|i| family.link_inverse(off.map_or(0.0, |o| o[i])))
+                .collect();
+            Ok(family.deviance(y, &mu))
+        }
+    }
+}
+
 /// Fit a GLM with the given family, priors and covariance policy.
 ///
 /// `x` is column-major (one inner vector per feature), matching the rest of the
@@ -208,6 +248,15 @@ pub fn fit<F: GlmFamily + ?Sized>(
         &design.y,
         design.offset.as_deref(),
         &penalty,
+        &config,
+    )?;
+
+    let mut irls = irls;
+    irls.null_deviance = null_deviance(
+        family,
+        &design.y,
+        design.offset.as_deref(),
+        design.fit_intercept,
         &config,
     )?;
 

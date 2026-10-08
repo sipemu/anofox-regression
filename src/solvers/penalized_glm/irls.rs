@@ -92,17 +92,9 @@ pub fn fit_irls<F: GlmFamily + ?Sized>(
     }
 
     let mut mu = family.initialize_mu(y);
-    let mut eta: Vec<f64> = mu
-        .iter()
-        .enumerate()
-        .map(|(i, &m)| {
-            let base = family.link(m);
-            match offset {
-                Some(o) => base - o[i],
-                None => base,
-            }
-        })
-        .collect();
+    // `eta` is the full linear predictor (offset included), as `update_eta_mu`
+    // maintains it; the working response below subtracts the offset once.
+    let mut eta: Vec<f64> = mu.iter().map(|&m| family.link(m)).collect();
 
     let mut beta: Col<f64> = Col::zeros(p);
     let mut weights = vec![0.0; n];
