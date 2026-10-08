@@ -14,6 +14,18 @@
 //! subsample (matching sklearn's deterministic path); otherwise it draws
 //! `max_subpopulation` random subsamples using the provided seed.
 //!
+//! # Rank-deficient designs
+//!
+//! Linearly dependent columns (e.g. `x2 = 2·x1`, or a constant column when an
+//! intercept is fitted) are detected up front with a column-order
+//! Gram–Schmidt (relative tolerance `1e-7`). As in
+//! [`OlsRegressor`](crate::solvers::OlsRegressor) and R's `lm`, the later
+//! redundant column is **aliased**: the estimator is fitted on the remaining
+//! columns, the aliased ones get a `NaN` coefficient and `aliased = true`,
+//! and prediction ignores them. (sklearn instead takes the minimum-norm
+//! least-squares solution of each singular subsample, which spreads the
+//! effect over the collinear columns.)
+//!
 //! # Example
 //!
 //! ```rust,ignore
@@ -96,6 +108,23 @@ impl Regressor for TheilSenRegressor {
             });
         }
 
+        // Linearly dependent columns (e.g. x2 = 2·x1, or a constant column
+        // with an intercept) make every subsample system singular; partial-
+        // pivot LU then returns huge finite "solutions" that dominate the
+        // spatial median (#50). Like `OlsRegressor` / R's `lm`, the later
+        // redundant columns are aliased: Theil–Sen is fitted on the kept
+        // columns and the aliased ones get a `NaN` coefficient.
+        let aliased = aliased_columns(x, self.with_intercept, ALIAS_TOL);
+        if aliased.iter().any(|&a| a) {
+            let keep: Vec<usize> = (0..p).filter(|&j| !aliased[j]).collect();
+            if keep.is_empty() && !self.with_intercept {
+                return Err(RegressionError::SingularMatrix);
+            }
+            let xr = Mat::from_fn(n, keep.len(), |i, k| x[(i, keep[k])]);
+            let inner = self.fit(&xr, y)?;
+            return Ok(expand_aliased(inner, &keep, p));
+        }
+
         // Univariate with intercept: the classical Theil–Sen estimator —
         // slope = median of all pairwise slopes (pairs with equal x skipped),
         // intercept = median(y − slope·x). sklearn instead applies its
@@ -151,6 +180,65 @@ impl Regressor for TheilSenRegressor {
         let median = spatial_median(&coef_vectors, coef_dim, self.max_iter, self.tol);
 
         Ok(build_fitted_from_full(median, x, y, self.with_intercept))
+    }
+}
+
+/// Relative tolerance for declaring a column linearly dependent on the
+/// preceding ones (R's `lm` uses 1e-7 for its pivoted QR).
+const ALIAS_TOL: f64 = 1e-7;
+
+/// Column-order Gram–Schmidt rank detection on the design (centred when an
+/// intercept is fitted, which projects out the intercept column). Column `j`
+/// is aliased when its residual after projecting onto the previously kept
+/// columns is below `tol` times its own norm — the same "later column is
+/// redundant" rule as R's `lm`.
+fn aliased_columns(x: &Mat<f64>, with_intercept: bool, tol: f64) -> Vec<bool> {
+    let n = x.nrows();
+    let p = x.ncols();
+    let mut basis: Vec<Vec<f64>> = Vec::new();
+    let mut aliased = vec![false; p];
+    for (j, flag) in aliased.iter_mut().enumerate() {
+        let raw: Vec<f64> = (0..n).map(|i| x[(i, j)]).collect();
+        let scale = raw.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let mut r = raw;
+        if with_intercept {
+            let mean = r.iter().sum::<f64>() / n as f64;
+            r.iter_mut().for_each(|v| *v -= mean);
+        }
+        // Two passes of modified Gram–Schmidt for numerical stability.
+        for _ in 0..2 {
+            for q in &basis {
+                let d: f64 = r.iter().zip(q).map(|(a, b)| a * b).sum();
+                r.iter_mut().zip(q).for_each(|(a, b)| *a -= d * b);
+            }
+        }
+        let norm = r.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if scale == 0.0 || norm <= tol * scale {
+            *flag = true;
+        } else {
+            basis.push(r.into_iter().map(|v| v / norm).collect());
+        }
+    }
+    aliased
+}
+
+/// Re-expand a fit on the kept columns to all `p` columns: aliased columns
+/// get a `NaN` coefficient and `aliased = true`.
+fn expand_aliased(inner: FittedTheilSen, keep: &[usize], p: usize) -> FittedTheilSen {
+    let mut result = inner.result;
+    let mut coefficients = Col::from_fn(p, |_| f64::NAN);
+    for (k, &j) in keep.iter().enumerate() {
+        coefficients[j] = result.coefficients[k];
+    }
+    result.coefficients = coefficients;
+    let mut aliased = vec![true; p];
+    for &j in keep {
+        aliased[j] = false;
+    }
+    result.aliased = aliased;
+    FittedTheilSen {
+        result,
+        with_intercept: inner.with_intercept,
     }
 }
 
@@ -667,7 +755,11 @@ impl FittedRegressor for FittedTheilSen {
         Col::from_fn(n, |i| {
             let mut v = intercept;
             for j in 0..p {
-                v += x[(i, j)] * self.result.coefficients[j];
+                let c = self.result.coefficients[j];
+                // Aliased (redundant) columns carry a NaN coefficient.
+                if !c.is_nan() {
+                    v += x[(i, j)] * c;
+                }
             }
             v
         })
