@@ -11,7 +11,7 @@ use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
 use faer::prelude::Solve;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, FisherSnedecor, StudentsT};
+use statrs::distribution::{ContinuousCDF, StudentsT};
 
 /// Ridge regression estimator with L2 regularization.
 ///
@@ -585,83 +585,14 @@ impl RidgeRegressor {
         let n = y.nrows();
         let n_features = x.ncols();
 
-        // Compute y mean
-        let y_mean: f64 = y.iter().sum::<f64>() / n as f64;
-
-        // Compute TSS (total sum of squares)
-        let tss: f64 = y.iter().map(|&yi| (yi - y_mean).powi(2)).sum();
-
-        // Compute RSS (residual sum of squares)
-        let rss: f64 = residuals.iter().map(|&r| r.powi(2)).sum();
-
-        // R-squared
-        let r_squared = if tss > 0.0 {
-            (1.0 - rss / tss).clamp(0.0, 1.0)
-        } else if rss < 1e-10 {
-            1.0
-        } else {
-            0.0
-        };
-
-        // Adjusted R-squared
-        let df_total = (n - 1) as f64;
-        let df_resid = (n - n_params) as f64;
-        let adj_r_squared = if df_resid > 0.0 && df_total > 0.0 {
-            1.0 - (1.0 - r_squared) * df_total / df_resid
-        } else {
-            f64::NAN
-        };
-
-        // MSE and RMSE
-        let mse = if df_resid > 0.0 {
-            rss / df_resid
-        } else {
-            f64::NAN
-        };
-        let rmse = mse.sqrt();
-
-        // F-statistic
-        let ess = tss - rss;
-        let df_model = (n_params - if intercept.is_some() { 1 } else { 0 }) as f64;
-        let f_statistic = if df_model > 0.0 && df_resid > 0.0 && mse > 0.0 {
-            (ess / df_model) / mse
-        } else {
-            f64::NAN
-        };
-
-        // F p-value
-        let f_pvalue = if f_statistic.is_finite() && df_model > 0.0 && df_resid > 0.0 {
-            let f_dist = FisherSnedecor::new(df_model, df_resid).ok();
-            f_dist.map_or(f64::NAN, |d| 1.0 - d.cdf(f_statistic))
-        } else {
-            f64::NAN
-        };
-
-        // Information criteria
-        let log_likelihood = if mse > 0.0 {
-            -0.5 * n as f64 * (1.0 + (2.0 * std::f64::consts::PI).ln() + mse.ln())
-        } else {
-            f64::NAN
-        };
-
-        let k = n_params as f64;
-        let aic = if log_likelihood.is_finite() {
-            2.0 * k - 2.0 * log_likelihood
-        } else {
-            f64::NAN
-        };
-
-        let aicc = if log_likelihood.is_finite() && (n as f64 - k - 1.0) > 0.0 {
-            aic + 2.0 * k * (k + 1.0) / (n as f64 - k - 1.0)
-        } else {
-            f64::NAN
-        };
-
-        let bic = if log_likelihood.is_finite() {
-            k * (n as f64).ln() - 2.0 * log_likelihood
-        } else {
-            f64::NAN
-        };
+        let stats = super::fit_stats::linear_fit_stats(
+            y,
+            residuals,
+            None,
+            intercept.is_some(),
+            n_params,
+            true,
+        );
 
         let mut result = RegressionResult::empty(n_features, n);
         result.coefficients = coefficients.clone();
@@ -673,16 +604,7 @@ impl RidgeRegressor {
         result.n_observations = n;
         result.aliased = aliased.to_vec();
         result.rank_tolerance = self.options.rank_tolerance;
-        result.r_squared = r_squared;
-        result.adj_r_squared = adj_r_squared;
-        result.mse = mse;
-        result.rmse = rmse;
-        result.f_statistic = f_statistic;
-        result.f_pvalue = f_pvalue;
-        result.aic = aic;
-        result.aicc = aicc;
-        result.bic = bic;
-        result.log_likelihood = log_likelihood;
+        stats.apply(&mut result);
         result.confidence_level = self.options.confidence_level;
 
         // Compute inference statistics if requested
