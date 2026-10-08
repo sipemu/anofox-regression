@@ -39,6 +39,7 @@
 //! ```
 
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
+use crate::solvers::ols::{FittedOls, OlsRegressor};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::prelude::Solve;
 use faer::{Col, Mat};
@@ -57,6 +58,10 @@ pub struct RansacRegressor {
     /// Refuse a sampled subset whose OLS fit produces a singular system.
     stop_n_inliers: Option<usize>,
     random_state: u64,
+    /// Compute inference (standard errors, t/p-values, CIs) for the final
+    /// OLS fit on the inliers.
+    compute_inference: bool,
+    confidence_level: f64,
 }
 
 impl Default for RansacRegressor {
@@ -69,6 +74,8 @@ impl Default for RansacRegressor {
             stop_probability: 0.99,
             stop_n_inliers: None,
             random_state: 0,
+            compute_inference: false,
+            confidence_level: 0.95,
         }
     }
 }
@@ -172,65 +179,49 @@ impl Regressor for RansacRegressor {
             });
         }
 
-        // Final fit on inliers via OLS.
+        // RANSAC's final model is the OLS fit on the consensus set. All
+        // statistics (R², adjusted R², sigma, F, information criteria and,
+        // if requested, inference) are those of that fit, so
+        // `n_observations` is the number of inliers. Note that inference
+        // conditions on the data-driven inlier selection and is therefore
+        // optimistic.
         let inlier_idx: Vec<usize> = (0..n).filter(|&i| best_mask[i]).collect();
-        let final_beta = ols_normal_eq(x, y, &inlier_idx, self.with_intercept)
-            .ok_or(RegressionError::SingularMatrix)?;
+        let x_in = Mat::from_fn(inlier_idx.len(), p, |r, c| x[(inlier_idx[r], c)]);
+        let y_in = Col::from_fn(inlier_idx.len(), |r| y[inlier_idx[r]]);
+        let ols = OlsRegressor::builder()
+            .with_intercept(self.with_intercept)
+            .compute_inference(self.compute_inference)
+            .confidence_level(self.confidence_level)
+            .build()
+            .fit(&x_in, &y_in)
+            .map_err(|e| match e {
+                RegressionError::AllFeaturesConstant => RegressionError::SingularMatrix,
+                other => other,
+            })?;
 
-        let intercept = if self.with_intercept {
-            Some(final_beta[0])
-        } else {
-            None
-        };
-        let coef_slice = if self.with_intercept {
-            &final_beta[1..]
-        } else {
-            &final_beta[..]
-        };
-        let coefficients = Col::from_fn(p, |i| coef_slice[i]);
-
+        let mut result = ols.result().clone();
+        // Residuals and fitted values over all n rows, for diagnostics.
+        let intercept = result.intercept.unwrap_or(0.0);
         let fitted_values = Col::from_fn(n, |i| {
-            let mut v = intercept.unwrap_or(0.0);
+            let mut v = intercept;
             for j in 0..p {
-                v += x[(i, j)] * coef_slice[j];
+                let b = result.coefficients[j];
+                if !b.is_nan() {
+                    v += x[(i, j)] * b;
+                }
             }
             v
         });
-        let residuals = Col::from_fn(n, |i| y[i] - fitted_values[i]);
-
-        let n_params = p + if self.with_intercept { 1 } else { 0 };
-        let mut result = RegressionResult::empty(p, n);
-        result.coefficients = coefficients;
-        result.intercept = intercept;
-        result.residuals = residuals;
+        result.residuals = Col::from_fn(n, |i| y[i] - fitted_values[i]);
         result.fitted_values = fitted_values;
-        result.rank = n_params;
-        result.n_parameters = n_params;
-        result.n_observations = n;
-        result.r_squared = compute_r_squared(y, &result.residuals);
 
         Ok(FittedRansac {
             result,
+            ols,
             inlier_mask: best_mask,
             n_trials: trials_run,
             residual_threshold,
         })
-    }
-}
-
-fn compute_r_squared(y: &Col<f64>, residuals: &Col<f64>) -> f64 {
-    let n = y.nrows();
-    let y_mean: f64 = (0..n).map(|i| y[i]).sum::<f64>() / n as f64;
-    let tss: f64 = (0..n).map(|i| (y[i] - y_mean).powi(2)).sum();
-    let rss: f64 = (0..n).map(|i| residuals[i].powi(2)).sum();
-    if tss == 0.0 {
-        if rss == 0.0 {
-            1.0
-        } else {
-            0.0
-        }
-    } else {
-        1.0 - rss / tss
     }
 }
 
@@ -292,30 +283,6 @@ fn ols_on_subsample(
     } else {
         ols_normal_eq_from_design(&xs, &ys)
     }
-}
-
-fn ols_normal_eq(
-    x: &Mat<f64>,
-    y: &Col<f64>,
-    idx: &[usize],
-    with_intercept: bool,
-) -> Option<Vec<f64>> {
-    let p = x.ncols();
-    let p_eff = if with_intercept { p + 1 } else { p };
-    let k = idx.len();
-    let xs = Mat::from_fn(k, p_eff, |i, j| {
-        if with_intercept {
-            if j == 0 {
-                1.0
-            } else {
-                x[(idx[i], j - 1)]
-            }
-        } else {
-            x[(idx[i], j)]
-        }
-    });
-    let ys = Col::from_fn(k, |i| y[idx[i]]);
-    ols_normal_eq_from_design(&xs, &ys)
 }
 
 fn ols_normal_eq_from_design(xs: &Mat<f64>, ys: &Col<f64>) -> Option<Vec<f64>> {
@@ -384,6 +351,8 @@ impl SplitMix64 {
 #[derive(Debug, Clone)]
 pub struct FittedRansac {
     result: RegressionResult,
+    /// OLS fit on the inlier rows (the final model).
+    ols: FittedOls,
     inlier_mask: Vec<bool>,
     n_trials: usize,
     residual_threshold: f64,
@@ -410,6 +379,13 @@ impl FittedRansac {
     pub fn residual_threshold(&self) -> f64 {
         self.residual_threshold
     }
+
+    /// The final model: the OLS fit on the inlier rows (its statistics are
+    /// the ones reported in [`FittedRegressor::result`], except that the
+    /// result's residuals and fitted values cover all rows).
+    pub fn inlier_fit(&self) -> &FittedOls {
+        &self.ols
+    }
 }
 
 impl FittedRegressor for FittedRansac {
@@ -430,13 +406,15 @@ impl FittedRegressor for FittedRansac {
         &self.result
     }
 
+    /// Intervals of the final OLS fit on the inliers (they condition on the
+    /// inlier selection and are therefore optimistic).
     fn predict_with_interval(
         &self,
         x: &Mat<f64>,
-        _interval: Option<IntervalType>,
-        _level: f64,
+        interval: Option<IntervalType>,
+        level: f64,
     ) -> PredictionResult {
-        PredictionResult::point_only(self.predict(x))
+        self.ols.predict_with_interval(x, interval, level)
     }
 }
 
@@ -473,6 +451,18 @@ impl RansacRegressorBuilder {
     }
     pub fn random_state(mut self, seed: u64) -> Self {
         self.inner.random_state = seed;
+        self
+    }
+    /// Compute standard errors, t/p-values and confidence intervals for the
+    /// final OLS fit on the inliers (default false). They ignore the
+    /// data-driven inlier selection and are therefore optimistic.
+    pub fn compute_inference(mut self, compute: bool) -> Self {
+        self.inner.compute_inference = compute;
+        self
+    }
+    /// Confidence level for the inference (default 0.95).
+    pub fn confidence_level(mut self, level: f64) -> Self {
+        self.inner.confidence_level = level;
         self
     }
     pub fn build(self) -> RansacRegressor {
