@@ -51,6 +51,7 @@
 //! let influential = influential_cooks(&cooks, None);
 //! ```
 
+mod augment;
 mod condition_number;
 mod glm_residuals;
 mod influence;
@@ -60,6 +61,7 @@ mod residuals;
 mod vif;
 
 // Re-export main functions
+pub use augment::{augment, augment_with, Augment, AugmentSpec, Augmentable, ResidualType};
 pub use condition_number::{
     classify_condition_number, condition_diagnostic, condition_number,
     variance_decomposition_proportions, ConditionDiagnostic, ConditionSeverity,
