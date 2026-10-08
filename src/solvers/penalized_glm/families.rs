@@ -395,7 +395,23 @@ pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> GlmEngine
         DispersionRule::Pearson,
         |phi| LogLikKind::Gamma { dispersion: phi },
     )?;
-    Ok(fit.into())
+    Ok(with_gamma_ml_log_likelihood(fit).into())
+}
+
+/// Re-evaluate a Gamma fit's log-likelihood / AIC / BIC as R's `logLik.glm`
+/// does: `Gamma()$aic` plugs in the dispersion `deviance / n`, not the Pearson
+/// estimate. The Pearson dispersion still scales the covariance (as
+/// `summary.glm`) and is still the reported `dispersion`.
+fn with_gamma_ml_log_likelihood(mut fit: EngineFit) -> EngineFit {
+    let n = fit.design.n_observations();
+    let k = fit.design.n_params() + 1;
+    let kind = LogLikKind::Gamma {
+        dispersion: fit.irls.deviance / n as f64,
+    };
+    fit.log_likelihood = loglik::log_likelihood(kind, &fit.design.y, &fit.irls.mu);
+    fit.aic = loglik::aic(fit.log_likelihood, k);
+    fit.bic = loglik::bic(fit.log_likelihood, k, n);
+    fit
 }
 
 /// Result from Logistic regression fit. Bundles the standard GLM result
