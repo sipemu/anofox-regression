@@ -299,3 +299,55 @@ fn test_rls_forgetting_factor_access() {
     let fitted = model.fit(&x, &y).expect("fit should succeed");
     assert_relative_eq!(fitted.forgetting_factor(), 0.95);
 }
+
+#[test]
+fn test_rls_initial_p_diagonal_and_summary_stats() {
+    let x = Mat::from_fn(30, 1, |i, _| i as f64 / 3.0);
+    let y = Col::from_fn(30, |i| {
+        1.5 + 0.7 * (i as f64 / 3.0) + ((i * 7) % 5) as f64 * 0.1
+    });
+
+    // Vague prior + no forgetting -> batch OLS, including the summary stats.
+    let rls = RlsRegressor::builder()
+        .with_intercept(true)
+        .forgetting_factor(1.0)
+        .initial_p_diagonal(1e8)
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    let ols = OlsRegressor::builder()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    let (r, o) = (rls.result(), ols.result());
+    assert!((r.coefficients[0] - o.coefficients[0]).abs() < 1e-6);
+    assert!((r.r_squared - o.r_squared).abs() < 1e-8);
+    assert!((r.adj_r_squared - o.adj_r_squared).abs() < 1e-8);
+    assert!((r.rmse - o.rmse).abs() < 1e-7);
+
+    // A tight prior shrinks the estimate.
+    let tight = RlsRegressor::builder()
+        .with_intercept(true)
+        .initial_p_diagonal(1e-4)
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    assert!(tight.result().coefficients[0].abs() < o.coefficients[0].abs());
+    assert!(RlsRegressor::builder()
+        .initial_p_diagonal(0.0)
+        .build()
+        .fit(&x, &y)
+        .is_err());
+}
+
+#[test]
+fn test_rls_update_skips_non_finite() {
+    let x = Mat::from_fn(10, 1, |i, _| i as f64);
+    let y = Col::from_fn(10, |i| 2.0 * i as f64);
+    let mut f = RlsRegressor::builder().build().fit(&x, &y).unwrap();
+    let before = f.result().coefficients[0];
+    assert!(f.update(&Col::from_fn(1, |_| f64::NAN), 1.0).is_nan());
+    assert!(f.update(&Col::from_fn(1, |_| 1.0), f64::NAN).is_nan());
+    assert_eq!(f.result().coefficients[0], before);
+}

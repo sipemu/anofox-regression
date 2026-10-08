@@ -41,12 +41,25 @@ use faer::{Col, Mat};
 #[derive(Debug, Clone)]
 pub struct RlsRegressor {
     options: RegressionOptions,
+    /// Diagonal of the initial P matrix (`P₀ = δ·I`).
+    initial_p_diagonal: f64,
 }
+
+/// Default diagonal of the initial P matrix.
+const DEFAULT_INITIAL_P_DIAGONAL: f64 = 1e6;
 
 impl RlsRegressor {
     /// Create a new RLS regressor with the given options.
     pub fn new(options: RegressionOptions) -> Self {
-        Self { options }
+        Self {
+            options,
+            initial_p_diagonal: DEFAULT_INITIAL_P_DIAGONAL,
+        }
+    }
+
+    /// Diagonal of the initial P matrix (`P₀ = δ·I`, default `1e6`).
+    pub fn initial_p_diagonal(&self) -> f64 {
+        self.initial_p_diagonal
     }
 
     /// Create a builder for configuring the regressor.
@@ -84,8 +97,21 @@ impl Regressor for RlsRegressor {
             n_features
         };
 
-        // Initialize P matrix (inverse covariance) with large diagonal
-        let init_scale = 1e6;
+        let forgetting_ok = forgetting_factor > 0.0 && forgetting_factor <= 1.0;
+        if !forgetting_ok {
+            return Err(RegressionError::NumericalError(format!(
+                "forgetting_factor must be in (0, 1], got {forgetting_factor}"
+            )));
+        }
+        if !(self.initial_p_diagonal.is_finite() && self.initial_p_diagonal > 0.0) {
+            return Err(RegressionError::NumericalError(format!(
+                "initial_p_diagonal must be finite and > 0, got {}",
+                self.initial_p_diagonal
+            )));
+        }
+
+        // Initialize P matrix (inverse covariance) as δ·I
+        let init_scale = self.initial_p_diagonal;
         let mut p = Mat::zeros(n_params, n_params);
         for i in 0..n_params {
             p[(i, i)] = init_scale;
@@ -321,8 +347,17 @@ impl FittedRls {
     /// Update the model with a new observation (online learning).
     ///
     /// Returns the prediction for the new observation before updating.
+    /// An observation with a non-finite `y_new` or feature value is skipped
+    /// (the state is unchanged) and NaN is returned.
+    ///
+    /// Note that only the coefficients and the P matrix are updated; the fit
+    /// statistics in [`FittedRegressor::result`] still describe the batch
+    /// that was passed to `fit`.
     pub fn update(&mut self, x_new: &Col<f64>, y_new: f64) -> f64 {
         let n_features = self.result.coefficients.nrows();
+        if !y_new.is_finite() || (0..n_features).any(|j| !x_new[j].is_finite()) {
+            return f64::NAN;
+        }
         let n_params = self.p_matrix.nrows();
         let forgetting_factor = self.options.forgetting_factor;
 
@@ -481,12 +516,13 @@ impl FittedRegressor for FittedRls {
 /// let model = RlsRegressor::builder()
 ///     .with_intercept(true)
 ///     .forgetting_factor(0.95)  // 5% discount per observation
-///     .initial_p_scale(100.0)   // Initial P matrix = 100 * I
+///     .initial_p_diagonal(100.0) // Initial P matrix = 100 * I
 ///     .build();
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct RlsRegressorBuilder {
     builder: RegressionOptionsBuilder,
+    initial_p_diagonal: Option<f64>,
 }
 
 impl RlsRegressorBuilder {
@@ -510,9 +546,23 @@ impl RlsRegressorBuilder {
         self
     }
 
+    /// Set the diagonal δ of the initial P matrix, `P₀ = δ·I` (default `1e6`).
+    ///
+    /// Large values express a vague prior on the coefficients (the fit
+    /// approaches batch OLS when the forgetting factor is 1); smaller values
+    /// shrink the early estimates towards zero and are numerically more stable.
+    pub fn initial_p_diagonal(mut self, delta: f64) -> Self {
+        self.initial_p_diagonal = Some(delta);
+        self
+    }
+
     /// Build the RLS regressor.
     pub fn build(self) -> RlsRegressor {
-        RlsRegressor::new(self.builder.build_unchecked())
+        let mut r = RlsRegressor::new(self.builder.build_unchecked());
+        if let Some(d) = self.initial_p_diagonal {
+            r.initial_p_diagonal = d;
+        }
+        r
     }
 }
 
