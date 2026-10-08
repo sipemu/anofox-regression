@@ -34,10 +34,10 @@ pub mod utils;
 /// Prelude module for convenient imports.
 pub mod prelude {
     pub use crate::core::{
-        BinomialFamily, BinomialLink, GlmFamily, IntervalType, LambdaScaling, NaAction, NaError,
-        NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily, PoissonLink, PredictionResult,
-        PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult, SolverType,
-        TweedieFamily,
+        BinomialFamily, BinomialLink, GlmFamily, HasModelInfo, IntervalType, LambdaScaling,
+        ModelInfo, NaAction, NaError, NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily,
+        PoissonLink, PredictionResult, PredictionType, RegressionOptions, RegressionOptionsBuilder,
+        RegressionResult, SolverType, TweedieFamily,
     };
     pub use crate::diagnostics::{
         check_binary_separation, check_count_sparsity, classify_condition_number, compute_leverage,
@@ -65,10 +65,10 @@ pub mod prelude {
 }
 
 pub use crate::core::{
-    BinomialFamily, BinomialLink, GlmFamily, IntervalType, LambdaScaling, NaAction, NaError,
-    NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily, PoissonLink, PredictionResult,
-    PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult, SolverType,
-    TweedieFamily,
+    BinomialFamily, BinomialLink, GlmFamily, HasModelInfo, IntervalType, LambdaScaling, ModelInfo,
+    NaAction, NaError, NaHandler, NaInfo, NegativeBinomialFamily, PoissonFamily, PoissonLink,
+    PredictionResult, PredictionType, RegressionOptions, RegressionOptionsBuilder,
+    RegressionResult, SolverType, TweedieFamily,
 };
 pub use crate::inference::{HcInference, HcType};
 pub use crate::solvers::{

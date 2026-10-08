@@ -3,6 +3,7 @@
 mod binomial;
 mod family;
 mod link;
+mod model_info;
 mod na_action;
 mod negative_binomial;
 mod options;
@@ -14,6 +15,7 @@ mod result;
 pub use binomial::BinomialFamily;
 pub use family::{GlmFamily, TweedieFamily};
 pub use link::BinomialLink;
+pub use model_info::{HasModelInfo, ModelInfo};
 pub use na_action::{NaAction, NaError, NaHandler, NaInfo, NaResult};
 pub use negative_binomial::{estimate_theta_ml, estimate_theta_moments, NegativeBinomialFamily};
 pub use options::{
