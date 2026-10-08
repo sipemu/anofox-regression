@@ -47,6 +47,10 @@ pub mod prelude {
         working_residuals, ConditionDiagnostic, ConditionSeverity, SeparationCheck, SeparationType,
     };
     pub use crate::inference::{HcInference, HcType};
+    pub use crate::solvers::aft::{AftDistribution, AftRegressor, FittedAft};
+    pub use crate::solvers::penalized_glm::{
+        FittedPenalizedGlm, PenalizedGlmFamily, PenalizedGlmRegressor, PriorSpec, VcovType,
+    };
     pub use crate::solvers::{
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
         FactorSummary, FittedAlm, FittedBinomial, FittedGamma, FittedGlmm, FittedHuber,

@@ -1,5 +1,6 @@
 //! Regression solvers implementing various estimation methods.
 
+pub mod aft;
 pub mod aid;
 pub mod alm;
 mod bayesian;
@@ -20,6 +21,7 @@ mod moments;
 mod negative_binomial;
 mod ols;
 mod passive_aggressive;
+pub mod penalized_glm;
 mod pls;
 mod poisson;
 mod pspline;
