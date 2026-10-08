@@ -1,6 +1,6 @@
 {
   "name": "@sipemu/anofox-regression",
-  "version": "0.5.17",
+  "version": "0.5.18",
   "description": "Statistical regression library - WebAssembly bindings for anofox-regression",
   "type": "module",
   "main": "anofox_regression_js.js",

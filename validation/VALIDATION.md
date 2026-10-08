@@ -567,9 +567,31 @@ The `GlmmRegressor` unit tests additionally cover error paths (dimension
 mismatch, out-of-range random-slope column, single group / factor, empty factor
 list) and that `fit_crossed` with one factor equals `fit`.
 
-**Scope note**: random slopes combined with multiple crossed/nested factors, and
-the default `glmer(nAGQ = 1)` joint `(θ, β)` refinement, are follow-ups beyond
-the estimators validated here.
+#### 24b. GLMM families, offsets, crossed random slopes (#29)
+
+**Criterion**: lme4's `nAGQ = 0` Laplace criterion `ldL2 + ‖u‖² + family$aic`.
+Negative binomial uses `−2 Σ log dnbinom`; with θ unknown, θ maximises the
+profiled log-likelihood over `log θ` (golden section), as `glmer.nb`. Gamma and
+Tweedie use the family log-density at dispersion `deviance / n` plus 2 (R's
+`Gamma()$aic`), `σ = sqrt(pwrss / n)` scales the fixed-effect SEs, and the
+random-effect SDs are unscaled (lme4's `VarCorr` for GLMMs). Crossed fits with
+random slopes use `ZΛ_θ` with a block-diagonal `Λ_θ` of per-factor `T_f`.
+
+**Oracle**: `glmer.nb(nAGQ = 0)`, `glmer(negative.binomial(2))`,
+`glmer(Gamma(link = "log"))`, `lmer`/`glmer` with `offset()`, `lmer` and Poisson
+`glmer` for `(x|a) + (1|b)`, Gamma `glmer` for `(1|a) + (1|b)`. **Tweedie**: no
+lme4 family exists and `glmmTMB` is a different estimator (ML dispersion), so
+the reference is `glmer` with `statmod::tweedie(1.5, link.power = 0)` whose
+`aic` is the series density `tweedie::dtweedie` at dispersion `deviance / n`
+(+2) — the same criterion the Rust solver implements.
+**Generator**: `tests/r_scripts/generate_glmm_families_validation.R`.
+**Test file**: `tests/r_validation_glmm_families.rs`.
+**Tolerance**: `2e-4` scaled (`2e-3` for crossed slopes and NB with estimated θ)
+on fixed effects, SEs, σ, random SDs / correlation, BLUPs and logLik. Observed
+agreement is ~1e-5–5e-5; NB θ agrees to 2.6e-4 (glmer.nb's `optimize`).
+
+**Scope note**: the default `glmer(nAGQ = 1)` joint `(θ, β)` refinement is a
+follow-up beyond the estimators validated here.
 
 ## Test Coverage
 
