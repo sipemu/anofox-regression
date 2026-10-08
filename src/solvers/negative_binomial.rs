@@ -794,7 +794,7 @@ pub struct FittedNegativeBinomial {
     /// Dispersion used for the covariance / standard errors. `1.0` by default:
     /// the negative binomial variance `μ + μ²/θ` models the overdispersion
     /// itself (as in `MASS::glm.nb`). With
-    /// [`estimate_dispersion(true)`](NegativeBinomialRegressorBuilder::estimate_dispersion)
+    /// `NegativeBinomialRegressor::builder().estimate_dispersion(true)`
     /// it is the Pearson χ²/df.
     pub dispersion: f64,
     /// Estimated theta (size/dispersion parameter).
