@@ -97,6 +97,14 @@ pub struct AftInference {
     pub ci_upper: Vec<f64>,
     pub confidence_level: f64,
     pub intercept_std_error: Option<f64>,
+    /// Wald z-statistic of the intercept (`None` without an intercept).
+    pub intercept_z_value: Option<f64>,
+    /// Two-sided p-value of the intercept.
+    pub intercept_p_value: Option<f64>,
+    /// Lower confidence bound of the intercept.
+    pub intercept_ci_lower: Option<f64>,
+    /// Upper confidence bound of the intercept.
+    pub intercept_ci_upper: Option<f64>,
     /// Standard error of `log sigma`; `None` when the scale is fixed.
     pub log_scale_std_error: Option<f64>,
     /// The full covariance of the fitted parameters at the mode, `None` when inference
@@ -298,6 +306,10 @@ pub fn fit_aft(
             } else {
                 None
             },
+            intercept_z_value: options.fit_intercept.then(|| inf.z_values[0]),
+            intercept_p_value: options.fit_intercept.then(|| inf.p_values[0]),
+            intercept_ci_lower: options.fit_intercept.then(|| inf.ci_lower[0]),
+            intercept_ci_upper: options.fit_intercept.then(|| inf.ci_upper[0]),
             log_scale_std_error: if fit_scale {
                 Some(inf.std_errors[n_beta])
             } else {

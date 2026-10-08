@@ -13,6 +13,7 @@ use crate::core::{
     RegressionOptionsBuilder, RegressionResult, TweedieFamily,
 };
 use crate::diagnostics::{deviance_residuals, pearson_residuals, working_residuals};
+use crate::inference::{fill_wald_inference, WaldReference};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::detect_constant_columns;
 use faer::{Col, Mat};
@@ -555,15 +556,13 @@ impl TweedieRegressor {
             if let Ok((se, xtwx_inv)) =
                 self.compute_standard_errors_and_covariance(x_design, mu, dispersion)
             {
-                result.std_errors = Some(if self.options.with_intercept {
-                    Col::from_fn(n_features, |j| se[j + 1])
-                } else {
-                    se.clone()
-                });
-
-                if self.options.with_intercept {
-                    result.intercept_std_error = Some(se[0]);
-                }
+                fill_wald_inference(
+                    &mut result,
+                    beta,
+                    &se,
+                    self.options.with_intercept,
+                    WaldReference::StudentT(df_resid),
+                );
 
                 xtwx_inverse = Some(xtwx_inv);
             }

@@ -425,6 +425,16 @@ pub struct GlmInferenceResult {
     pub ci_upper: Vec<f64>,
     /// Confidence level used (e.g., 0.95)
     pub confidence_level: f64,
+    /// Standard error of the intercept (`None` without an intercept).
+    pub intercept_std_error: Option<f64>,
+    /// Wald z-statistic of the intercept.
+    pub intercept_z_value: Option<f64>,
+    /// Two-sided p-value of the intercept.
+    pub intercept_p_value: Option<f64>,
+    /// Lower confidence bound of the intercept.
+    pub intercept_ci_lower: Option<f64>,
+    /// Upper confidence bound of the intercept.
+    pub intercept_ci_upper: Option<f64>,
     /// The full covariance of the fitted parameters at the mode, `None` when
     /// inference was not requested.
     ///

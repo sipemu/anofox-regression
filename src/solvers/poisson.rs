@@ -30,6 +30,7 @@ use crate::core::{
     RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
 use crate::diagnostics::{deviance_residuals, pearson_residuals, working_residuals};
+use crate::inference::{fill_wald_inference, WaldReference};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::detect_constant_columns;
 use faer::{Col, Mat};
@@ -511,41 +512,13 @@ impl PoissonRegressor {
             if let Ok((se, xtwx_inv)) =
                 self.compute_standard_errors_and_covariance(x_design, mu, dispersion)
             {
-                result.std_errors = Some(if self.options.with_intercept {
-                    Col::from_fn(n_features, |j| se[j + 1])
-                } else {
-                    se.clone()
-                });
-
-                if self.options.with_intercept {
-                    result.intercept_std_error = Some(se[0]);
-                }
-
-                // Compute z-statistics and p-values
-                let t_stats = Col::from_fn(n_params, |j| beta[j] / se[j]);
-                let p_vals = Col::from_fn(n_params, |j| {
-                    let z = t_stats[j].abs();
-                    2.0 * Normal::new(0.0, 1.0)
-                        .map(|d| 1.0 - d.cdf(z))
-                        .unwrap_or(f64::NAN)
-                });
-
-                result.t_statistics = Some(if self.options.with_intercept {
-                    Col::from_fn(n_features, |j| t_stats[j + 1])
-                } else {
-                    t_stats.clone()
-                });
-
-                result.p_values = Some(if self.options.with_intercept {
-                    Col::from_fn(n_features, |j| p_vals[j + 1])
-                } else {
-                    p_vals.clone()
-                });
-
-                if self.options.with_intercept {
-                    result.intercept_t_statistic = Some(t_stats[0]);
-                    result.intercept_p_value = Some(p_vals[0]);
-                }
+                fill_wald_inference(
+                    &mut result,
+                    beta,
+                    &se,
+                    self.options.with_intercept,
+                    WaldReference::Normal,
+                );
 
                 xtwx_inverse = Some(xtwx_inv);
             }
