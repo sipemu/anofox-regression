@@ -32,6 +32,7 @@
 //! let dyn_coefs = fitted.dynamic_coefficients();
 //! ```
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
@@ -487,6 +488,12 @@ pub struct FittedLmDynamic {
     original_x: Mat<f64>,
     /// Whether model has intercept
     has_intercept: bool,
+}
+
+impl HasModelInfo for FittedLmDynamic {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("lm_dynamic")
+    }
 }
 
 impl FittedLmDynamic {

@@ -1,5 +1,6 @@
 //! Ridge regression solver (L2 regularization).
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, LambdaScaling, PredictionResult, RegressionOptions, RegressionOptionsBuilder,
     RegressionResult, SolverType,
@@ -576,6 +577,12 @@ pub struct FittedRidge {
     /// Variance factor `M` (ridge sandwich, or `(X'X)⁻¹` for λ = 0), full
     /// dimension, augmented if with_intercept.
     variance_factor: Option<Mat<f64>>,
+}
+
+impl HasModelInfo for FittedRidge {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("ridge")
+    }
 }
 
 impl FittedRidge {

@@ -1,5 +1,6 @@
 //! Ordinary Least Squares regression solver.
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
     SolverType,
@@ -835,6 +836,12 @@ pub struct FittedOls {
     xtx_inverse: Option<Mat<f64>>,
     /// Which columns are aliased (collinear or constant)
     aliased: Vec<bool>,
+}
+
+impl HasModelInfo for FittedOls {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("ols")
+    }
 }
 
 impl FittedOls {

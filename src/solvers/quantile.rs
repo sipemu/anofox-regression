@@ -23,6 +23,7 @@
 //! - Koenker, R., & Bassett, G. (1978). Regression quantiles. Econometrica, 33-50.
 //! - Validated against R's `quantreg` package: <https://cran.r-project.org/package=quantreg>
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
@@ -635,6 +636,12 @@ pub struct FittedQuantile {
     result: RegressionResult,
     /// Check function loss (quantile loss)
     check_loss: f64,
+}
+
+impl HasModelInfo for FittedQuantile {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::linear("quantile")
+    }
 }
 
 impl FittedQuantile {

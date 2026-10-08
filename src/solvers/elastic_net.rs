@@ -1,5 +1,6 @@
 //! Elastic Net solver (combined L1 and L2 regularization).
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, LambdaScaling, PredictionResult, RegressionOptions, RegressionOptionsBuilder,
     RegressionResult,
@@ -416,6 +417,12 @@ pub struct FittedElasticNet {
     xtx_inverse: Option<Mat<f64>>,
     /// Which columns are aliased (constant or zero coefficient)
     aliased: Vec<bool>,
+}
+
+impl HasModelInfo for FittedElasticNet {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("elastic_net")
+    }
 }
 
 impl FittedElasticNet {

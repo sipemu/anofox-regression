@@ -38,6 +38,7 @@
 //! let mask = fitted.inlier_mask();
 //! ```
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::ols::{FittedOls, OlsRegressor};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
@@ -359,6 +360,12 @@ pub struct FittedRansac {
     inlier_mask: Vec<bool>,
     n_trials: usize,
     residual_threshold: f64,
+}
+
+impl HasModelInfo for FittedRansac {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::linear("ransac")
+    }
 }
 
 impl FittedRansac {

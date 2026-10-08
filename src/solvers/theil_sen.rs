@@ -37,6 +37,7 @@
 //!     .fit(&x, &y)?;
 //! ```
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::prelude::Solve;
@@ -738,6 +739,12 @@ fn build_fitted_from_full(
 pub struct FittedTheilSen {
     result: RegressionResult,
     with_intercept: bool,
+}
+
+impl HasModelInfo for FittedTheilSen {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::linear("theil_sen")
+    }
 }
 
 impl FittedTheilSen {
