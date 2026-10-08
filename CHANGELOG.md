@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.19] - 2026-10-08
+
+### Fixed
+
+- **LARS / LassoLars on exactly collinear columns (#62).** Whether a duplicate column (e.g. `x2 = 2 * x1`) entered the active set depended on last-bit rounding of its residual correlation (absolute `f64::EPSILON` threshold), so the same data returned `SingularMatrix` on aarch64 but a fit on x86_64. Linearly dependent columns are now detected up front (Gram-Schmidt in column order, scale-relative tolerance `1e-7` as R's `lm`); the later column is aliased (NaN coefficient, `aliased[j] = true`, excluded from `rank`, ignored by `predict`) and the path runs on the full-rank subset. The entry threshold is relative to the initial maximum correlation. Regression test `tests/issue62_lars_collinear.rs` covers several scalings and ±1 ulp perturbations.
+
 ## [0.5.18] - 2026-10-08
 
 ### Added
