@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.15] - 2026-10-08
+
+### Behaviour changes (results now match R)
+
+- **Negative binomial standard errors use dispersion 1 (#49).** The coefficient covariance was scaled by `max(1, Pearson χ²/df)`. When χ²/df > 1 this made the SEs, z, p-values, CIs and `predict_with_se` standard errors larger than `MASS::glm.nb` (e.g. by √1.97 at θ = 10 in the regression test). The NB variance `μ + μ²/θ` already models the overdispersion, so the dispersion is now 1 for both fixed and estimated θ, as in `summary(glm.nb)`, `vcov()` and `predict.glm(se.fit = TRUE)`. `FittedNegativeBinomial::dispersion` is therefore `1.0`. Coefficients are unchanged.
+- **Theil–Sen on rank-deficient designs (#50).** Linearly dependent columns (e.g. `x2 = 2·x1`, or a constant column with an intercept) are now aliased like `OlsRegressor` / R `lm`. The later redundant column gets a `NaN` coefficient and `aliased = true`, the estimator is fitted on the remaining columns, and prediction ignores the aliased columns. Previously the singular subsample systems produced coefficients of about 1e14.
+
+### Added
+
+- **`NegativeBinomialRegressorBuilder::estimate_dispersion(bool)` (#49).** Opt-in Pearson χ²/df dispersion (not floored), which reproduces R's `summary.glm` default for `glm(family = MASS::negative.binomial(θ))`. Default `false`.
+- **GLMM Wald inference (#51).** `FittedGlmm::z_values() -> Vec<f64>` (`β̂/SE`), `FittedGlmm::p_values() -> Vec<f64>` (two-sided normal) and `FittedGlmm::conf_int(level: f64) -> (Vec<f64>, Vec<f64>)` (Wald `β̂ ∓ z·SE`) cover all fixed effects, intercept first. They match lme4's `summary()` z / `Pr(>|z|)` and `confint(method = "Wald")` for `lmer` and `glmer(nAGQ = 0)` (Poisson, binomial). For a Gaussian LMM the p-value is the asymptotic normal approximation. References: `tests/r_scripts/generate_glmm_inference_validation.R`.
+
 ## [0.5.14] - 2026-10-08
 
 ### Behaviour changes (results now match R)
