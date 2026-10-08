@@ -83,6 +83,7 @@ enum Response {
 /// grouping factor.
 pub struct GlmmRegressor {
     response: Response,
+    kind: ResponseKind,
     with_intercept: bool,
     /// Whether the random-effects design includes a random intercept.
     random_intercept: bool,
@@ -183,9 +184,9 @@ impl GlmmRegressor {
 
         match &self.response {
             Response::Gaussian => self.fit_lmm(&design, &z, y, &group_idx, n_groups, p, q),
-            Response::Glm(family) => {
-                self.fit_glmm(family.as_ref(), &design, &z, y, &group_idx, n_groups, p, q)
-            }
+            Response::Glm(family) => self
+                .fit_glmm(family.as_ref(), &design, &z, y, &group_idx, n_groups, p, q)
+                .map(|f| self.with_saturated_term(f, y)),
         }
     }
 
@@ -305,18 +306,20 @@ impl GlmmRegressor {
                 &n_levels,
                 &col_offset,
             ),
-            Response::Glm(family) => self.fit_glmm_multi(
-                family.as_ref(),
-                &design,
-                y,
-                &obs_cols,
-                &col_factor,
-                m_dim,
-                p,
-                n_factors,
-                &n_levels,
-                &col_offset,
-            ),
+            Response::Glm(family) => self
+                .fit_glmm_multi(
+                    family.as_ref(),
+                    &design,
+                    y,
+                    &obs_cols,
+                    &col_factor,
+                    m_dim,
+                    p,
+                    n_factors,
+                    &n_levels,
+                    &col_offset,
+                )
+                .map(|f| self.with_saturated_term(f, y)),
         }
     }
 
@@ -384,6 +387,22 @@ impl GlmmRegressor {
     }
 
     // ---------------------------------------------------------------- GLMM ---
+
+    /// The Laplace deviance is relative to the saturated model; add the
+    /// saturated log-likelihood `Σ log f(yᵢ | μᵢ = yᵢ)` so that
+    /// `log_likelihood` matches lme4's `logLik(glmer)` (zero for 0/1 data).
+    fn with_saturated_term(&self, mut fitted: FittedGlmm, y: &Col<f64>) -> FittedGlmm {
+        let yv: Vec<f64> = y.iter().copied().collect();
+        let sat = match self.kind {
+            ResponseKind::Poisson => super::fit_stats::poisson_saturated_log_likelihood(&yv),
+            ResponseKind::Binomial => {
+                super::fit_stats::binomial_saturated_log_likelihood(&yv, None)
+            }
+            ResponseKind::Gaussian => 0.0,
+        };
+        fitted.log_likelihood = -0.5 * fitted.deviance + sat;
+        fitted
+    }
 
     /// Fit a non-Gaussian GLMM by profiling the Laplace deviance over θ, with a
     /// PIRLS inner loop finding the conditional modes at each θ.
@@ -802,7 +821,10 @@ impl FittedGlmm {
         self.deviance
     }
 
-    /// Log-likelihood (−deviance / 2).
+    /// Log-likelihood. For the Gaussian LMM it is `−deviance / 2` (the REML
+    /// criterion for a REML fit); for Poisson / binomial GLMMs it is the
+    /// Laplace-approximate log-likelihood including the saturated term,
+    /// `−deviance/2 + Σ log f(yᵢ | μᵢ = yᵢ)`, as lme4's `logLik(glmer)`.
     pub fn log_likelihood(&self) -> f64 {
         self.log_likelihood
     }
@@ -949,6 +971,7 @@ impl GlmmRegressorBuilder {
         };
         GlmmRegressor {
             response,
+            kind: self.kind,
             with_intercept: self.with_intercept,
             random_intercept: self.random_intercept,
             random_slopes: self.random_slopes,

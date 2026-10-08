@@ -323,7 +323,7 @@ impl BinomialRegressor {
 
             // Solve using QR decomposition
             let qr = xtwx.qr();
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r: Mat<f64> = qr.R().to_owned();
 
             // Solve R β = Q' (X'Wz)
@@ -357,7 +357,7 @@ impl BinomialRegressor {
             }
 
             let qr = x_weighted.col_piv_qr();
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
             let perm = qr.P();
 
@@ -546,6 +546,7 @@ impl BinomialRegressor {
         }
 
         Ok(FittedBinomial {
+            reduced: None,
             result,
             options: self.options.clone(),
             family: self.family,
@@ -581,7 +582,7 @@ impl BinomialRegressor {
         }
 
         let qr = xtwx.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R().to_owned();
 
         let mut xtwx_inv: Mat<f64> = Mat::zeros(n_params, n_params);
@@ -666,6 +667,20 @@ impl Regressor for BinomialRegressor {
             }
         }
 
+        if let Some(keep) = super::glm_alias::columns_to_keep(
+            x,
+            self.options.with_intercept,
+            self.options.rank_tolerance,
+        ) {
+            let x_kept = super::glm_alias::select_columns(x, &keep);
+            let inner = self.fit_irls(&x_kept, y)?;
+            let mut outer = inner.clone();
+            outer.result = super::glm_alias::expand_result(&inner.result, &keep, n_features);
+            outer.aliased = outer.result.aliased.clone();
+            outer.reduced = Some((Box::new(inner), keep));
+            return Ok(outer);
+        }
+
         self.fit_irls(x, y)
     }
 }
@@ -721,6 +736,9 @@ impl Regressor for BinomialRegressor {
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedBinomial {
+    /// When constant columns were dropped (intercept model): the fit on the
+    /// kept columns and their indices. Predictions delegate to it.
+    reduced: Option<(Box<FittedBinomial>, Vec<usize>)>,
     result: RegressionResult,
     options: RegressionOptions,
     family: BinomialFamily,
@@ -787,6 +805,9 @@ impl FittedBinomial {
     ///
     /// The offset enters the linear predictor: η = Xβ + offset.
     pub fn predict_with_offset(&self, x: &Mat<f64>, offset: &Col<f64>) -> Col<f64> {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict_with_offset(&super::glm_alias::select_columns(x, keep), offset);
+        }
         let n_samples = x.nrows();
         let n_features = x.ncols();
         let intercept = self.result.intercept.unwrap_or(0.0);
@@ -809,6 +830,14 @@ impl FittedBinomial {
         interval: Option<IntervalType>,
         level: f64,
     ) -> PredictionResult {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict_with_se(
+                &super::glm_alias::select_columns(x, keep),
+                pred_type,
+                interval,
+                level,
+            );
+        }
         let n_new = x.nrows();
         let n_features = x.ncols();
 
@@ -920,6 +949,9 @@ impl FittedBinomial {
 
 impl FittedRegressor for FittedBinomial {
     fn predict(&self, x: &Mat<f64>) -> Col<f64> {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict(&super::glm_alias::select_columns(x, keep));
+        }
         let n_samples = x.nrows();
         let n_features = x.ncols();
         let intercept = self.result.intercept.unwrap_or(0.0);

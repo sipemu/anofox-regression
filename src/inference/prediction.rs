@@ -457,22 +457,40 @@ pub fn compute_xtwx_inverse_reduced(
     compute_matrix_inverse(&xtwx)
 }
 
-/// General matrix inverse using QR decomposition.
+/// Inverse of a symmetric positive (semi-)definite matrix such as `X'X`.
+///
+/// The matrix is first equilibrated, `S = D A D` with `D = diag(1/sqrt(a_jj))`,
+/// so that the singularity test is scale-free: a column measured in tiny units
+/// (e.g. `x · 1e-12`, giving `a_jj ~ 1e-24`) is not mistaken for a singular
+/// direction, and exact collinearity among large columns is still detected.
+/// `A⁻¹ = D S⁻¹ D`.
 pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
     let n = matrix.nrows();
+    if n == 0 {
+        return Ok(Mat::zeros(0, 0));
+    }
+    let mut d = vec![0.0; n];
+    for (j, dj) in d.iter_mut().enumerate() {
+        let a = matrix[(j, j)];
+        if !(a.is_finite() && a > 0.0) {
+            return Err("Matrix is singular");
+        }
+        *dj = 1.0 / a.sqrt();
+    }
+    let scaled = Mat::from_fn(n, n, |i, j| matrix[(i, j)] * d[i] * d[j]);
 
-    let qr: faer::linalg::solvers::Qr<f64> = matrix.qr();
-    let q = qr.compute_Q();
+    let qr: faer::linalg::solvers::Qr<f64> = scaled.qr();
+    let q = qr.compute_thin_Q();
     let r = qr.R();
 
-    // Check if R is singular
+    // S has a unit diagonal, so |R_ii| is a scale-free conditioning measure.
     for i in 0..n {
-        if r[(i, i)].abs() < 1e-10 {
+        if r[(i, i)].abs().is_nan() || r[(i, i)].abs() <= 1e-12 {
             return Err("Matrix is singular");
         }
     }
 
-    // Solve R * X = Q' for each column of identity to get inverse
+    // Solve R * X = Q' for each column of identity to get S^-1
     let mut inv = Mat::zeros(n, n);
     let qt = q.transpose();
 
@@ -486,7 +504,7 @@ pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'st
         }
     }
 
-    Ok(inv)
+    Ok(Mat::from_fn(n, n, |i, j| inv[(i, j)] * d[i] * d[j]))
 }
 
 #[cfg(test)]

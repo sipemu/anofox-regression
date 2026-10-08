@@ -52,7 +52,7 @@ fn compute_xtx(design: &Mat<f64>) -> Mat<f64> {
 fn compute_xtx_inverse(xtx: &Mat<f64>) -> Mat<f64> {
     let p = xtx.nrows();
     let qr = xtx.qr();
-    let q = qr.compute_Q();
+    let q = qr.compute_thin_Q();
     let r = qr.R().to_owned();
     let qt = q.transpose().to_owned();
 

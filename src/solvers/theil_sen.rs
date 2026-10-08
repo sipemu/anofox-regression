@@ -43,6 +43,10 @@ pub struct TheilSenRegressor {
     max_iter: usize,
     tol: f64,
     random_state: u64,
+    /// Univariate (one feature, with intercept) fits use the classical
+    /// median of pairwise slopes. `false` selects sklearn's spatial-median
+    /// algorithm for that case as well.
+    univariate_pairwise: bool,
 }
 
 impl Default for TheilSenRegressor {
@@ -54,6 +58,7 @@ impl Default for TheilSenRegressor {
             max_iter: 300,
             tol: 1e-3,
             random_state: 0,
+            univariate_pairwise: true,
         }
     }
 }
@@ -91,10 +96,22 @@ impl Regressor for TheilSenRegressor {
             });
         }
 
-        // sklearn applies the same spatial-median-over-subsamples algorithm
-        // to both 1-D and multi-D inputs (so the univariate result is the
-        // L1 geometric median of pairwise (intercept, slope) vectors, not
-        // the classical pairwise-slope median). We match that behavior.
+        // Univariate with intercept: the classical Theil–Sen estimator —
+        // slope = median of all pairwise slopes (pairs with equal x skipped),
+        // intercept = median(y − slope·x). sklearn instead applies its
+        // spatial-median-over-subsamples algorithm to 1-D inputs too; that
+        // behaviour stays available via `univariate_pairwise(false)`.
+        if p == 1 && self.with_intercept && self.univariate_pairwise {
+            let xs: Vec<f64> = (0..n).map(|i| x[(i, 0)]).collect();
+            let ys: Vec<f64> = (0..n).map(|i| y[i]).collect();
+            let slope = median_pairwise_slope(&xs, &ys).ok_or(RegressionError::SingularMatrix)?;
+            let mut res: Vec<f64> = xs.iter().zip(&ys).map(|(xi, yi)| yi - slope * xi).collect();
+            let intercept = median_in_place(&mut res);
+            return Ok(build_fitted_from_full(vec![intercept, slope], x, y, true));
+        }
+
+        // Multivariate (or univariate without intercept): sklearn's spatial
+        // median of per-subsample OLS coefficient vectors.
         let n_sub = self.effective_n_subsamples(p_eff);
         if n_sub > n {
             return Err(RegressionError::InsufficientObservations {
@@ -343,6 +360,220 @@ impl SplitMix64 {
     }
 }
 
+/// R-style median (mean of the two middle values for even length).
+fn median_in_place(v: &mut [f64]) -> f64 {
+    let n = v.len();
+    let mid = n / 2;
+    let (_, hi, _) = v.select_nth_unstable_by(mid, |a, b| a.total_cmp(b));
+    let hi = *hi;
+    if n % 2 == 1 {
+        hi
+    } else {
+        let lo = v[..mid].iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        0.5 * (lo + hi)
+    }
+}
+
+/// Above this many pairs the median slope is found by counting instead of
+/// materialising every pairwise slope.
+const EXPLICIT_PAIR_LIMIT: u64 = 4_000_000;
+
+/// Median of `(y_j − y_i)/(x_j − x_i)` over all pairs with `x_i ≠ x_j`
+/// (R `median` convention). Exact; `O(n²)` work/memory for up to
+/// [`EXPLICIT_PAIR_LIMIT`] pairs, otherwise `O(n log n)` memory and
+/// `O(n log n · log(1/ε))` time via slope-counting bisection.
+fn median_pairwise_slope(x: &[f64], y: &[f64]) -> Option<f64> {
+    median_pairwise_slope_with_limit(x, y, EXPLICIT_PAIR_LIMIT)
+}
+
+fn median_pairwise_slope_with_limit(x: &[f64], y: &[f64], explicit_limit: u64) -> Option<f64> {
+    let n = x.len();
+    // Points in (x, y) order.
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&a, &b| x[a].total_cmp(&x[b]).then(y[a].total_cmp(&y[b])));
+    let xs: Vec<f64> = idx.iter().map(|&i| x[i]).collect();
+    let ys: Vec<f64> = idx.iter().map(|&i| y[i]).collect();
+
+    // Pairs with equal x (excluded) and fully duplicated points.
+    let mut same_x: u64 = 0;
+    let mut dup: u64 = 0;
+    let mut i = 0;
+    while i < n {
+        let mut j = i;
+        while j + 1 < n && xs[j + 1] == xs[i] {
+            j += 1;
+        }
+        let g = (j - i + 1) as u64;
+        same_x += g * (g - 1) / 2;
+        let mut a = i;
+        while a <= j {
+            let mut b = a;
+            while b < j && ys[b + 1] == ys[a] {
+                b += 1;
+            }
+            let d = (b - a + 1) as u64;
+            dup += d * (d - 1) / 2;
+            a = b + 1;
+        }
+        i = j + 1;
+    }
+    let total = (n as u64) * (n as u64).saturating_sub(1) / 2;
+    let n_pairs = total - same_x;
+    if n_pairs == 0 {
+        return None;
+    }
+
+    if n_pairs <= explicit_limit {
+        let mut slopes = Vec::with_capacity(n_pairs as usize);
+        for a in 0..n {
+            for b in (a + 1)..n {
+                let dx = xs[b] - xs[a];
+                if dx != 0.0 {
+                    slopes.push((ys[b] - ys[a]) / dx);
+                }
+            }
+        }
+        return Some(median_in_place(&mut slopes));
+    }
+
+    // Counting path. G(s) = #pairs (x_a < x_b) with slope ≤ s
+    //                     = #position pairs a < b with u_b ≤ u_a, u = y − s·x,
+    // minus the duplicated points (whose u always tie).
+    let count_le = |s: f64| -> u64 {
+        let mut u: Vec<f64> = xs.iter().zip(&ys).map(|(xi, yi)| yi - s * xi).collect();
+        let mut buf = vec![0.0; n];
+        count_non_increasing_pairs(&mut u, &mut buf) - dup
+    };
+    let select = |k: u64| -> f64 {
+        // k is 1-based. Bracket with bounds on |slope|.
+        let y_range = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+            - ys.iter().copied().fold(f64::INFINITY, f64::min);
+        let mut min_dx = f64::INFINITY;
+        for w in xs.windows(2) {
+            let d = w[1] - w[0];
+            if d > 0.0 && d < min_dx {
+                min_dx = d;
+            }
+        }
+        let bound = y_range / min_dx + 1.0;
+        let (mut lo, mut hi) = (-bound, bound);
+        let (mut g_lo, mut g_hi) = (0_u64, n_pairs);
+        let cap = (4 * n as u64).max(4096);
+        for _ in 0..400 {
+            if g_hi - g_lo <= cap {
+                break;
+            }
+            let mid = 0.5 * (lo + hi);
+            if mid <= lo || mid >= hi {
+                return hi; // interval exhausted: all remaining slopes ≈ hi
+            }
+            let g = count_le(mid);
+            if g >= k {
+                hi = mid;
+                g_hi = g;
+            } else {
+                lo = mid;
+                g_lo = g;
+            }
+        }
+        // Enumerate the pairs whose slope lies in (lo, hi]: those whose
+        // u-order flips between s = lo and s = hi.
+        let mut order: Vec<usize> = (0..n).collect();
+        let u_lo: Vec<f64> = xs.iter().zip(&ys).map(|(xi, yi)| yi - lo * xi).collect();
+        order.sort_by(|&a, &b| u_lo[a].total_cmp(&u_lo[b]).then(xs[b].total_cmp(&xs[a])));
+        let mut items: Vec<(f64, usize)> = order.iter().map(|&i| (ys[i] - hi * xs[i], i)).collect();
+        let mut buf = items.clone();
+        let mut cand: Vec<f64> = Vec::new();
+        enumerate_non_increasing_pairs(&mut items, &mut buf, &mut |a, b| {
+            let dx = xs[b] - xs[a];
+            if dx != 0.0 {
+                cand.push((ys[b] - ys[a]) / dx);
+            }
+        });
+        cand.sort_by(|a, b| a.total_cmp(b));
+        let r = k.saturating_sub(g_lo + 1) as usize;
+        cand.get(r.min(cand.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(hi)
+    };
+
+    let m = n_pairs;
+    Some(if m % 2 == 1 {
+        select(m.div_ceil(2))
+    } else {
+        0.5 * (select(m / 2) + select(m / 2 + 1))
+    })
+}
+
+/// Number of index pairs `a < b` with `v[b] <= v[a]` (merge sort; sorts `v`).
+fn count_non_increasing_pairs(v: &mut [f64], buf: &mut [f64]) -> u64 {
+    let n = v.len();
+    if n < 2 {
+        return 0;
+    }
+    let mid = n / 2;
+    let mut c = {
+        let (l, r) = v.split_at_mut(mid);
+        let (bl, br) = buf.split_at_mut(mid);
+        count_non_increasing_pairs(l, bl) + count_non_increasing_pairs(r, br)
+    };
+    let (mut i, mut j, mut k) = (0, mid, 0);
+    while i < mid && j < n {
+        if v[i] < v[j] {
+            buf[k] = v[i];
+            i += 1;
+        } else {
+            buf[k] = v[j];
+            c += (mid - i) as u64;
+            j += 1;
+        }
+        k += 1;
+    }
+    buf[k..k + (mid - i)].copy_from_slice(&v[i..mid]);
+    k += mid - i;
+    buf[k..k + (n - j)].copy_from_slice(&v[j..n]);
+    v.copy_from_slice(&buf[..n]);
+    c
+}
+
+/// Calls `f(i, j)` (original point ids) for every position pair `a < b` with
+/// `v[b] <= v[a]`, sorting `items` by value.
+fn enumerate_non_increasing_pairs(
+    items: &mut [(f64, usize)],
+    buf: &mut [(f64, usize)],
+    f: &mut impl FnMut(usize, usize),
+) {
+    let n = items.len();
+    if n < 2 {
+        return;
+    }
+    let mid = n / 2;
+    {
+        let (l, r) = items.split_at_mut(mid);
+        let (bl, br) = buf.split_at_mut(mid);
+        enumerate_non_increasing_pairs(l, bl, f);
+        enumerate_non_increasing_pairs(r, br, f);
+    }
+    let (mut i, mut j, mut k) = (0, mid, 0);
+    while i < mid && j < n {
+        if items[i].0 < items[j].0 {
+            buf[k] = items[i];
+            i += 1;
+        } else {
+            for l in &items[i..mid] {
+                f(l.1, items[j].1);
+            }
+            buf[k] = items[j];
+            j += 1;
+        }
+        k += 1;
+    }
+    buf[k..k + (mid - i)].copy_from_slice(&items[i..mid]);
+    k += mid - i;
+    buf[k..k + (n - j)].copy_from_slice(&items[j..n]);
+    items.copy_from_slice(&buf[..n]);
+}
+
 fn build_fitted_from_full(
     beta: Vec<f64>,
     x: &Mat<f64>,
@@ -489,6 +720,14 @@ impl TheilSenRegressorBuilder {
         self.inner.random_state = seed;
         self
     }
+    /// Use the classical median of pairwise slopes for one-feature fits with
+    /// an intercept (default `true`, matching R's Theil–Sen / Sen 1968).
+    /// `false` uses sklearn's spatial-median-over-subsamples algorithm, which
+    /// gives a different estimate in 1-D.
+    pub fn univariate_pairwise(mut self, enabled: bool) -> Self {
+        self.inner.univariate_pairwise = enabled;
+        self
+    }
     pub fn build(self) -> TheilSenRegressor {
         self.inner
     }
@@ -497,6 +736,38 @@ impl TheilSenRegressorBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn median_pairwise_slope_counting_matches_explicit() {
+        // Deterministic pseudo-random data with ties in x and duplicated points.
+        let mut s: u64 = 7;
+        let mut rnd = || {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((s >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        for &n in &[50usize, 301, 1000] {
+            let x: Vec<f64> = (0..n).map(|_| (rnd() * 40.0).floor()).collect();
+            let mut y: Vec<f64> = x.iter().map(|xi| 0.7 * xi + (rnd() - 0.5) * 10.0).collect();
+            y[3] = y[2];
+            let exact = median_pairwise_slope_with_limit(&x, &y, u64::MAX).unwrap();
+            let counted = median_pairwise_slope_with_limit(&x, &y, 0).unwrap();
+            assert!(
+                (exact - counted).abs() < 1e-12,
+                "n={n}: {exact} vs {counted}"
+            );
+            // continuous x as well
+            let xc: Vec<f64> = (0..n).map(|_| rnd() * 10.0).collect();
+            let yc: Vec<f64> = xc.iter().map(|xi| -1.3 * xi + rnd()).collect();
+            let exact = median_pairwise_slope_with_limit(&xc, &yc, u64::MAX).unwrap();
+            let counted = median_pairwise_slope_with_limit(&xc, &yc, 0).unwrap();
+            assert!(
+                (exact - counted).abs() < 1e-12,
+                "n={n}: {exact} vs {counted}"
+            );
+        }
+    }
 
     #[test]
     fn univariate_exact_slope() {

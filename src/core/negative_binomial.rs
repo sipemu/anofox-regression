@@ -16,6 +16,7 @@
 //! ```
 
 use super::family::GlmFamily;
+use statrs::function::gamma::digamma;
 
 /// Negative Binomial family for overdispersed count data.
 ///
@@ -119,8 +120,8 @@ impl GlmFamily for NegativeBinomialFamily {
         let theta = self.theta;
 
         if y < 1e-10 {
-            // d(0, μ) = 2θ·log((θ)/(μ + θ)) = -2θ·log(1 + μ/θ)
-            2.0 * theta * (theta / (mu_safe + theta)).ln()
+            // d(0, μ) = 2[0 − θ·log(θ/(μ + θ))] = 2θ·log(1 + μ/θ) ≥ 0
+            2.0 * theta * (mu_safe / theta).ln_1p()
         } else {
             // Full formula
             let term1 = y * (y / mu_safe).ln();
@@ -170,62 +171,98 @@ pub fn estimate_theta_moments(y: &[f64], mu: &[f64]) -> f64 {
     (mu_bar / overdispersion).max(0.1)
 }
 
-/// Estimate theta using maximum likelihood (Newton-Raphson).
+/// Maximum-likelihood estimate of θ given fitted means (MASS::theta.ml).
 ///
-/// Iteratively updates theta to maximize the negative binomial log-likelihood.
+/// Newton–Raphson on the exact negative binomial profile log-likelihood in θ,
+/// started from the moment estimate `n / Σ (y/μ − 1)²` exactly as
+/// `MASS::theta.ml` does:
+///
+/// - score  `U(θ) = Σ [ψ(θ+y) − ψ(θ) + ln θ + 1 − ln(θ+μ) − (y+θ)/(μ+θ)]`
+/// - info   `I(θ) = Σ [−ψ'(θ+y) + ψ'(θ) − 1/θ + 2/(μ+θ) − (y+θ)/(μ+θ)²]`
+/// - update `θ ← θ + U/I`
 pub fn estimate_theta_ml(y: &[f64], mu: &[f64], max_iter: usize, tol: f64) -> f64 {
-    let _n = y.len();
+    let n = y.len() as f64;
 
-    // Start with method of moments estimate
-    let mut theta = estimate_theta_moments(y, mu);
-    theta = theta.clamp(0.1, 1e6);
+    // MASS starting value: n / Σ (y/μ − 1)².
+    let denom: f64 = y
+        .iter()
+        .zip(mu.iter())
+        .map(|(&yi, &mui)| (yi / mui.max(1e-10) - 1.0).powi(2))
+        .sum();
+    let mut theta = if denom > 0.0 && denom.is_finite() {
+        n / denom
+    } else {
+        estimate_theta_moments(y, mu)
+    };
+    theta = theta.clamp(1e-4, 1e8);
 
-    for _ in 0..max_iter {
-        // Compute score and Fisher information
+    for _ in 0..max_iter.max(1) {
         let (score, info) = theta_score_and_info(y, mu, theta);
-
-        // Newton step
-        if info.abs() < 1e-14 {
+        if !score.is_finite() || !info.is_finite() || info.abs() < 1e-300 {
             break;
         }
-        let delta = score / info;
-
-        // Damped update to ensure positivity
-        let new_theta = (theta + delta).clamp(0.01, 1e8);
-
-        if (new_theta - theta).abs() < tol * theta.max(1.0) {
-            theta = new_theta;
-            break;
+        let mut new_theta = theta + score / info;
+        if new_theta.is_nan() || new_theta <= 0.0 {
+            // Newton overshot into θ ≤ 0: fall back to halving towards 0.
+            new_theta = theta / 2.0;
         }
+        let new_theta = new_theta.min(1e8);
+        let converged = (new_theta - theta).abs() < tol * theta.max(1.0);
         theta = new_theta;
+        if converged {
+            break;
+        }
     }
 
     theta
 }
 
-/// Compute score and Fisher information for theta.
+/// Score and (observed) information of the NB log-likelihood w.r.t. θ.
 fn theta_score_and_info(y: &[f64], mu: &[f64], theta: f64) -> (f64, f64) {
     let mut score = 0.0;
     let mut info = 0.0;
+    let psi_t = digamma(theta);
+    let tri_t = trigamma(theta);
 
     for (&yi, &mui) in y.iter().zip(mu.iter()) {
         let mui = mui.max(1e-10);
-
-        // Score: ∂ℓ/∂θ = Σ[ψ(y + θ) - ψ(θ) + log(θ) - log(μ + θ) + 1 - (y + θ)/(μ + θ)]
-        // where ψ is the digamma function
-        // Simplified approximation using log terms
-        score += (theta / (mui + theta)).ln() + (yi - mui) / (mui + theta);
-
-        // Information (simplified)
-        info += 1.0 / theta - 1.0 / (mui + theta);
+        let mt = mui + theta;
+        score += digamma(theta + yi) - psi_t + theta.ln() + 1.0 - mt.ln() - (yi + theta) / mt;
+        info += -trigamma(theta + yi) + tri_t - 1.0 / theta + 2.0 / mt - (yi + theta) / (mt * mt);
     }
 
-    (score, info.abs().max(1e-10))
+    (score, info)
+}
+
+/// Trigamma function ψ'(x) for x > 0 (recurrence + asymptotic expansion).
+fn trigamma(mut x: f64) -> f64 {
+    let mut acc = 0.0;
+    while x < 10.0 {
+        acc += 1.0 / (x * x);
+        x += 1.0;
+    }
+    let x2 = 1.0 / (x * x);
+    // ψ'(x) ~ 1/x + 1/(2x²) + 1/(6x³) − 1/(30x⁵) + 1/(42x⁷) − 1/(30x⁹) + 5/(66x¹¹)
+    acc + 1.0 / x
+        + x2 / 2.0
+        + (1.0 / x)
+            * x2
+            * (1.0 / 6.0
+                + x2 * (-1.0 / 30.0 + x2 * (1.0 / 42.0 + x2 * (-1.0 / 30.0 + x2 * (5.0 / 66.0)))))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_trigamma_known_values() {
+        let pi2 = std::f64::consts::PI.powi(2);
+        assert!((trigamma(1.0) - pi2 / 6.0).abs() < 1e-12);
+        assert!((trigamma(0.5) - pi2 / 2.0).abs() < 1e-12);
+        // ψ'(x+1) = ψ'(x) − 1/x²
+        assert!((trigamma(7.3) - (trigamma(6.3) - 1.0 / (6.3 * 6.3))).abs() < 1e-13);
+    }
 
     #[test]
     fn test_variance() {
@@ -274,10 +311,14 @@ mod tests {
         let nb = NegativeBinomialFamily::new(2.0);
 
         // y = 0, μ = 1, θ = 2
-        // d(0, 1) = 2 * 2 * ln(2/3) ≈ -1.62
+        // d(0, 1) = -2θ·ln(θ/(μ+θ)) = 2 * 2 * ln(3/2) ≈ 1.62 (unit deviances are ≥ 0)
         let dev = nb.unit_deviance(0.0, 1.0);
-        let expected = 2.0 * 2.0 * (2.0 / 3.0_f64).ln();
-        assert!((dev - expected).abs() < 1e-6);
+        let expected = 2.0 * 2.0 * (3.0 / 2.0_f64).ln();
+        assert!((dev - expected).abs() < 1e-12);
+        assert!(dev > 0.0);
+        // Continuous with the general formula as y → 0+.
+        let near_zero = nb.unit_deviance(1e-9, 1.0);
+        assert!((near_zero - dev).abs() < 1e-6);
     }
 
     #[test]

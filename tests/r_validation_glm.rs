@@ -1195,3 +1195,68 @@ fn test_r_validation_poisson_offset() {
         epsilon = 0.5
     );
 }
+
+/// Negative binomial with zero counts (unit deviance for y = 0 must be
+/// 2θ·log(1 + μ/θ) ≥ 0; it used to have the wrong sign).
+///
+/// R Code:
+/// ```r
+/// library(MASS)
+/// y <- c(0,1,0,3,2,0,5,1,4,0); x <- 1:10
+/// ctl <- glm.control(epsilon = 1e-15, maxit = 200)
+/// m2 <- glm(y ~ x, family = negative.binomial(2), control = ctl)
+/// coef(m2); deviance(m2); sqrt(diag(vcov(m2)))
+/// # -0.376446912626645  0.141630533445631 ; 12.3683603809573
+/// # SE 0.853518269241255 0.126278622279598
+/// m <- glm.nb(y ~ x, control = ctl)
+/// coef(m); m$theta; deviance(m); m$null.deviance
+/// # -0.413484320657350 0.147818215991649 ; theta 1.40131473643685
+/// # deviance 10.8989256029157 ; null 11.92342628726
+/// ```
+#[test]
+fn test_negative_binomial_zero_counts_vs_r() {
+    let x = Mat::from_fn(10, 1, |i, _| (i + 1) as f64);
+    let yv = [0.0, 1.0, 0.0, 3.0, 2.0, 0.0, 5.0, 1.0, 4.0, 0.0];
+    let y = Col::from_fn(10, |i| yv[i]);
+
+    let fixed = NegativeBinomialRegressor::with_theta(2.0)
+        .with_intercept(true)
+        .compute_inference(true)
+        .build()
+        .fit(&x, &y)
+        .expect("fixed-theta NB fit with zeros should succeed");
+    let r = fixed.result();
+    assert_relative_eq!(r.intercept.unwrap(), -0.376446912626645, epsilon = 1e-6);
+    assert_relative_eq!(r.coefficients[0], 0.141630533445631, epsilon = 1e-6);
+    assert_relative_eq!(fixed.deviance, 12.3683603809573, epsilon = 1e-6);
+    assert_relative_eq!(
+        r.std_errors.as_ref().unwrap()[0],
+        0.126278622279598,
+        epsilon = 1e-5
+    );
+    assert_relative_eq!(
+        r.intercept_std_error.unwrap(),
+        0.853518269241255,
+        epsilon = 1e-5
+    );
+
+    let est = NegativeBinomialRegressor::builder()
+        .with_intercept(true)
+        .build()
+        .fit(&x, &y)
+        .expect("theta-estimating NB fit with zeros should succeed");
+    assert!(est.deviance > 0.0 && est.null_deviance > 0.0);
+    assert_relative_eq!(est.theta, 1.40131473643685, epsilon = 1e-4);
+    assert_relative_eq!(
+        est.result().intercept.unwrap(),
+        -0.413484320657350,
+        epsilon = 1e-5
+    );
+    assert_relative_eq!(
+        est.result().coefficients[0],
+        0.147818215991649,
+        epsilon = 1e-5
+    );
+    assert_relative_eq!(est.deviance, 10.8989256029157, epsilon = 1e-4);
+    assert_relative_eq!(est.null_deviance, 11.92342628726, epsilon = 1e-4);
+}

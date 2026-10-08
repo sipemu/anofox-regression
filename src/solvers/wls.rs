@@ -10,11 +10,11 @@ use crate::inference::{
 };
 use crate::solvers::ols::OlsRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
-use crate::utils::detect_constant_columns;
+use crate::utils::{detect_constant_columns_relative, detect_zero_columns};
 use faer::linalg::solvers::Qr;
 use faer::prelude::Solve;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, FisherSnedecor, StudentsT};
+use statrs::distribution::{ContinuousCDF, StudentsT};
 
 /// Weighted Least Squares regression estimator.
 ///
@@ -133,16 +133,22 @@ impl Regressor for WlsRegressor {
             });
         }
 
-        // Check if all weights are equal - if so, delegate to OLS
-        let first_weight = weights[0];
-        let all_equal = weights.iter().all(|&w| (w - first_weight).abs() < 1e-14);
+        // Unit weights: WLS is exactly OLS, delegate. (Other constant weights
+        // give the same coefficients but scale the RSS, sigma and the
+        // log-likelihood like R's lm(weights = c), so they take the weighted
+        // path.)
+        let all_unit = weights.iter().all(|&w| (w - 1.0).abs() < 1e-14);
 
-        if all_equal && first_weight > 0.0 {
+        if all_unit {
             let ols = OlsRegressor::new(self.options.clone());
             let ols_fitted = ols.fit(x, y)?;
             // For uniform weights, use unweighted (X'X)⁻¹ with aliased columns filtered
             let aliased = ols_fitted.result().aliased.clone();
-            let xtx_inverse = compute_xtx_inverse_augmented_reduced(x, &aliased).ok();
+            let xtx_inverse = if self.options.with_intercept {
+                compute_xtx_inverse_augmented_reduced(x, &aliased).ok()
+            } else {
+                crate::inference::compute_xtx_inverse_reduced(x, &aliased).ok()
+            };
             return Ok(FittedWls {
                 options: self.options.clone(),
                 weights: weights.clone(),
@@ -172,10 +178,11 @@ impl Regressor for WlsRegressor {
             // Pass ORIGINAL (unweighted) x, y and weights - centering happens inside
             let (x_centered, y_centered, x_means, y_mean) = self.weighted_center(x, y, &weights);
 
-            // Detect constant columns in CENTERED weighted data
-            // This is important for extreme weights like 1/x² where x*sqrt(1/x²)=1 is constant
-            // but the centered weighted data has variation
-            let constant_cols = detect_constant_columns(&x_centered, self.options.rank_tolerance);
+            // Constant columns of the ORIGINAL design are collinear with the
+            // intercept (scale-relative test, see OLS). Note that a column such
+            // as x with weights 1/x² is not constant here, although
+            // sqrt(w)·x is, which is why the original x is tested.
+            let constant_cols = detect_constant_columns_relative(x, self.options.rank_tolerance);
 
             // Dispatch to selected solver
             let (coefficients, aliased, rank) = match self.options.solver {
@@ -239,8 +246,9 @@ impl Regressor for WlsRegressor {
                 aliased,
             })
         } else {
-            // No intercept case - detect constant columns in weighted data
-            let constant_cols = detect_constant_columns(&x_weighted, self.options.rank_tolerance);
+            // No intercept: a constant column is the intercept and is kept;
+            // only identically-zero columns are dropped (see OLS).
+            let constant_cols = detect_zero_columns(x);
             let (coefficients, aliased, rank) = match self.options.solver {
                 SolverType::Qr => self.solve_with_qr(&x_weighted, &y_weighted, &constant_cols)?,
                 SolverType::Svd => self.solve_with_svd(&x_weighted, &y_weighted, &constant_cols)?,
@@ -358,7 +366,7 @@ impl WlsRegressor {
         let mut aliased = constant_cols.to_vec();
 
         let qr = x.col_piv_qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
         let perm = qr.P();
 
@@ -439,7 +447,7 @@ impl WlsRegressor {
 
         let mut aliased = constant_cols.to_vec();
 
-        let svd = x.svd().map_err(|_| RegressionError::SingularMatrix)?;
+        let svd = x.thin_svd().map_err(|_| RegressionError::SingularMatrix)?;
         let u = svd.U();
         let s = svd.S();
         let s_col = s.column_vector();
@@ -555,97 +563,14 @@ impl WlsRegressor {
         let n = y.nrows();
         let n_features = x.ncols();
 
-        // Compute weighted mean of y
-        let sum_w: f64 = weights.iter().sum();
-        let y_mean: f64 = y
-            .iter()
-            .zip(weights.iter())
-            .map(|(&yi, &wi)| wi * yi)
-            .sum::<f64>()
-            / sum_w;
-
-        // Compute weighted TSS
-        let tss: f64 = y
-            .iter()
-            .zip(weights.iter())
-            .map(|(&yi, &wi)| wi * (yi - y_mean).powi(2))
-            .sum();
-
-        // Compute weighted RSS
-        let rss: f64 = residuals
-            .iter()
-            .zip(weights.iter())
-            .map(|(&ri, &wi)| wi * ri.powi(2))
-            .sum();
-
-        // R-squared
-        let r_squared = if tss > 0.0 {
-            (1.0 - rss / tss).clamp(0.0, 1.0)
-        } else if rss < 1e-10 {
-            1.0
-        } else {
-            0.0
-        };
-
-        // Adjusted R-squared
-        let df_total = (n - 1) as f64;
-        let df_resid = (n - n_params) as f64;
-        let adj_r_squared = if df_resid > 0.0 && df_total > 0.0 {
-            1.0 - (1.0 - r_squared) * df_total / df_resid
-        } else {
-            f64::NAN
-        };
-
-        // MSE and RMSE (weighted)
-        let mse = if df_resid > 0.0 {
-            rss / df_resid
-        } else {
-            f64::NAN
-        };
-        let rmse = mse.sqrt();
-
-        // F-statistic
-        let ess = tss - rss;
-        let df_model = (n_params - if intercept.is_some() { 1 } else { 0 }) as f64;
-        let f_statistic = if df_model > 0.0 && df_resid > 0.0 && mse > 0.0 {
-            (ess / df_model) / mse
-        } else {
-            f64::NAN
-        };
-
-        let f_pvalue = if f_statistic.is_finite() && df_model > 0.0 && df_resid > 0.0 {
-            FisherSnedecor::new(df_model, df_resid)
-                .ok()
-                .map_or(f64::NAN, |d| 1.0 - d.cdf(f_statistic))
-        } else {
-            f64::NAN
-        };
-
-        // Information criteria
-        let log_likelihood = if mse > 0.0 {
-            -0.5 * n as f64 * (1.0 + (2.0 * std::f64::consts::PI).ln() + mse.ln())
-        } else {
-            f64::NAN
-        };
-
-        let k = n_params as f64;
-        let aic = if log_likelihood.is_finite() {
-            2.0 * k - 2.0 * log_likelihood
-        } else {
-            f64::NAN
-        };
-
-        let aicc = if log_likelihood.is_finite() && (n as f64 - k - 1.0) > 0.0 {
-            aic + 2.0 * k * (k + 1.0) / (n as f64 - k - 1.0)
-        } else {
-            f64::NAN
-        };
-
-        let bic = if log_likelihood.is_finite() {
-            k * (n as f64).ln() - 2.0 * log_likelihood
-        } else {
-            f64::NAN
-        };
+        let stats = super::fit_stats::linear_fit_stats(
+            y,
+            residuals,
+            Some(weights),
+            intercept.is_some(),
+            n_params,
+            false,
+        );
 
         let mut result = RegressionResult::empty(n_features, n);
         result.coefficients = coefficients.clone();
@@ -657,16 +582,7 @@ impl WlsRegressor {
         result.n_observations = n;
         result.aliased = aliased.to_vec();
         result.rank_tolerance = self.options.rank_tolerance;
-        result.r_squared = r_squared;
-        result.adj_r_squared = adj_r_squared;
-        result.mse = mse;
-        result.rmse = rmse;
-        result.f_statistic = f_statistic;
-        result.f_pvalue = f_pvalue;
-        result.aic = aic;
-        result.aicc = aicc;
-        result.bic = bic;
-        result.log_likelihood = log_likelihood;
+        stats.apply(&mut result);
         result.confidence_level = self.options.confidence_level;
 
         // Compute inference if requested
@@ -759,7 +675,7 @@ impl WlsRegressor {
 
             // Invert X'WX using QR
             let qr: Qr<f64> = xtwx.qr();
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
 
             let mut xtwx_inv: Mat<f64> = Mat::zeros(n_features, n_features);
@@ -822,6 +738,30 @@ pub struct FittedWls {
 }
 
 impl FittedWls {
+    /// Variance factor `M` with `Var(x₀'β̂) = σ² · x₀' M x₀` (`(X'WX)⁻¹`).
+    ///
+    /// Full dimension: `p + 1` with an intercept (index 0 is the intercept),
+    /// `p` without; rows/columns of aliased columns are zero. `None` if the
+    /// matrix could not be computed (e.g. a fit from moments).
+    pub fn variance_factor(&self) -> Option<Mat<f64>> {
+        self.xtwx_inverse.as_ref().map(|m| {
+            crate::inference::expand_reduced_factor(
+                m,
+                &self.aliased,
+                self.result.intercept.is_some(),
+            )
+        })
+    }
+
+    /// Leverage `x₀' M x₀` of new rows (`x_new` has one column per feature;
+    /// aliased columns are ignored). NaN if no variance factor is available.
+    pub fn leverage_new(&self, x_new: &Mat<f64>) -> Col<f64> {
+        match self.variance_factor() {
+            Some(m) => crate::inference::leverage_new(&m, x_new, self.result.intercept.is_some()),
+            None => Col::from_fn(x_new.nrows(), |_| f64::NAN),
+        }
+    }
+
     /// Get the options used to fit this model.
     pub fn options(&self) -> &RegressionOptions {
         &self.options

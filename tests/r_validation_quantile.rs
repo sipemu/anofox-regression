@@ -270,3 +270,77 @@ fn test_quantile_pseudo_r_squared() {
     // For this dataset with clear linear trend, R² should be reasonable
     assert!(pseudo_r2 > 0.3);
 }
+
+// Exact LP optimum (quantreg::rq, method = "br") on small data where the
+// smoothed IRLS alone used to stop at a non-optimal point (tau = 0.62).
+//
+// R Code:
+// y  <- c(0.67,-1.05,-0.42,3.19,4.54,2.12,2.7,-0.74,7.98,6.84,0.68,8.8,0.67,0.26,0.58,1.05,6.46,0.16,5.99,9.62)
+// x1 <- c(6,3.7,1.2,4.6,9.8,1.6,4.4,2,8.8,6.2,6.1,9.4,1.6,2.1,1.7,8.7,5.4,2.4,6.5,8.1)
+// x2 <- c(4.3,7,5.7,3.8,4.9,2.9,9.5,7.5,4.1,3,7.7,4.4,6.8,5.6,2.3,6.3,5.4,7.7,1.6,2.6)
+// for (t in c(0.37, 0.62)) { m <- rq(y ~ x1 + x2, tau = t, method = "br"); coef(m) }
+// # 0.37: 3.618719008264462 0.561983471074380 -0.826859504132231 ; loss 14.7457053719008
+// # 0.62: 0.299532293986638 1.068708240534521 -0.351224944320713 ; loss 14.4549650334076
+#[test]
+fn test_r_validation_quantile_exact_lp_optimum() {
+    let y = [
+        0.67, -1.05, -0.42, 3.19, 4.54, 2.12, 2.7, -0.74, 7.98, 6.84, 0.68, 8.8, 0.67, 0.26, 0.58,
+        1.05, 6.46, 0.16, 5.99, 9.62,
+    ];
+    let x1 = [
+        6.0, 3.7, 1.2, 4.6, 9.8, 1.6, 4.4, 2.0, 8.8, 6.2, 6.1, 9.4, 1.6, 2.1, 1.7, 8.7, 5.4, 2.4,
+        6.5, 8.1,
+    ];
+    let x2 = [
+        4.3, 7.0, 5.7, 3.8, 4.9, 2.9, 9.5, 7.5, 4.1, 3.0, 7.7, 4.4, 6.8, 5.6, 2.3, 6.3, 5.4, 7.7,
+        1.6, 2.6,
+    ];
+    let x = Mat::from_fn(20, 2, |i, j| if j == 0 { x1[i] } else { x2[i] });
+    let yc = Col::from_fn(20, |i| y[i]);
+    for (tau, b0, b1, b2, loss) in [
+        (
+            0.37,
+            3.618719008264462,
+            0.561983471074380,
+            -0.826859504132231,
+            14.7457053719008,
+        ),
+        (
+            0.62,
+            0.299532293986638,
+            1.068708240534521,
+            -0.351224944320713,
+            14.4549650334076,
+        ),
+    ] {
+        let fitted = QuantileRegressor::builder()
+            .tau(tau)
+            .with_intercept(true)
+            .build()
+            .fit(&x, &yc)
+            .expect("fit should succeed");
+        let r = fitted.result();
+        assert!(
+            (r.intercept.unwrap() - b0).abs() < 1e-9,
+            "tau {tau} b0 {:?}",
+            r.intercept
+        );
+        assert!(
+            (r.coefficients[0] - b1).abs() < 1e-9,
+            "tau {tau} b1 {}",
+            r.coefficients[0]
+        );
+        assert!(
+            (r.coefficients[1] - b2).abs() < 1e-9,
+            "tau {tau} b2 {}",
+            r.coefficients[1]
+        );
+        let check: f64 = (0..20)
+            .map(|i| {
+                let e = r.residuals[i];
+                e * (tau - if e < 0.0 { 1.0 } else { 0.0 })
+            })
+            .sum();
+        assert!((check - loss).abs() < 1e-9, "tau {tau} loss {check}");
+    }
+}

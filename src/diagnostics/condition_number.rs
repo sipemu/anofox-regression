@@ -100,7 +100,7 @@ pub fn condition_number(x: &Mat<f64>, with_intercept: bool) -> f64 {
         x.clone()
     };
 
-    let svd = match x_design.svd() {
+    let svd = match x_design.thin_svd() {
         Ok(svd) => svd,
         Err(_) => return f64::INFINITY,
     };
@@ -177,7 +177,7 @@ pub fn condition_diagnostic(x: &Mat<f64>, with_intercept: bool) -> ConditionDiag
         x.clone()
     };
 
-    let svd = match x_design.svd() {
+    let svd = match x_design.thin_svd() {
         Ok(svd) => svd,
         Err(_) => {
             return ConditionDiagnostic {
@@ -310,7 +310,7 @@ pub fn variance_decomposition_proportions(x: &Mat<f64>, with_intercept: bool) ->
         x.clone()
     };
 
-    let svd = match x_design.svd() {
+    let svd = match x_design.thin_svd() {
         Ok(svd) => svd,
         Err(_) => return Mat::zeros(0, 0),
     };

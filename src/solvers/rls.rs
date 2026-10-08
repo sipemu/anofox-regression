@@ -6,7 +6,6 @@ use crate::core::{
 use crate::inference::compute_prediction_intervals;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 
 /// Recursive Least Squares regression estimator.
 ///
@@ -42,12 +41,25 @@ use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 #[derive(Debug, Clone)]
 pub struct RlsRegressor {
     options: RegressionOptions,
+    /// Diagonal of the initial P matrix (`P₀ = δ·I`).
+    initial_p_diagonal: f64,
 }
+
+/// Default diagonal of the initial P matrix.
+const DEFAULT_INITIAL_P_DIAGONAL: f64 = 1e6;
 
 impl RlsRegressor {
     /// Create a new RLS regressor with the given options.
     pub fn new(options: RegressionOptions) -> Self {
-        Self { options }
+        Self {
+            options,
+            initial_p_diagonal: DEFAULT_INITIAL_P_DIAGONAL,
+        }
+    }
+
+    /// Diagonal of the initial P matrix (`P₀ = δ·I`, default `1e6`).
+    pub fn initial_p_diagonal(&self) -> f64 {
+        self.initial_p_diagonal
     }
 
     /// Create a builder for configuring the regressor.
@@ -85,8 +97,21 @@ impl Regressor for RlsRegressor {
             n_features
         };
 
-        // Initialize P matrix (inverse covariance) with large diagonal
-        let init_scale = 1e6;
+        let forgetting_ok = forgetting_factor > 0.0 && forgetting_factor <= 1.0;
+        if !forgetting_ok {
+            return Err(RegressionError::NumericalError(format!(
+                "forgetting_factor must be in (0, 1], got {forgetting_factor}"
+            )));
+        }
+        if !(self.initial_p_diagonal.is_finite() && self.initial_p_diagonal > 0.0) {
+            return Err(RegressionError::NumericalError(format!(
+                "initial_p_diagonal must be finite and > 0, got {}",
+                self.initial_p_diagonal
+            )));
+        }
+
+        // Initialize P matrix (inverse covariance) as δ·I
+        let init_scale = self.initial_p_diagonal;
         let mut p = Mat::zeros(n_params, n_params);
         for i in 0..n_params {
             p[(i, i)] = init_scale;
@@ -226,83 +251,14 @@ impl RlsRegressor {
     ) -> Result<RegressionResult, RegressionError> {
         let n = y.nrows();
 
-        // Compute y mean
-        let y_mean: f64 = y.iter().sum::<f64>() / n as f64;
-
-        // Compute TSS
-        let tss: f64 = y.iter().map(|&yi| (yi - y_mean).powi(2)).sum();
-
-        // Compute RSS
-        let rss: f64 = residuals.iter().map(|&r| r.powi(2)).sum();
-
-        // R-squared
-        let r_squared = if tss > 0.0 {
-            (1.0 - rss / tss).clamp(0.0, 1.0)
-        } else if rss < 1e-10 {
-            1.0
-        } else {
-            0.0
-        };
-
-        // Adjusted R-squared
-        let df_total = (n - 1) as f64;
-        let df_resid = (n - n_params) as f64;
-        let adj_r_squared = if df_resid > 0.0 && df_total > 0.0 {
-            1.0 - (1.0 - r_squared) * df_total / df_resid
-        } else {
-            f64::NAN
-        };
-
-        // MSE and RMSE
-        let mse = if df_resid > 0.0 {
-            rss / df_resid
-        } else {
-            f64::NAN
-        };
-        let rmse = mse.sqrt();
-
-        // F-statistic
-        let ess = tss - rss;
-        let df_model = (n_params - if intercept.is_some() { 1 } else { 0 }) as f64;
-        let f_statistic = if df_model > 0.0 && df_resid > 0.0 && mse > 0.0 {
-            (ess / df_model) / mse
-        } else {
-            f64::NAN
-        };
-
-        let f_pvalue = if f_statistic.is_finite() && df_model > 0.0 && df_resid > 0.0 {
-            FisherSnedecor::new(df_model, df_resid)
-                .ok()
-                .map_or(f64::NAN, |d| 1.0 - d.cdf(f_statistic))
-        } else {
-            f64::NAN
-        };
-
-        // Information criteria
-        let log_likelihood = if mse > 0.0 {
-            -0.5 * n as f64 * (1.0 + (2.0 * std::f64::consts::PI).ln() + mse.ln())
-        } else {
-            f64::NAN
-        };
-
-        let k = n_params as f64;
-        let aic = if log_likelihood.is_finite() {
-            2.0 * k - 2.0 * log_likelihood
-        } else {
-            f64::NAN
-        };
-
-        let aicc = if log_likelihood.is_finite() && (n as f64 - k - 1.0) > 0.0 {
-            aic + 2.0 * k * (k + 1.0) / (n as f64 - k - 1.0)
-        } else {
-            f64::NAN
-        };
-
-        let bic = if log_likelihood.is_finite() {
-            k * (n as f64).ln() - 2.0 * log_likelihood
-        } else {
-            f64::NAN
-        };
+        let stats = super::fit_stats::linear_fit_stats(
+            y,
+            residuals,
+            None,
+            intercept.is_some(),
+            n_params,
+            true,
+        );
 
         let mut result = RegressionResult::empty(n_features, n);
         result.coefficients = coefficients.clone();
@@ -314,16 +270,7 @@ impl RlsRegressor {
         result.n_observations = n;
         result.aliased = aliased.to_vec();
         result.rank_tolerance = self.options.rank_tolerance;
-        result.r_squared = r_squared;
-        result.adj_r_squared = adj_r_squared;
-        result.mse = mse;
-        result.rmse = rmse;
-        result.f_statistic = f_statistic;
-        result.f_pvalue = f_pvalue;
-        result.aic = aic;
-        result.aicc = aicc;
-        result.bic = bic;
-        result.log_likelihood = log_likelihood;
+        stats.apply(&mut result);
         result.confidence_level = self.options.confidence_level;
 
         // Note: RLS doesn't provide standard errors in the same way as OLS
@@ -400,8 +347,17 @@ impl FittedRls {
     /// Update the model with a new observation (online learning).
     ///
     /// Returns the prediction for the new observation before updating.
+    /// An observation with a non-finite `y_new` or feature value is skipped
+    /// (the state is unchanged) and NaN is returned.
+    ///
+    /// Note that only the coefficients and the P matrix are updated; the fit
+    /// statistics in [`FittedRegressor::result`] still describe the batch
+    /// that was passed to `fit`.
     pub fn update(&mut self, x_new: &Col<f64>, y_new: f64) -> f64 {
         let n_features = self.result.coefficients.nrows();
+        if !y_new.is_finite() || (0..n_features).any(|j| !x_new[j].is_finite()) {
+            return f64::NAN;
+        }
         let n_params = self.p_matrix.nrows();
         let forgetting_factor = self.options.forgetting_factor;
 
@@ -560,12 +516,13 @@ impl FittedRegressor for FittedRls {
 /// let model = RlsRegressor::builder()
 ///     .with_intercept(true)
 ///     .forgetting_factor(0.95)  // 5% discount per observation
-///     .initial_p_scale(100.0)   // Initial P matrix = 100 * I
+///     .initial_p_diagonal(100.0) // Initial P matrix = 100 * I
 ///     .build();
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct RlsRegressorBuilder {
     builder: RegressionOptionsBuilder,
+    initial_p_diagonal: Option<f64>,
 }
 
 impl RlsRegressorBuilder {
@@ -589,9 +546,23 @@ impl RlsRegressorBuilder {
         self
     }
 
+    /// Set the diagonal δ of the initial P matrix, `P₀ = δ·I` (default `1e6`).
+    ///
+    /// Large values express a vague prior on the coefficients (the fit
+    /// approaches batch OLS when the forgetting factor is 1); smaller values
+    /// shrink the early estimates towards zero and are numerically more stable.
+    pub fn initial_p_diagonal(mut self, delta: f64) -> Self {
+        self.initial_p_diagonal = Some(delta);
+        self
+    }
+
     /// Build the RLS regressor.
     pub fn build(self) -> RlsRegressor {
-        RlsRegressor::new(self.builder.build_unchecked())
+        let mut r = RlsRegressor::new(self.builder.build_unchecked());
+        if let Some(d) = self.initial_p_diagonal {
+            r.initial_p_diagonal = d;
+        }
+        r
     }
 }
 

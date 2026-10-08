@@ -13,7 +13,6 @@ use crate::core::{
 };
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 
 /// Bounded Least Squares regression estimator.
 ///
@@ -271,7 +270,7 @@ impl BlsRegressor {
 
         // Solve X_P * beta_P = y using QR decomposition
         let qr = x_passive.col_piv_qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R();
         let perm = qr.P();
 
@@ -345,76 +344,14 @@ impl BlsRegressor {
             residuals[i] = y[i] - pred;
         }
 
-        // Compute statistics
-        let y_mean: f64 = y.iter().sum::<f64>() / n_samples as f64;
-        let tss: f64 = y.iter().map(|&yi| (yi - y_mean).powi(2)).sum();
-        let rss: f64 = residuals.iter().map(|&r| r.powi(2)).sum();
-        let ess = tss - rss;
-
-        let r_squared = if tss > 0.0 {
-            (1.0 - rss / tss).clamp(0.0, 1.0)
-        } else if rss < 1e-10 {
-            1.0
-        } else {
-            0.0
-        };
-
-        let df_total = (n_samples - 1) as f64;
-        let df_resid = (n_samples.saturating_sub(n_params)) as f64;
-        let adj_r_squared = if df_resid > 0.0 && df_total > 0.0 {
-            1.0 - (1.0 - r_squared) * df_total / df_resid
-        } else {
-            f64::NAN
-        };
-
-        let mse = if df_resid > 0.0 {
-            rss / df_resid
-        } else {
-            f64::NAN
-        };
-        let rmse = mse.sqrt();
-
-        let df_model = (n_params - if intercept.is_some() { 1 } else { 0 }) as f64;
-        let f_statistic = if df_model > 0.0 && df_resid > 0.0 && mse > 0.0 {
-            (ess / df_model) / mse
-        } else {
-            f64::NAN
-        };
-
-        let f_pvalue = if f_statistic.is_finite() && df_model > 0.0 && df_resid > 0.0 {
-            FisherSnedecor::new(df_model, df_resid)
-                .map(|d| 1.0 - d.cdf(f_statistic))
-                .unwrap_or(f64::NAN)
-        } else {
-            f64::NAN
-        };
-
-        // Information criteria
-        let n = n_samples as f64;
-        let k = n_params as f64;
-        let log_likelihood = if mse > 0.0 {
-            -0.5 * n * (1.0 + (2.0 * std::f64::consts::PI).ln() + mse.ln())
-        } else {
-            f64::NAN
-        };
-
-        let aic = if log_likelihood.is_finite() {
-            2.0 * k - 2.0 * log_likelihood
-        } else {
-            f64::NAN
-        };
-
-        let aicc = if log_likelihood.is_finite() && (n - k - 1.0) > 0.0 {
-            aic + 2.0 * k * (k + 1.0) / (n - k - 1.0)
-        } else {
-            f64::NAN
-        };
-
-        let bic = if log_likelihood.is_finite() {
-            k * n.ln() - 2.0 * log_likelihood
-        } else {
-            f64::NAN
-        };
+        let stats = super::fit_stats::linear_fit_stats(
+            y,
+            &residuals,
+            None,
+            intercept.is_some(),
+            n_params,
+            true,
+        );
 
         let mut result = RegressionResult::empty(n_features, n_samples);
         result.coefficients = coefficients;
@@ -425,16 +362,7 @@ impl BlsRegressor {
         result.n_parameters = n_params;
         result.n_observations = n_samples;
         result.aliased = vec![false; n_features]; // BLS doesn't have aliased in same sense
-        result.r_squared = r_squared;
-        result.adj_r_squared = adj_r_squared;
-        result.mse = mse;
-        result.rmse = rmse;
-        result.f_statistic = f_statistic;
-        result.f_pvalue = f_pvalue;
-        result.aic = aic;
-        result.aicc = aicc;
-        result.bic = bic;
-        result.log_likelihood = log_likelihood;
+        stats.apply(&mut result);
         result.confidence_level = self.options.confidence_level;
 
         // Note: Standard errors for constrained LS are complex and often not computed

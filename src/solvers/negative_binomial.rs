@@ -130,8 +130,9 @@ impl NegativeBinomialRegressor {
         let max_outer_iter = if self.estimate_theta { 25 } else { 1 };
         let mut total_iterations = 0;
         let mut converged = false;
+        let mut beta_prev_outer = Col::<f64>::zeros(n_params);
 
-        for _outer in 0..max_outer_iter {
+        for outer in 0..max_outer_iter {
             // Inner IRLS loop for given theta
             let mut eta: Vec<f64> = mu
                 .iter()
@@ -200,9 +201,20 @@ impl NegativeBinomialRegressor {
                 theta = theta.clamp(0.01, 1e8);
                 family = NegativeBinomialFamily::new(theta);
 
-                // Check outer convergence
-                if (theta - old_theta).abs() < self.theta_tol * old_theta.max(1.0)
-                    && inner_converged
+                // Check outer convergence: θ has settled, or the fitted
+                // coefficients no longer move between alternations. The latter
+                // covers data that are not overdispersed, where the profile
+                // likelihood in θ is flat (MLE θ → ∞) and the Newton iterate only
+                // jitters at a huge θ while the fit is already the Poisson limit.
+                let beta_change = beta
+                    .iter()
+                    .zip(beta_prev_outer.iter())
+                    .map(|(a, b)| (a - b).abs())
+                    .fold(0.0_f64, f64::max);
+                beta_prev_outer = beta.clone();
+                if inner_converged
+                    && ((theta - old_theta).abs() < self.theta_tol * old_theta.max(1.0)
+                        || (outer > 0 && beta_change < self.options.tolerance))
                 {
                     converged = true;
                     break;
@@ -336,7 +348,7 @@ impl NegativeBinomialRegressor {
 
             // Solve using QR decomposition
             let qr = xtwx.qr();
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r: Mat<f64> = qr.R().to_owned();
 
             // Solve R β = Q' (X'Wz)
@@ -370,7 +382,7 @@ impl NegativeBinomialRegressor {
             }
 
             let qr = x_weighted.col_piv_qr();
-            let q = qr.compute_Q();
+            let q = qr.compute_thin_Q();
             let r = qr.R();
             let perm = qr.P();
 
@@ -487,8 +499,12 @@ impl NegativeBinomialRegressor {
         };
 
         let n = n_samples as f64;
-        let k = (n_params + 1) as f64; // +1 for theta
-        let log_likelihood = -deviance / 2.0;
+        // theta counts as a parameter only when it is estimated (glm.nb);
+        // a fixed theta is a known family parameter (glm(negative.binomial(θ))).
+        let k = (n_params + usize::from(self.estimate_theta)) as f64;
+        // Full NB log-likelihood at the fitted mu and theta (MASS::glm.nb
+        // logLik), not -deviance/2, which omits the saturated term.
+        let log_likelihood = super::fit_stats::negbin_log_likelihood(&y_vec, mu, family.theta);
 
         let aic = 2.0 * k - 2.0 * log_likelihood;
         let aicc = if (n - k - 1.0) > 0.0 {
@@ -568,6 +584,7 @@ impl NegativeBinomialRegressor {
         }
 
         Ok(FittedNegativeBinomial {
+            reduced: None,
             result,
             options: self.options.clone(),
             family,
@@ -605,7 +622,7 @@ impl NegativeBinomialRegressor {
         }
 
         let qr = xtwx.qr();
-        let q = qr.compute_Q();
+        let q = qr.compute_thin_Q();
         let r = qr.R().to_owned();
 
         let mut xtwx_inv: Mat<f64> = Mat::zeros(n_params, n_params);
@@ -690,6 +707,20 @@ impl Regressor for NegativeBinomialRegressor {
             }
         }
 
+        if let Some(keep) = super::glm_alias::columns_to_keep(
+            x,
+            self.options.with_intercept,
+            self.options.rank_tolerance,
+        ) {
+            let x_kept = super::glm_alias::select_columns(x, &keep);
+            let inner = self.fit_irls(&x_kept, y)?;
+            let mut outer = inner.clone();
+            outer.result = super::glm_alias::expand_result(&inner.result, &keep, n_features);
+            outer.aliased = outer.result.aliased.clone();
+            outer.reduced = Some((Box::new(inner), keep));
+            return Ok(outer);
+        }
+
         self.fit_irls(x, y)
     }
 }
@@ -740,6 +771,9 @@ impl Regressor for NegativeBinomialRegressor {
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedNegativeBinomial {
+    /// When constant columns were dropped (intercept model): the fit on the
+    /// kept columns and their indices. Predictions delegate to it.
+    reduced: Option<(Box<FittedNegativeBinomial>, Vec<usize>)>,
     result: RegressionResult,
     options: RegressionOptions,
     family: NegativeBinomialFamily,
@@ -813,6 +847,9 @@ impl FittedNegativeBinomial {
 
     /// Predict with a new offset (for rate modeling).
     pub fn predict_with_offset(&self, x: &Mat<f64>, offset: &Col<f64>) -> Col<f64> {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict_with_offset(&super::glm_alias::select_columns(x, keep), offset);
+        }
         let n_samples = x.nrows();
         let n_features = x.ncols();
         let intercept = self.result.intercept.unwrap_or(0.0);
@@ -835,6 +872,14 @@ impl FittedNegativeBinomial {
         interval: Option<IntervalType>,
         level: f64,
     ) -> PredictionResult {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict_with_se(
+                &super::glm_alias::select_columns(x, keep),
+                pred_type,
+                interval,
+                level,
+            );
+        }
         let n_new = x.nrows();
         let n_features = x.ncols();
 
@@ -947,6 +992,9 @@ impl FittedNegativeBinomial {
 
 impl FittedRegressor for FittedNegativeBinomial {
     fn predict(&self, x: &Mat<f64>) -> Col<f64> {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict(&super::glm_alias::select_columns(x, keep));
+        }
         let n_samples = x.nrows();
         let n_features = x.ncols();
         let intercept = self.result.intercept.unwrap_or(0.0);
