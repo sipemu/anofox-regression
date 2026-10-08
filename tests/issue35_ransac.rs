@@ -48,3 +48,27 @@ fn ransac_reports_fit_statistics_of_the_inlier_ols() {
         .expect("std_errors should be available");
     assert!((se[0] - 0.018543168475545296).abs() < 1e-9);
 }
+
+#[test]
+fn ransac_constant_y_matches_sklearn() {
+    // sklearn RANSACRegressor: default residual_threshold = MAD(y) = 0 and
+    // residuals <= threshold, so all rows are inliers: intercept 5, coef 0.
+    let n = 12;
+    let x = Mat::from_fn(n, 2, |i, j| {
+        if j == 0 {
+            i as f64
+        } else {
+            ((i * 5) % 7) as f64
+        }
+    });
+    let y = Col::from_fn(n, |_| 5.0);
+    let f = RansacRegressor::builder()
+        .random_state(42)
+        .build()
+        .fit(&x, &y)
+        .expect("constant y must fit");
+    assert_eq!(f.n_inliers(), n);
+    assert!((f.result().intercept.unwrap() - 5.0).abs() < 1e-12);
+    assert!(f.result().coefficients[0].abs() < 1e-12);
+    assert!(f.result().coefficients[1].abs() < 1e-12);
+}

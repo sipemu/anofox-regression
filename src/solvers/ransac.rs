@@ -142,7 +142,10 @@ impl Regressor for RansacRegressor {
                     pred += x[(i, j)] * coef_slice[j];
                 }
                 let resid = (y[i] - pred).abs();
-                if resid < residual_threshold {
+                // `<=` as sklearn (`residuals <= residual_threshold`): with the
+                // default MAD threshold a constant y gives threshold 0 and every
+                // row with a zero residual must still count as an inlier.
+                if resid <= residual_threshold {
                     mask[i] = true;
                     inlier_count += 1;
                 }
