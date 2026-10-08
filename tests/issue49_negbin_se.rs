@@ -115,15 +115,15 @@ fn negbin_estimate_dispersion_matches_summary_glm() {
         .build()
         .fit(&x, &y)
         .unwrap();
-    close(fit.dispersion, 0.89516082533230956, 1e-6, "dispersion");
+    close(fit.dispersion, 0.895_160_825_332_309_6, 1e-6, "dispersion");
     let res = fit.result();
     let se = res.std_errors.as_ref().unwrap();
     close(
         res.intercept_std_error.unwrap(),
-        0.32197885489695210,
+        0.321_978_854_896_952_1,
         1e-6,
         "se0",
     );
-    close(se[0], 0.27947972467922549, 1e-6, "se1");
-    close(se[1], 0.29471652136293919, 1e-6, "se2");
+    close(se[0], 0.279_479_724_679_225_5, 1e-6, "se1");
+    close(se[1], 0.294_716_521_362_939_2, 1e-6, "se2");
 }
