@@ -175,6 +175,63 @@ pub(crate) fn information_criteria(log_likelihood: f64, k: f64, n: f64) -> (f64,
     (aic, aicc, bic)
 }
 
+/// Poisson log-likelihood `Σ (yᵢ ln μᵢ − μᵢ − ln yᵢ!)`, as R's `logLik(glm)`
+/// (equal to `−deviance/2` plus the saturated term).
+pub(crate) fn poisson_log_likelihood(y: &[f64], mu: &[f64]) -> f64 {
+    use statrs::function::gamma::ln_gamma;
+    y.iter()
+        .zip(mu)
+        .map(|(&yi, &mi)| {
+            let a = if yi > 0.0 { yi * mi.ln() } else { 0.0 };
+            a - mi - ln_gamma(yi + 1.0)
+        })
+        .sum()
+}
+
+/// Negative-binomial (NB2, size `θ`) log-likelihood
+/// `Σ log dnbinom(yᵢ, size = θ, mu = μᵢ)`, as `MASS::glm.nb`.
+pub(crate) fn negbin_log_likelihood(y: &[f64], mu: &[f64], theta: f64) -> f64 {
+    use statrs::function::gamma::ln_gamma;
+    y.iter()
+        .zip(mu)
+        .map(|(&yi, &mi)| {
+            let a = ln_gamma(yi + theta) - ln_gamma(theta) - ln_gamma(yi + 1.0)
+                + theta * (theta / (theta + mi)).ln();
+            if yi > 0.0 {
+                a + yi * (mi / (theta + mi)).ln()
+            } else {
+                a
+            }
+        })
+        .sum()
+}
+
+/// Saturated Poisson log-likelihood `Σ log dpois(yᵢ, yᵢ)`.
+pub(crate) fn poisson_saturated_log_likelihood(y: &[f64]) -> f64 {
+    poisson_log_likelihood(y, &y.iter().map(|&v| v.max(0.0)).collect::<Vec<_>>())
+}
+
+/// Saturated binomial log-likelihood for responses that are proportions
+/// `yᵢ` of `mᵢ` trials: `Σ log dbinom(mᵢyᵢ, mᵢ, yᵢ)`; zero for 0/1 data.
+pub(crate) fn binomial_saturated_log_likelihood(y: &[f64], trials: Option<&[f64]>) -> f64 {
+    use statrs::function::gamma::ln_gamma;
+    y.iter()
+        .enumerate()
+        .map(|(i, &yi)| {
+            let m = trials.map_or(1.0, |t| t[i]);
+            let k = (m * yi).round();
+            let mut v = ln_gamma(m + 1.0) - ln_gamma(k + 1.0) - ln_gamma(m - k + 1.0);
+            if yi > 0.0 {
+                v += k * yi.ln();
+            }
+            if yi < 1.0 {
+                v += (m - k) * (1.0 - yi).ln();
+            }
+            v
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

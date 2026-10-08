@@ -499,8 +499,12 @@ impl NegativeBinomialRegressor {
         };
 
         let n = n_samples as f64;
-        let k = (n_params + 1) as f64; // +1 for theta
-        let log_likelihood = -deviance / 2.0;
+        // theta counts as a parameter only when it is estimated (glm.nb);
+        // a fixed theta is a known family parameter (glm(negative.binomial(θ))).
+        let k = (n_params + usize::from(self.estimate_theta)) as f64;
+        // Full NB log-likelihood at the fitted mu and theta (MASS::glm.nb
+        // logLik), not -deviance/2, which omits the saturated term.
+        let log_likelihood = super::fit_stats::negbin_log_likelihood(&y_vec, mu, family.theta);
 
         let aic = 2.0 * k - 2.0 * log_likelihood;
         let aicc = if (n - k - 1.0) > 0.0 {

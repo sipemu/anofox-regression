@@ -470,7 +470,9 @@ impl PoissonRegressor {
 
         let n = n_samples as f64;
         let k = n_params as f64;
-        let log_likelihood = -deviance / 2.0;
+        // Full Poisson log-likelihood (R's logLik(glm)), not -deviance/2,
+        // which omits the saturated term.
+        let log_likelihood = super::fit_stats::poisson_log_likelihood(&y_vec, mu);
 
         let aic = 2.0 * k - 2.0 * log_likelihood;
         let aicc = if (n - k - 1.0) > 0.0 {
