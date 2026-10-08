@@ -61,6 +61,10 @@ pub struct HuberRegressor {
     max_iterations: usize,
     /// Convergence tolerance.
     tolerance: f64,
+    /// Whether to compute standard errors and inference.
+    compute_inference: bool,
+    /// Confidence level for the coefficient confidence intervals.
+    confidence_level: f64,
 }
 
 impl HuberRegressor {
@@ -72,6 +76,8 @@ impl HuberRegressor {
             with_intercept: true,
             max_iterations: 100,
             tolerance: 1e-5,
+            compute_inference: false,
+            confidence_level: 0.95,
         }
     }
 
@@ -349,9 +355,109 @@ impl HuberRegressor {
         result.n_observations = n;
         result.aliased = aliased.to_vec();
         stats.apply(&mut result);
-        result.confidence_level = 0.95;
+        result.confidence_level = self.confidence_level;
 
         result
+    }
+
+    /// Huber's (1981, §7.6) asymptotic covariance of the M-estimator, as
+    /// `MASS:::summary.rlm(method = "XtX")` computes it:
+    ///
+    /// ```text
+    /// u_i   = r_i / s,  ψ(u) = clamp(u, −k, k),  ψ'(u) = 1{|u| ≤ k}
+    /// S     = s² · Σ ψ(u_i)² / (n − p)
+    /// m     = mean ψ'(u_i)
+    /// κ     = 1 + p · var(ψ'(u)) / (n · m²)
+    /// Cov   = (S · κ² / m²) · (X'X)⁻¹     (X includes the intercept column)
+    /// ```
+    ///
+    /// t-values use `n − p` degrees of freedom. The L2 penalty `alpha` is not
+    /// part of this covariance (use `alpha(0.0)` for the classical M-estimator).
+    /// Leaves the inference fields untouched when `n ≤ p`, `s ≤ 0`, `m = 0`
+    /// or `X'X` is singular.
+    fn compute_inference(&self, x: &Mat<f64>, result: &mut RegressionResult, scale: f64) {
+        use statrs::distribution::{ContinuousCDF, StudentsT};
+        let n = x.nrows();
+        let k = x.ncols();
+        let off = usize::from(result.intercept.is_some());
+        let p = k + off;
+        if n <= p || !(scale.is_finite() && scale > 0.0) {
+            return;
+        }
+        let eps = self.epsilon;
+        let mut sum_psi2 = 0.0;
+        let mut n_inside = 0usize;
+        for i in 0..n {
+            let u = result.residuals[i] / scale;
+            let psi = u.clamp(-eps, eps);
+            sum_psi2 += psi * psi;
+            if u.abs() <= eps {
+                n_inside += 1;
+            }
+        }
+        let nf = n as f64;
+        let m = n_inside as f64 / nf;
+        if m <= 0.0 {
+            return;
+        }
+        // var(ψ') with the n − 1 divisor, as R's var().
+        let var_pp =
+            (n_inside as f64 * (1.0 - m).powi(2) + (nf - n_inside as f64) * m * m) / (nf - 1.0);
+        let kappa = 1.0 + p as f64 * var_pp / (nf * m * m);
+        let s2 = scale * scale * sum_psi2 / (nf - p as f64);
+        let factor = s2 * kappa * kappa / (m * m);
+
+        let Ok(inv) = crate::inference::compute_variance_factor(
+            x,
+            None,
+            result.intercept.is_some(),
+            &vec![false; k],
+            0.0,
+        ) else {
+            return;
+        };
+
+        let df = nf - p as f64;
+        let Ok(t_dist) = StudentsT::new(0.0, 1.0, df) else {
+            return;
+        };
+        let t_crit = t_dist.inverse_cdf(1.0 - (1.0 - self.confidence_level) / 2.0);
+        let infer = |b: f64, v: f64| -> (f64, f64, f64, f64, f64) {
+            let var = factor * v;
+            if !(var.is_finite() && var >= 0.0) {
+                return (f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN);
+            }
+            let se = var.sqrt();
+            let t = b / se;
+            let pv = 2.0 * (1.0 - t_dist.cdf(t.abs()));
+            (se, t, pv, b - t_crit * se, b + t_crit * se)
+        };
+
+        let mut se = Col::zeros(k);
+        let mut tv = Col::zeros(k);
+        let mut pv = Col::zeros(k);
+        let mut lo = Col::zeros(k);
+        let mut hi = Col::zeros(k);
+        for j in 0..k {
+            let (a, b, c, d, e) = infer(result.coefficients[j], inv[(j + off, j + off)]);
+            se[j] = a;
+            tv[j] = b;
+            pv[j] = c;
+            lo[j] = d;
+            hi[j] = e;
+        }
+        result.std_errors = Some(se);
+        result.t_statistics = Some(tv);
+        result.p_values = Some(pv);
+        result.conf_interval_lower = Some(lo);
+        result.conf_interval_upper = Some(hi);
+        if let Some(b0) = result.intercept {
+            let (a, b, c, d, e) = infer(b0, inv[(0, 0)]);
+            result.intercept_std_error = Some(a);
+            result.intercept_t_statistic = Some(b);
+            result.intercept_p_value = Some(c);
+            result.intercept_conf_interval = Some((d, e));
+        }
     }
 }
 
@@ -428,7 +534,7 @@ impl Regressor for HuberRegressor {
         let aliased = vec![false; n_features];
         let rank = n_features;
 
-        let result = self.compute_statistics(
+        let mut result = self.compute_statistics(
             y,
             &coefficients,
             intercept,
@@ -438,6 +544,9 @@ impl Regressor for HuberRegressor {
             rank,
             n_params,
         );
+        if self.compute_inference {
+            self.compute_inference(x, &mut result, sigma);
+        }
 
         Ok(FittedHuber {
             result,
@@ -542,6 +651,8 @@ pub struct HuberRegressorBuilder {
     with_intercept: bool,
     max_iterations: usize,
     tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
 }
 
 impl Default for HuberRegressorBuilder {
@@ -552,6 +663,8 @@ impl Default for HuberRegressorBuilder {
             with_intercept: true,
             max_iterations: 100,
             tolerance: 1e-5,
+            compute_inference: false,
+            confidence_level: 0.95,
         }
     }
 }
@@ -603,6 +716,20 @@ impl HuberRegressorBuilder {
         self
     }
 
+    /// Compute standard errors, t-statistics, p-values and confidence
+    /// intervals from Huber's asymptotic covariance (the `MASS::rlm`
+    /// `summary(method = "XtX")` formula). Default is false.
+    pub fn compute_inference(mut self, compute: bool) -> Self {
+        self.compute_inference = compute;
+        self
+    }
+
+    /// Confidence level for the coefficient confidence intervals (default 0.95).
+    pub fn confidence_level(mut self, level: f64) -> Self {
+        self.confidence_level = level;
+        self
+    }
+
     /// Build the Huber regressor.
     pub fn build(self) -> HuberRegressor {
         HuberRegressor {
@@ -611,6 +738,8 @@ impl HuberRegressorBuilder {
             with_intercept: self.with_intercept,
             max_iterations: self.max_iterations,
             tolerance: self.tolerance,
+            compute_inference: self.compute_inference,
+            confidence_level: self.confidence_level,
         }
     }
 }
