@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.18] - 2026-10-08
+
+### Added
+
+- **GLMM families (#29).** `GlmmRegressor::negative_binomial()` (NB2, log link; size θ estimated by maximising the profiled Laplace log-likelihood as `lme4::glmer.nb(nAGQ = 0)`, or fixed with `GlmmRegressorBuilder::nb_theta(θ)` as `glmer(family = MASS::negative.binomial(θ))`), `GlmmRegressor::gamma()` (log link, `glmer(family = Gamma(link = "log"))`) and `GlmmRegressor::tweedie(power)` (`1 < power < 2`, log link). The criterion is lme4's `ldL2 + ‖u‖² + aic`; Gamma / Tweedie evaluate the family log-likelihood at dispersion `deviance / n` (R's `Gamma()$aic`), report `sigma() = sqrt(pwrss / n)` and scale the fixed-effect SEs by it. `FittedGlmm::nb_theta() -> Option<f64>`. All work with `fit`, `fit_crossed` and random slopes.
+- **GLMM offset (#29).** `GlmmRegressorBuilder::offset(Col<f64>)` adds a per-observation offset with coefficient 1 to the linear predictor of every family (`offset()` in an lme4 formula), for `fit` and `fit_crossed`. `FittedGlmm::predict_fixed_with_offset(x, offset)`.
+- **Random slopes with several grouping factors (#29).** `GlmmRegressorBuilder::random_slopes_per_factor(Vec<Vec<usize>>)` gives each factor of `fit_crossed` its own random slopes and unstructured covariance, e.g. `(1 + x | a) + (1 | b)` → `vec![vec![0], vec![]]`. `FittedGlmm::factor_random_cov(f)`, `factor_random_sd(f)` and `factor_random_effects_matrix(f)` expose each factor's `q_f × q_f` covariance and full BLUPs; `factors()[f].sd` / `.blups` remain the first component. The plain `random_slopes` still applies to a single factor and errors with several.
+- Validated against lme4 (`tests/r_validation_glmm_families.rs`, generator `tests/r_scripts/generate_glmm_families_validation.R`, VALIDATION.md §24b): fixed effects, SEs, σ, random SDs / correlation, BLUPs and logLik agree to ~1e-5–5e-5; the estimated NB θ to 3e-4. Tweedie is validated against `glmer` with a `statmod::tweedie` family whose `aic` uses `tweedie::dtweedie` (no lme4 Tweedie family; glmmTMB is a different estimator).
+- Binomial offset round trip against R `glm(..., offset)` (#24).
+
+### Changed
+
+- The crossed / nested GLMM engine now assembles `ZΛ_θ` with a block-diagonal `Λ_θ`; results of existing intercept-only crossed fits are unchanged.
+
 ## [0.5.17] - 2026-10-08
 
 ### Behaviour changes (results now match R)
