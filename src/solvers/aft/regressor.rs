@@ -1,5 +1,6 @@
 //! Builder-style front end over the AFT model.
 
+use crate::core::{HasModelInfo, ModelInfo};
 use faer::{Col, Mat};
 
 use super::distribution::AftDistribution;
@@ -118,6 +119,15 @@ pub struct FittedAft {
     distribution: AftDistribution,
     coefficients: Col<f64>,
     result: AftResult,
+}
+
+impl HasModelInfo for FittedAft {
+    /// The family is the distribution of the survival time (`"weibull"`,
+    /// `"lognormal"`, `"loglogistic"`, `"exponential"`); AFT models are linear
+    /// in `log T`, so the link is `"log"`.
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::new("aft", Some(self.distribution.as_str()), "log")
+    }
 }
 
 impl FittedAft {

@@ -87,6 +87,7 @@ use crate::core::{
     BinomialFamily, BinomialLink, GlmFamily, NegativeBinomialFamily, PoissonFamily, PoissonLink,
     TweedieFamily,
 };
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::solvers::penalized_glm::loglik::{log_likelihood as family_log_likelihood, LogLikKind};
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
@@ -673,6 +674,7 @@ impl GlmmRegressor {
             sol.iterations,
         );
         fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
+        fitted.kind = self.kind;
         Ok(fitted)
     }
 
@@ -788,6 +790,7 @@ impl GlmmRegressor {
             sol.iterations,
         );
         fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
+        fitted.kind = self.kind;
         Ok(fitted)
     }
 }
@@ -833,6 +836,32 @@ pub struct FittedGlmm {
     factor_details: Vec<FactorDetail>,
     /// Negative-binomial size θ (fixed or estimated); `None` otherwise.
     nb_theta: Option<f64>,
+    /// Response family of the fit (Gaussian for the LMM path).
+    kind: ResponseKind,
+}
+
+impl HasModelInfo for FittedGlmm {
+    /// Family and link of the response: Gaussian/identity for the LMM, logit
+    /// for binomial, log for every other family. A Tweedie response reports the
+    /// R family of its variance power (see [`TweedieFamily::family_name`]).
+    fn model_info(&self) -> ModelInfo {
+        let (family, link) = match self.kind {
+            ResponseKind::Gaussian => ("gaussian", "identity"),
+            ResponseKind::Poisson => ("poisson", "log"),
+            ResponseKind::Binomial => ("binomial", "logit"),
+            ResponseKind::NegativeBinomial => ("negative_binomial", "log"),
+            ResponseKind::Gamma => ("gamma", "log"),
+            ResponseKind::Tweedie(power) => (
+                TweedieFamily {
+                    var_power: power,
+                    link_power: 0.0,
+                }
+                .family_name(),
+                "log",
+            ),
+        };
+        ModelInfo::new("glmm", Some(family), link)
+    }
 }
 
 /// Per-factor summary for a crossed / nested fit: one random intercept per
@@ -884,6 +913,7 @@ impl FittedGlmm {
             factors: Vec::new(),
             factor_details: Vec::new(),
             nb_theta: None,
+            kind: ResponseKind::Gaussian,
         }
     }
 
@@ -929,6 +959,7 @@ impl FittedGlmm {
             factors,
             factor_details,
             nb_theta: None,
+            kind: ResponseKind::Gaussian,
         }
     }
 

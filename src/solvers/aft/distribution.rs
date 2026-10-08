@@ -26,6 +26,17 @@ pub enum AftDistribution {
 }
 
 impl AftDistribution {
+    /// Lower-case name of the distribution (`"weibull"`, `"lognormal"`,
+    /// `"loglogistic"`, `"exponential"`), as accepted by [`from_name`](Self::from_name).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AftDistribution::Weibull => "weibull",
+            AftDistribution::LogNormal => "lognormal",
+            AftDistribution::LogLogistic => "loglogistic",
+            AftDistribution::Exponential => "exponential",
+        }
+    }
+
     /// Parse a distribution name as it appears in the options MAP.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_ascii_lowercase().as_str() {
