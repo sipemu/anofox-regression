@@ -29,6 +29,7 @@ use crate::core::{
     BinomialFamily, BinomialLink, GlmFamily, IntervalType, PredictionResult, PredictionType,
     RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::diagnostics::{deviance_residuals, pearson_residuals, working_residuals};
 use crate::inference::{fill_wald_inference, WaldReference};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
@@ -737,6 +738,12 @@ pub struct FittedBinomial {
     /// Which columns are aliased (constant or collinear).
     #[allow(dead_code)]
     aliased: Vec<bool>,
+}
+
+impl HasModelInfo for FittedBinomial {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::new("binomial", Some("binomial"), self.family.link.as_str())
+    }
 }
 
 impl FittedBinomial {

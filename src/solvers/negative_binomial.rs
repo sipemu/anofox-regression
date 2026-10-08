@@ -30,6 +30,7 @@ use crate::core::{
     estimate_theta_ml, GlmFamily, IntervalType, NegativeBinomialFamily, PredictionResult,
     PredictionType, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::diagnostics::{deviance_residuals, pearson_residuals, working_residuals};
 use crate::inference::{fill_wald_inference, WaldReference};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
@@ -788,6 +789,12 @@ pub struct FittedNegativeBinomial {
     /// Aliased (collinear or constant) columns.
     #[allow(dead_code)]
     aliased: Vec<bool>,
+}
+
+impl HasModelInfo for FittedNegativeBinomial {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::new("negative_binomial", Some("negative_binomial"), "log")
+    }
 }
 
 impl FittedNegativeBinomial {

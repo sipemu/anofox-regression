@@ -29,6 +29,7 @@ use crate::core::{
     GlmFamily, IntervalType, PoissonFamily, PoissonLink, PredictionResult, PredictionType,
     RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::diagnostics::{deviance_residuals, pearson_residuals, working_residuals};
 use crate::inference::{fill_wald_inference, WaldReference};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
@@ -740,6 +741,12 @@ pub struct FittedPoisson {
     /// Aliased (collinear or constant) columns.
     #[allow(dead_code)]
     aliased: Vec<bool>,
+}
+
+impl HasModelInfo for FittedPoisson {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::new("poisson", Some("poisson"), self.family.link.as_str())
+    }
 }
 
 impl FittedPoisson {

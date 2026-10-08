@@ -16,6 +16,15 @@ pub enum PoissonLink {
 }
 
 impl PoissonLink {
+    /// Lower-case name of the link (`"log"`, `"identity"`, `"sqrt"`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PoissonLink::Log => "log",
+            PoissonLink::Identity => "identity",
+            PoissonLink::Sqrt => "sqrt",
+        }
+    }
+
     /// Compute the link function g(μ).
     ///
     /// Transforms the mean μ > 0 to the linear predictor η ∈ ℝ.

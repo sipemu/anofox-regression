@@ -18,6 +18,15 @@ pub enum BinomialLink {
 }
 
 impl BinomialLink {
+    /// Lower-case name of the link (`"logit"`, `"probit"`, `"cloglog"`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BinomialLink::Logit => "logit",
+            BinomialLink::Probit => "probit",
+            BinomialLink::Cloglog => "cloglog",
+        }
+    }
+
     /// Compute the link function g(μ).
     ///
     /// Transforms the probability μ ∈ (0,1) to the linear predictor η ∈ ℝ.

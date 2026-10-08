@@ -24,6 +24,7 @@
 //! let mu_hat = fitted.predict(&x_new);
 //! ```
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::solvers::tweedie::{FittedTweedie, TweedieRegressor};
@@ -58,6 +59,12 @@ impl Regressor for GammaRegressor {
 #[derive(Debug)]
 pub struct FittedGamma {
     inner: FittedTweedie,
+}
+
+impl HasModelInfo for FittedGamma {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::new("gamma", Some("gamma"), self.inner.family().link_name())
+    }
 }
 
 impl FittedGamma {

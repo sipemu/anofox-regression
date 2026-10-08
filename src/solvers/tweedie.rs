@@ -12,6 +12,7 @@ use crate::core::{
     GlmFamily, IntervalType, PredictionResult, PredictionType, RegressionOptions,
     RegressionOptionsBuilder, RegressionResult, TweedieFamily,
 };
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::diagnostics::{deviance_residuals, pearson_residuals, working_residuals};
 use crate::inference::{fill_wald_inference, WaldReference};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
@@ -845,6 +846,19 @@ pub struct FittedTweedie {
     /// Aliased (collinear or constant) columns.
     #[allow(dead_code)]
     aliased: Vec<bool>,
+}
+
+impl HasModelInfo for FittedTweedie {
+    /// The family follows the variance power: `"gaussian"`, `"poisson"`, `"gamma"`
+    /// or `"inverse_gaussian"` for 0/1/2/3 (the `TweedieRegressor` factories),
+    /// `"tweedie"` otherwise.
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::new(
+            "tweedie",
+            Some(self.family.family_name()),
+            self.family.link_name(),
+        )
+    }
 }
 
 impl FittedTweedie {
