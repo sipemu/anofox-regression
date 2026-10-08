@@ -18,7 +18,8 @@ use crate::diagnostics::{check_binary_separation, SeparationCheck};
 /// Response family (and link) fitted by [`PenalizedGlmRegressor`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PenalizedGlmFamily {
-    /// Poisson counts; dispersion is the Pearson estimate floored at 1.
+    /// Poisson counts; dispersion fixed at 1 (as R's `glm(family = poisson)`), or
+    /// the Pearson estimate with [`PenalizedGlmRegressorBuilder::estimate_dispersion`].
     Poisson(PoissonLink),
     /// Binomial proportions / 0-1 outcomes in `[0, 1]`; dispersion fixed at 1.
     Binomial(BinomialLink),
@@ -110,6 +111,7 @@ pub struct PenalizedGlmRegressor {
     priors: Vec<PriorSpec>,
     vcov: VcovType,
     offset: Option<Col<f64>>,
+    estimate_dispersion: bool,
 }
 
 impl Default for PenalizedGlmRegressor {
@@ -125,6 +127,7 @@ impl Default for PenalizedGlmRegressor {
             priors: Vec::new(),
             vcov: VcovType::default(),
             offset: None,
+            estimate_dispersion: false,
         }
     }
 }
@@ -184,6 +187,7 @@ impl PenalizedGlmRegressor {
                     lambda: self.lambda,
                     prior_opts,
                     offset_column,
+                    estimate_dispersion: self.estimate_dispersion,
                 },
             )?,
             PenalizedGlmFamily::Binomial(link) => fit_binomial(
@@ -349,6 +353,14 @@ impl PenalizedGlmRegressorBuilder {
         self.inner.offset = Some(offset);
         self
     }
+    /// Poisson only: scale the covariance by the Pearson dispersion
+    /// `sum(pearson^2) / df_resid`, i.e. R's `quasipoisson` standard errors.
+    /// Default `false` (dispersion 1, as R's `glm(family = poisson)`). Ignored by
+    /// the other families, whose dispersion rule is fixed by the family.
+    pub fn estimate_dispersion(mut self, estimate: bool) -> Self {
+        self.inner.estimate_dispersion = estimate;
+        self
+    }
     /// Finish the builder.
     pub fn build(self) -> PenalizedGlmRegressor {
         self.inner
@@ -402,8 +414,9 @@ impl FittedPenalizedGlm {
     pub fn bic(&self) -> f64 {
         self.result.bic
     }
-    /// Dispersion: Pearson estimate (Poisson floored at 1; Gamma, Tweedie),
-    /// 1 (Binomial, Logistic), or `theta` (Negative Binomial).
+    /// Dispersion: Pearson estimate (Gamma, Tweedie, Poisson with
+    /// `estimate_dispersion(true)`), 1 (Poisson, Binomial, Logistic), or `theta`
+    /// (Negative Binomial).
     pub fn dispersion(&self) -> f64 {
         self.result.core.dispersion.unwrap_or(1.0)
     }

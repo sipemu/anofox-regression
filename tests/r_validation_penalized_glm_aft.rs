@@ -39,24 +39,57 @@ fn fit(family: PenalizedGlmFamily, y: &[f64; 60]) -> FittedPenalizedGlm {
         .unwrap()
 }
 
-fn check_glm(
+fn check_glm<const K: usize>(
     f: &FittedPenalizedGlm,
-    coef: [f64; 3],
-    se: [f64; 3],
+    coef: [f64; K],
+    se: [f64; K],
     dev: [f64; 2],
     ll_aic: [f64; 2],
     what: &str,
 ) {
     assert!(f.converged(), "{what}: not converged");
-    rel_close(f.intercept().unwrap(), coef[0], 1e-6, what);
-    for j in 0..2 {
-        rel_close(f.coefficients()[j], coef[j + 1], 1e-6, what);
-        rel_close(f.std_errors().unwrap()[j], se[j + 1], 1e-5, what);
+    // K = p + 1 with an intercept, K = p without.
+    let shift = K - f.coefficients().nrows();
+    if shift == 1 {
+        rel_close(f.intercept().unwrap(), coef[0], 1e-6, what);
+    } else {
+        assert!(f.intercept().is_none(), "{what}: unexpected intercept");
+    }
+    for j in 0..f.coefficients().nrows() {
+        rel_close(f.coefficients()[j], coef[j + shift], 1e-6, what);
+        rel_close(f.std_errors().unwrap()[j], se[j + shift], 1e-5, what);
     }
     rel_close(f.deviance(), dev[0], 1e-7, what);
-    rel_close(f.null_deviance(), dev[1], 1e-7, what);
-    rel_close(f.log_likelihood(), ll_aic[0], 1e-7, what);
-    rel_close(f.aic(), ll_aic[1], 1e-7, what);
+    rel_close(
+        f.null_deviance(),
+        dev[1],
+        1e-7,
+        &format!("{what} null deviance"),
+    );
+    rel_close(
+        f.log_likelihood(),
+        ll_aic[0],
+        1e-7,
+        &format!("{what} logLik"),
+    );
+    rel_close(f.aic(), ll_aic[1], 1e-7, &format!("{what} AIC"));
+}
+
+fn fit_with(
+    family: PenalizedGlmFamily,
+    y: &[f64; 60],
+    intercept: bool,
+    offset: bool,
+) -> FittedPenalizedGlm {
+    let mut b = PenalizedGlmRegressor::builder()
+        .family(family)
+        .with_intercept(intercept)
+        .compute_inference(true)
+        .tolerance(1e-10);
+    if offset {
+        b = b.offset(col(&OFFSET));
+    }
+    b.build().fit(&design(), &col(y)).unwrap()
 }
 
 #[test]
@@ -345,4 +378,143 @@ fn aft_exponential_matches_survreg() {
         &AFT_EXPONENTIAL_SE,
         AFT_EXPONENTIAL_Q,
     );
+}
+
+// #54: Poisson standard errors use dispersion 1 (R `glm(family = poisson)`), even
+// on overdispersed data; the Pearson (quasi-Poisson) scale is opt-in.
+#[test]
+fn overdispersed_poisson_uses_dispersion_one() {
+    let f = fit(PenalizedGlmFamily::poisson(), &Y_NB);
+    check_glm(
+        &f,
+        POIS_OVER_COEF,
+        POIS_OVER_SE,
+        POIS_OVER_DEV,
+        POIS_OVER_LL_AIC,
+        "overdispersed poisson",
+    );
+    assert_eq!(f.dispersion(), 1.0);
+}
+
+#[test]
+fn poisson_estimate_dispersion_matches_quasipoisson() {
+    let f = PenalizedGlmRegressor::builder()
+        .family(PenalizedGlmFamily::poisson())
+        .estimate_dispersion(true)
+        .compute_inference(true)
+        .tolerance(1e-10)
+        .build()
+        .fit(&design(), &col(&Y_NB))
+        .unwrap();
+    rel_close(
+        f.dispersion(),
+        QPOIS_OVER_DISP,
+        1e-7,
+        "quasipoisson dispersion",
+    );
+    for j in 0..2 {
+        rel_close(
+            f.std_errors().unwrap()[j],
+            QPOIS_OVER_SE[j + 1],
+            1e-5,
+            "quasipoisson se",
+        );
+    }
+    // Same through the column-major entry point.
+    let x = vec![X1.to_vec(), X2.to_vec()];
+    let r = fit_poisson(
+        &Y_NB,
+        &x,
+        &PoissonOptions {
+            compute_inference: true,
+            tolerance: 1e-10,
+            estimate_dispersion: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let inf = r.inference.unwrap();
+    rel_close(
+        inf.std_errors[0],
+        QPOIS_OVER_SE[1],
+        1e-5,
+        "fit_poisson quasipoisson se",
+    );
+}
+
+// #55: Gamma logLik / AIC at dispersion deviance / n, as R's logLik.glm.
+#[test]
+fn gamma_log_likelihood_uses_deviance_over_n() {
+    let f = fit(PenalizedGlmFamily::gamma(), &Y_GAMMA);
+    rel_close(f.log_likelihood(), GAMMA_LL_AIC[0], 1e-9, "gamma logLik");
+    rel_close(f.aic(), GAMMA_LL_AIC[1], 1e-9, "gamma AIC");
+    // BIC = AIC - 2k + k log(n) with k = rank + 1 = 4.
+    let bic = GAMMA_LL_AIC[1] - 8.0 + 4.0 * 60f64.ln();
+    rel_close(f.bic(), bic, 1e-9, "gamma BIC");
+}
+
+// #56: null deviance as R's glm defines it.
+#[test]
+fn null_deviance_follows_r_with_offset_and_without_intercept() {
+    let cases = [
+        (
+            PenalizedGlmFamily::poisson(),
+            &Y_POIS,
+            false,
+            false,
+            POIS_NOINT_COEF,
+            POIS_NOINT_SE,
+            POIS_NOINT_DEV,
+            POIS_NOINT_LL_AIC,
+            "poisson no intercept",
+        ),
+        (
+            PenalizedGlmFamily::poisson(),
+            &Y_POIS,
+            false,
+            true,
+            POIS_NOINT_OFF_COEF,
+            POIS_NOINT_OFF_SE,
+            POIS_NOINT_OFF_DEV,
+            POIS_NOINT_OFF_LL_AIC,
+            "poisson no intercept + offset",
+        ),
+    ];
+    for (fam, y, int, off, coef, se, dev, ll, what) in cases {
+        check_glm(&fit_with(fam, y, int, off), coef, se, dev, ll, what);
+    }
+    let cases = [
+        (
+            PenalizedGlmFamily::poisson(),
+            &Y_POIS,
+            POIS_OFF_COEF,
+            POIS_OFF_SE,
+            POIS_OFF_DEV,
+            POIS_OFF_LL_AIC,
+            "poisson offset",
+        ),
+        (
+            PenalizedGlmFamily::binomial(),
+            &Y_BIN,
+            BIN_OFF_COEF,
+            BIN_OFF_SE,
+            BIN_OFF_DEV,
+            BIN_OFF_LL_AIC,
+            "binomial offset",
+        ),
+        (
+            PenalizedGlmFamily::gamma(),
+            &Y_GAMMA,
+            GAMMA_OFF_COEF,
+            GAMMA_OFF_SE,
+            GAMMA_OFF_DEV,
+            GAMMA_OFF_LL_AIC,
+            "gamma offset",
+        ),
+    ];
+    for (fam, y, coef, se, dev, ll, what) in cases {
+        let f = fit_with(fam, y, true, true);
+        check_glm(&f, coef, se, dev, ll, what);
+        rel_close(f.pseudo_r_squared(), 1.0 - dev[0] / dev[1], 1e-9, what);
+    }
 }

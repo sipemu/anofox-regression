@@ -32,34 +32,35 @@ cat("pub const TIME: [f64; 60] = ", f(time), ";\n", sep = "")
 cat("pub const EVENT: [f64; 60] = ", f(ev), ";\n\n", sep = "")
 
 ctl <- glm.control(epsilon = 1e-14, maxit = 200)
-# Poisson standard errors use the Pearson dispersion floored at 1 (the engine's
-# DispersionRule::PearsonFlooredAtOne), every other family R's own summary.
-# Two documented engine conventions (kept from the DuckDB extension):
-# * the null deviance is that of the intercept-only model WITHOUT the offset
-#   (R: glm(y ~ 1)), not R's offset-aware null deviance;
-# * the Gamma log-likelihood / AIC use the Pearson dispersion estimate, where
-#   R's logLik.glm uses deviance / n.
+# Every GLM reference is R's own: summary.glm standard errors (Poisson dispersion
+# 1, Gamma Pearson), logLik / AIC (Gamma at dispersion deviance/n) and glm's
+# null.deviance (intercept-only model WITH the offset; linkinv(offset) without an
+# intercept). Issues #54, #55, #56.
 emit_glm <- function(name, m, ll = as.numeric(logLik(m)), aic = AIC(m), null_dev = m$null.deviance) {
-  disp <- if (family(m)$family == "poisson")
-    max(1, sum(residuals(m, "pearson")^2) / m$df.residual) else NULL
-  s <- summary(m, dispersion = disp)$coefficients
+  s <- summary(m)$coefficients
   cat("// ", deparse(m$call, width.cutoff = 500), "\n", sep = "")
-  cat("pub const ", name, "_COEF: [f64; 3] = ", f(coef(m)), ";\n", sep = "")
-  cat("pub const ", name, "_SE: [f64; 3] = ", f(s[, 2]), ";\n", sep = "")
+  cat("pub const ", name, "_COEF: [f64; ", length(coef(m)), "] = ", f(coef(m)), ";\n", sep = "")
+  cat("pub const ", name, "_SE: [f64; ", nrow(s), "] = ", f(s[, 2]), ";\n", sep = "")
   cat("pub const ", name, "_DEV: [f64; 2] = ", f(c(deviance(m), null_dev)), ";\n", sep = "")
   cat("pub const ", name, "_LL_AIC: [f64; 2] = ", f(c(ll, aic)), ";\n", sep = "")
 }
 emit_glm("POIS", glm(yp ~ x1 + x2, family = poisson, control = ctl))
-emit_glm("POIS_OFF", glm(yp ~ x1 + x2 + offset(off), family = poisson, control = ctl),
-         null_dev = glm(yp ~ 1, family = poisson)$deviance)
+emit_glm("POIS_OFF", glm(yp ~ x1 + x2 + offset(off), family = poisson, control = ctl))
 emit_glm("POIS_SQRT", glm(yp ~ x1 + x2, family = poisson(link = "sqrt"), start = c(1, 0, 0), control = ctl))
 emit_glm("BIN_LOGIT", glm(yb ~ x1 + x2, family = binomial, control = ctl))
 emit_glm("BIN_PROBIT", glm(yb ~ x1 + x2, family = binomial(link = "probit"), control = ctl))
 emit_glm("BIN_CLOGLOG", glm(yb ~ x1 + x2, family = binomial(link = "cloglog"), control = ctl))
-mg <- glm(yg ~ x1 + x2, family = Gamma(link = "log"), control = ctl)
-phi <- sum(residuals(mg, "pearson")^2) / mg$df.residual
-llg <- sum(dgamma(yg, shape = 1 / phi, scale = fitted(mg) * phi, log = TRUE))
-emit_glm("GAMMA", mg, ll = llg, aic = -2 * llg + 2 * 4)
+emit_glm("GAMMA", glm(yg ~ x1 + x2, family = Gamma(link = "log"), control = ctl))
+# Overdispersed counts (#54): Poisson SEs at dispersion 1, quasipoisson opt-in.
+emit_glm("POIS_OVER", glm(ynb ~ x1 + x2, family = poisson, control = ctl))
+mq <- glm(ynb ~ x1 + x2, family = quasipoisson, control = ctl)
+cat("pub const QPOIS_OVER_SE: [f64; 3] = ", f(summary(mq)$coefficients[, 2]), ";\n", sep = "")
+cat("pub const QPOIS_OVER_DISP: f64 = ", num(summary(mq)$dispersion), ";\n", sep = "")
+# Null deviance conventions (#56).
+emit_glm("POIS_NOINT", glm(yp ~ x1 + x2 - 1, family = poisson, control = ctl))
+emit_glm("POIS_NOINT_OFF", glm(yp ~ x1 + x2 - 1 + offset(off), family = poisson, control = ctl))
+emit_glm("BIN_OFF", glm(yb ~ x1 + x2 + offset(off), family = binomial, control = ctl))
+emit_glm("GAMMA_OFF", glm(yg ~ x1 + x2 + offset(off), family = Gamma(link = "log"), control = ctl))
 nb <- glm.nb(ynb ~ x1 + x2, control = ctl)
 emit_glm("NB", nb)
 cat("pub const NB_THETA: f64 = ", num(nb$theta), ";\n", sep = "")

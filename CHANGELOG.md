@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Behaviour changes (results now match R)
+
+- **`penalized_glm` Poisson standard errors use dispersion 1 (#54).** The covariance was scaled by `max(1, Pearson χ²/df)` (quasi-Poisson). It is now 1, as R's `glm(family = poisson)` / `summary.glm`, so on overdispersed data SEs, z, p-values and CIs shrink by `√(χ²/df)` and `dispersion()` is `1.0`. Coefficients are unchanged. Opt into R's `quasipoisson` scale (Pearson χ²/df, not floored) with `PenalizedGlmRegressorBuilder::estimate_dispersion(true)` or `PoissonOptions { estimate_dispersion: true, .. }`.
+- **`penalized_glm` Gamma log-likelihood / AIC / BIC (#55)** are evaluated at the dispersion `deviance / n`, exactly R's `logLik.glm` / `AIC` (`Gamma()$aic`). The Pearson dispersion still scales the covariance (as `summary.glm`) and is still the reported `dispersion`. Coefficients and SEs are unchanged. Tweedie keeps the Pearson-dispersion log-likelihood (R's `tweedie` family has no AIC).
+- **`penalized_glm` null deviance follows R's `glm` (#56)** for every family: with an intercept and an offset it is the deviance of the intercept-only model fitted *with the offset*; without an intercept it is the deviance at `μ = linkinv(offset)` (`linkinv(0)` with no offset). Previously it was always the deviance at `μ = mean(y)`. `null_deviance` and `pseudo_r_squared` change for offset and no-intercept models; intercept models without an offset are unchanged.
+- The penalized IRLS start value no longer subtracts the offset twice in the first working response (converged estimates are unchanged).
+
+### Added
+
+- `PenalizedGlmRegressorBuilder::estimate_dispersion(bool)`, `PoissonOptions::estimate_dispersion` (#54). Adding the field means `PoissonOptions { .. }` literals without `..Default::default()` need `estimate_dispersion: false`.
+- `penalized_glm::engine::null_deviance(family, y, offset, fit_intercept, &IrlsConfig)`.
+- R references for overdispersed Poisson / quasipoisson, Gamma `logLik`, and null deviance with offsets (Poisson, binomial, Gamma) and without an intercept (`tests/r_scripts/penalized_glm_aft_reference.R`).
+
 ## [0.5.16] - 2026-10-08
 
 ### Added
@@ -12,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Family-generic penalized GLM engine (#44), `solvers::penalized_glm`.** Moved from the DuckDB extension `anofox-statistics`. One IRLS loop over `GlmFamily` with explicit per-coefficient priors (`PriorSpec::{flat, normal(loc, scale), laplace(loc, scale)}`, optional leading intercept entry; Laplace priors use proximal coordinate descent) and a legacy uniform ridge `lambda`; covariance at the mode `VcovType::{Laplace (X'WX+P)⁻¹ (default), Sandwich, Naive (X'WX)⁻¹}`; offsets; constant/aliased columns reported as `NaN`; per-family log-likelihood, AIC, BIC, deviance, null deviance, pseudo-R², `converged` flag (last iterate on non-convergence), full `vcov` and information matrix with `matrix_parameters`. Families: Poisson (log/identity/sqrt), Binomial (logit/probit/cloglog), Logistic (with training accuracy), Negative Binomial (fixed θ or θ estimated as in `MASS::glm.nb`), Gamma (log), Tweedie (1 ≤ p ≤ 2, log). The weighted least-squares step uses a thin column-pivoted QR (no n×n allocation).
   - Builder: `PenalizedGlmRegressor::builder().family(PenalizedGlmFamily::…).priors(…).lambda(…).vcov_type(…).offset(…).compute_inference(…).build().fit(&x, &y) -> FittedPenalizedGlm` (`coefficients`, `intercept`, `deviance`, `log_likelihood`, `aic`, `bic`, `dispersion`, `theta`, `converged`, `inference`, `std_errors`, `vcov`, `separation`, `accuracy`, `predict`, `predict_with_offset`).
   - Column-major entry points for SQL/FFI front ends: `fit_poisson`, `fit_binomial`, `fit_logistic`, `fit_negbinomial`, `fit_gamma`, `fit_tweedie` with `PoissonOptions`, … `LogisticOptions` → `GlmResult { core: GlmFitResult, inference: Option<GlmInferenceResult>, log_likelihood, bic, fitted_values, valid_rows }`. Building blocks (`engine::fit`, `irls`, `laplace`, `loglik`, `penalty`, `normal_eq`, `design`) are public. Errors: `GlmEngineError` (`From` for `RegressionError`).
-  - Conventions (unchanged from the extension): Poisson standard errors use the Pearson dispersion floored at 1; the Gamma/Tweedie log-likelihood uses the Pearson dispersion (R's `logLik.glm` uses deviance/n); the null deviance is that of the intercept-only model without the offset.
+  - Conventions (unchanged from the extension; changed to R's in 0.5.17, #54–#56): Poisson standard errors use the Pearson dispersion floored at 1; the Gamma/Tweedie log-likelihood uses the Pearson dispersion (R's `logLik.glm` uses deviance/n); the null deviance is that of the intercept-only model without the offset.
 - **Accelerated failure time survival regression (#45), `solvers::aft`.** Moved from the extension. `log T = x'β + σW` with right censoring for Weibull, exponential, log-normal and log-logistic (`AftDistribution`, with `cdf_time`, `survival_time`, `quantile_time` and standardized density/survival derivatives); Newton–Raphson on `(β, log σ)` with step halving, optional priors, Laplace/sandwich/naive covariance. `AftRegressor::builder().distribution(…).compute_inference(…).build().fit(&x, &time, &event) -> FittedAft` (`coefficients`, `intercept`, `scale`, `log_likelihood`, `null_log_likelihood`, `aic`, `bic`, `converged`, `inference`, `predict_quantile`, `predict_median`, `predict_survival`, `predict_cdf`), and the column-major `fit_aft(time, x, event, &AftOptions) -> AftResult`.
 - R validation (`tests/r_validation_penalized_glm_aft.rs`, generator `tests/r_scripts/penalized_glm_aft_reference.R`): `glm`, `MASS::glm.nb`, `negative.binomial(θ)`, a posterior-mode Newton fit for the priors and all three covariance types, and `survival::survreg` for the four distributions (coefficients, scale, log-likelihoods, SEs incl. log(scale), quantiles).
 
