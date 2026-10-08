@@ -65,11 +65,17 @@
 //!
 //! println!("fixed effects: {:?}", fitted.fixed_effects());
 //! println!("random cov Σ: {:?}", fitted.random_cov());
+//!
+//! // Wald inference for the fixed effects (lme4 summary / confint(method = "Wald")).
+//! let z = fitted.z_values();
+//! let p = fitted.p_values();
+//! let (lo, hi) = fitted.conf_int(0.95);
 //! ```
 
 use crate::core::{BinomialFamily, BinomialLink, GlmFamily, PoissonFamily, PoissonLink};
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
+use statrs::distribution::{ContinuousCDF, Normal};
 
 /// The response family for a [`GlmmRegressor`].
 enum Response {
@@ -730,6 +736,68 @@ impl FittedGlmm {
     /// Standard errors of the fixed effects.
     pub fn std_errors(&self) -> &[f64] {
         &self.std_errors
+    }
+
+    /// Wald z statistics `β̂ / SE` of the fixed effects (element 0 is the
+    /// intercept when present), as in the `z value` / `t value` column of
+    /// `summary()` for `lme4::glmer` / `lmer`. `NaN` where the SE is not a
+    /// positive finite number.
+    pub fn z_values(&self) -> Vec<f64> {
+        self.fixed_effects
+            .iter()
+            .zip(&self.std_errors)
+            .map(|(&b, &se)| {
+                if se.is_finite() && se > 0.0 {
+                    b / se
+                } else {
+                    f64::NAN
+                }
+            })
+            .collect()
+    }
+
+    /// Two-sided asymptotic normal p-values `2·(1 − Φ(|z|))` of the fixed
+    /// effects — `Pr(>|z|)` of `summary(glmer(...))`. For a Gaussian LMM this
+    /// is the large-sample normal approximation (lme4 prints no p-value for
+    /// `lmer`; Satterthwaite/Kenward–Roger degrees of freedom are not used).
+    pub fn p_values(&self) -> Vec<f64> {
+        let normal = Normal::new(0.0, 1.0).expect("standard normal");
+        self.z_values()
+            .into_iter()
+            .map(|z| {
+                if z.is_finite() {
+                    2.0 * normal.sf(z.abs())
+                } else {
+                    f64::NAN
+                }
+            })
+            .collect()
+    }
+
+    /// Wald confidence intervals `β̂ ∓ z_{(1+level)/2}·SE` for the fixed
+    /// effects at confidence `level` (e.g. `0.95`), returned as
+    /// `(lower, upper)` — `confint(m, parm = "beta_", method = "Wald", level)`
+    /// in lme4. Bounds are `NaN` for an invalid `level` (outside `(0, 1)`) or
+    /// a non-finite SE.
+    pub fn conf_int(&self, level: f64) -> (Vec<f64>, Vec<f64>) {
+        let k = self.fixed_effects.len();
+        if !(level > 0.0 && level < 1.0) {
+            return (vec![f64::NAN; k], vec![f64::NAN; k]);
+        }
+        let q = Normal::new(0.0, 1.0)
+            .expect("standard normal")
+            .inverse_cdf(0.5 + level / 2.0);
+        self.fixed_effects
+            .iter()
+            .zip(&self.std_errors)
+            .map(|(&b, &se)| {
+                if se.is_finite() && se >= 0.0 {
+                    (b - q * se, b + q * se)
+                } else {
+                    (f64::NAN, f64::NAN)
+                }
+            })
+            .unzip()
     }
 
     /// The intercept, if the model was fit with one.
