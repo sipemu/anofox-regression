@@ -142,7 +142,7 @@ impl BinomialLink {
 /// Standard normal CDF Φ(x) using error function approximation.
 #[inline]
 fn standard_normal_cdf(x: f64) -> f64 {
-    0.5 * (1.0 + erf(x * FRAC_1_SQRT_2))
+    0.5 * statrs::function::erf::erfc(-x * FRAC_1_SQRT_2)
 }
 
 /// Standard normal PDF φ(x) = exp(-x²/2) / √(2π)
@@ -151,10 +151,7 @@ fn standard_normal_pdf(x: f64) -> f64 {
     (-0.5 * x * x).exp() / (2.0 * PI).sqrt()
 }
 
-/// Probit function (inverse standard normal CDF).
-///
-/// Uses Wichura's AS 241 algorithm for high accuracy.
-#[allow(clippy::excessive_precision)]
+/// Probit function (inverse standard normal CDF), `Φ⁻¹(p) = −√2 · erfc⁻¹(2p)`.
 fn probit(p: f64) -> f64 {
     // For extreme values, use limits
     if p <= 1e-300 {
@@ -166,125 +163,7 @@ fn probit(p: f64) -> f64 {
     if p <= 1e-16 {
         return -8.2;
     }
-
-    // Symmetry: use q = min(p, 1-p) and adjust sign
-    let q = if p < 0.5 { p } else { 1.0 - p };
-
-    if q > 0.425 {
-        // Central region: use rational approximation
-        let r = 0.180625 - (0.5 - p) * (0.5 - p);
-        let num = ((((((2.5090809287301226727e3 * r + 3.3430575583588128105e4) * r
-            + 6.7265770927008700853e4)
-            * r
-            + 4.5921953931549871457e4)
-            * r
-            + 1.3731693765509461125e4)
-            * r
-            + 1.9715909503065514427e3)
-            * r
-            + 1.3314166764078193025e2)
-            * r
-            + 3.3871328727963666080;
-        let den = ((((((5.2264952788528545610e3 * r + 2.8729085735721942674e4) * r
-            + 3.9307895513773136620e4)
-            * r
-            + 2.1213794301586595867e4)
-            * r
-            + 5.3941960214247511077e3)
-            * r
-            + 6.8718700749205790830e2)
-            * r
-            + 4.2313330701600911252e1)
-            * r
-            + 1.0;
-        return (p - 0.5) * num / den;
-    }
-
-    // Tail region
-    let r = (-q.ln()).sqrt();
-
-    let result = if r <= 5.0 {
-        // Intermediate region
-        let r = r - 1.6;
-        let num = ((((((7.74545014278341407640e-4 * r + 2.27238449892691845833e-2) * r
-            + 2.41780725177450611770e-1)
-            * r
-            + 1.27045825245236838258)
-            * r
-            + 3.64784832476320460504)
-            * r
-            + 5.76949722146069140550)
-            * r
-            + 4.63033784615654529590)
-            * r
-            + 1.42343711074968357734;
-        let den = ((((((1.05075007164441684324e-9 * r + 5.47593808499534494600e-4) * r
-            + 1.51986665636164571966e-2)
-            * r
-            + 1.48103976427480074590e-1)
-            * r
-            + 6.89767334985100004550e-1)
-            * r
-            + 1.67638483018380384940)
-            * r
-            + 2.05319162663775882187)
-            * r
-            + 1.0;
-        num / den
-    } else {
-        // Far tail
-        let r = r - 5.0;
-        let num = ((((((2.01033439929228813265e-7 * r + 2.71155556874348757815e-5) * r
-            + 1.24266094738807843860e-3)
-            * r
-            + 2.65321895265761230930e-2)
-            * r
-            + 2.96560571828504891230e-1)
-            * r
-            + 1.78482653991729133580)
-            * r
-            + 5.46378491116411436990)
-            * r
-            + 6.65790464350110377720;
-        let den = ((((((2.04426310338993978564e-15 * r + 1.42151175831644588870e-7) * r
-            + 1.84631831751005468180e-5)
-            * r
-            + 7.86869131145613259100e-4)
-            * r
-            + 1.48753612908506148525e-2)
-            * r
-            + 1.36929880922735805310e-1)
-            * r
-            + 5.99832206555887937690e-1)
-            * r
-            + 1.0;
-        num / den
-    };
-
-    if p < 0.5 {
-        -result
-    } else {
-        result
-    }
-}
-
-/// Error function approximation (Abramowitz and Stegun 7.1.26).
-fn erf(x: f64) -> f64 {
-    // Constants
-    let a1 = 0.254829592;
-    let a2 = -0.284496736;
-    let a3 = 1.421413741;
-    let a4 = -1.453152027;
-    let a5 = 1.061405429;
-    let p = 0.3275911;
-
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    let x_abs = x.abs();
-
-    let t = 1.0 / (1.0 + p * x_abs);
-    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-x_abs * x_abs).exp();
-
-    sign * y
+    -std::f64::consts::SQRT_2 * statrs::function::erf::erfc_inv(2.0 * p)
 }
 
 #[cfg(test)]
@@ -511,5 +390,25 @@ mod tests {
         // At η = 0: dμ/dη = φ(0) = 1/√(2π) ≈ 0.3989
         let expected = 1.0 / (2.0 * std::f64::consts::PI).sqrt();
         assert!((link.link_inverse_derivative(0.0) - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_probit_matches_qnorm_across_regions() {
+        // R: qnorm(c(0.2, 0.1, 0.075, 0.05, 0.9, 1e-10))
+        let cases = [
+            (0.2, -0.841_621_233_572_914_3),
+            (0.1, -1.281_551_565_544_600_5),
+            (0.075, -1.439_531_470_938_455_6),
+            (0.05, -1.644_853_626_951_472_2),
+            (0.9, 1.281_551_565_544_600_5),
+            (1e-10, -6.361_340_902_404_056),
+        ];
+        for (p, want) in cases {
+            let got = probit(p);
+            assert!(
+                (got - want).abs() < 1e-12,
+                "probit({p}) = {got}, qnorm = {want}"
+            );
+        }
     }
 }
