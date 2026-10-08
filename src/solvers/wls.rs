@@ -144,7 +144,11 @@ impl Regressor for WlsRegressor {
             let ols_fitted = ols.fit(x, y)?;
             // For uniform weights, use unweighted (X'X)⁻¹ with aliased columns filtered
             let aliased = ols_fitted.result().aliased.clone();
-            let xtx_inverse = compute_xtx_inverse_augmented_reduced(x, &aliased).ok();
+            let xtx_inverse = if self.options.with_intercept {
+                compute_xtx_inverse_augmented_reduced(x, &aliased).ok()
+            } else {
+                crate::inference::compute_xtx_inverse_reduced(x, &aliased).ok()
+            };
             return Ok(FittedWls {
                 options: self.options.clone(),
                 weights: weights.clone(),
@@ -734,6 +738,30 @@ pub struct FittedWls {
 }
 
 impl FittedWls {
+    /// Variance factor `M` with `Var(x₀'β̂) = σ² · x₀' M x₀` (`(X'WX)⁻¹`).
+    ///
+    /// Full dimension: `p + 1` with an intercept (index 0 is the intercept),
+    /// `p` without; rows/columns of aliased columns are zero. `None` if the
+    /// matrix could not be computed (e.g. a fit from moments).
+    pub fn variance_factor(&self) -> Option<Mat<f64>> {
+        self.xtwx_inverse.as_ref().map(|m| {
+            crate::inference::expand_reduced_factor(
+                m,
+                &self.aliased,
+                self.result.intercept.is_some(),
+            )
+        })
+    }
+
+    /// Leverage `x₀' M x₀` of new rows (`x_new` has one column per feature;
+    /// aliased columns are ignored). NaN if no variance factor is available.
+    pub fn leverage_new(&self, x_new: &Mat<f64>) -> Col<f64> {
+        match self.variance_factor() {
+            Some(m) => crate::inference::leverage_new(&m, x_new, self.result.intercept.is_some()),
+            None => Col::from_fn(x_new.nrows(), |_| f64::NAN),
+        }
+    }
+
     /// Get the options used to fit this model.
     pub fn options(&self) -> &RegressionOptions {
         &self.options

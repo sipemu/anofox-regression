@@ -838,6 +838,30 @@ pub struct FittedOls {
 }
 
 impl FittedOls {
+    /// Variance factor `M` with `Var(x₀'β̂) = σ² · x₀' M x₀` (`(X'X)⁻¹`).
+    ///
+    /// Full dimension: `p + 1` with an intercept (index 0 is the intercept),
+    /// `p` without; rows/columns of aliased columns are zero. `None` if the
+    /// matrix could not be computed (e.g. a fit from moments).
+    pub fn variance_factor(&self) -> Option<Mat<f64>> {
+        self.xtx_inverse.as_ref().map(|m| {
+            crate::inference::expand_reduced_factor(
+                m,
+                &self.aliased,
+                self.result.intercept.is_some(),
+            )
+        })
+    }
+
+    /// Leverage `x₀' M x₀` of new rows (`x_new` has one column per feature;
+    /// aliased columns are ignored). NaN if no variance factor is available.
+    pub fn leverage_new(&self, x_new: &Mat<f64>) -> Col<f64> {
+        match self.variance_factor() {
+            Some(m) => crate::inference::leverage_new(&m, x_new, self.result.intercept.is_some()),
+            None => Col::from_fn(x_new.nrows(), |_| f64::NAN),
+        }
+    }
+
     /// Get the options used to fit this model.
     pub fn options(&self) -> &RegressionOptions {
         &self.options

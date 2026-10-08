@@ -272,12 +272,14 @@ fn test_ridge_inference() {
     let fitted = model.fit(&x, &y).expect("fit should succeed");
     let result = fitted.result();
 
-    // Should have inference statistics
+    // Sandwich standard errors, but no classical t-tests on the shrunken
+    // coefficients for lambda > 0 (#37).
     assert!(result.std_errors.is_some());
-    assert!(result.t_statistics.is_some());
-    assert!(result.p_values.is_some());
-    assert!(result.conf_interval_lower.is_some());
-    assert!(result.conf_interval_upper.is_some());
+    assert!(result.intercept_std_error.is_some());
+    assert!(result.t_statistics.is_none());
+    assert!(result.p_values.is_none());
+    assert!(result.conf_interval_lower.is_none());
+    assert!(result.conf_interval_upper.is_none());
 
     // Standard errors should be positive
     if let Some(ref se) = result.std_errors {
