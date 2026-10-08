@@ -465,7 +465,8 @@ fn test_aicc_computed() {
 
     // For large n, AICc should be close to AIC
     let n = result.n_observations as f64;
-    let k = result.n_parameters as f64;
+    // k counts the residual variance as a parameter (as R's logLik.lm df).
+    let k = result.n_parameters as f64 + 1.0;
     let expected_correction = 2.0 * k * (k + 1.0) / (n - k - 1.0);
     assert_relative_eq!(
         result.aicc - result.aic,

@@ -22,6 +22,40 @@ pub fn detect_constant_columns(x: &Mat<f64>, tolerance: f64) -> Vec<bool> {
     constant
 }
 
+/// Detect constant columns with a **scale-relative** tolerance.
+///
+/// Column `j` is constant when `max_i x_ij − min_i x_ij ≤ tolerance · max_i |x_ij|`
+/// (an all-zero column is constant). Unlike [`detect_constant_columns`], whose
+/// tolerance is absolute, this does not flag non-constant columns measured in
+/// tiny units (e.g. `x · 1e-12`) and does not miss constant offsets of large
+/// columns. R's `lm` behaves the same way, since its pivoting tolerance is
+/// relative to the column norm.
+pub fn detect_constant_columns_relative(x: &Mat<f64>, tolerance: f64) -> Vec<bool> {
+    let n_rows = x.nrows();
+    (0..x.ncols())
+        .map(|j| {
+            if n_rows == 0 {
+                return true;
+            }
+            let (mut lo, mut hi, mut amax) = (f64::INFINITY, f64::NEG_INFINITY, 0.0_f64);
+            for i in 0..n_rows {
+                let v = x[(i, j)];
+                lo = lo.min(v);
+                hi = hi.max(v);
+                amax = amax.max(v.abs());
+            }
+            hi - lo <= tolerance * amax
+        })
+        .collect()
+}
+
+/// Detect columns that are identically zero.
+pub fn detect_zero_columns(x: &Mat<f64>) -> Vec<bool> {
+    (0..x.ncols())
+        .map(|j| (0..x.nrows()).all(|i| x[(i, j)] == 0.0))
+        .collect()
+}
+
 /// Center a matrix by subtracting column means.
 pub fn center_columns(x: &Mat<f64>) -> (Mat<f64>, Col<f64>) {
     let n_rows = x.nrows();

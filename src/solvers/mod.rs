@@ -6,6 +6,7 @@ mod bayesian;
 mod binomial;
 mod bls;
 mod elastic_net;
+mod fit_stats;
 mod gamma;
 mod glm_alias;
 mod glmm;

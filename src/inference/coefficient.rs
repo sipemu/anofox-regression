@@ -130,63 +130,11 @@ impl CoefficientInference {
         mse: f64,
         aliased: &[bool],
     ) -> Result<(Col<f64>, f64), &'static str> {
-        let n_samples = x.nrows();
-        let n_features = x.ncols();
-
-        // Build augmented design matrix [1 | X]
-        let mut x_aug = Mat::zeros(n_samples, n_features + 1);
-        for i in 0..n_samples {
-            x_aug[(i, 0)] = 1.0;
-            for j in 0..n_features {
-                x_aug[(i, j + 1)] = x[(i, j)];
-            }
-        }
-
-        // Compute X_aug'X_aug
-        let xtx_aug = x_aug.transpose() * &x_aug;
-
-        // Compute inverse using QR decomposition
-        let qr = xtx_aug.qr();
-        let q = qr.compute_thin_Q();
-        let r = qr.R();
-
-        // Check if R is singular
-        let aug_size = n_features + 1;
-        for i in 0..aug_size {
-            if r[(i, i)].abs() < 1e-10 {
-                return Err("Augmented matrix is singular");
-            }
-        }
-
-        // Solve R * X = Q' for each column of identity to get inverse
-        let mut xtx_aug_inv = Mat::zeros(aug_size, aug_size);
-        let qt = q.transpose();
-
-        for col in 0..aug_size {
-            for i in (0..aug_size).rev() {
-                let mut sum = qt[(i, col)];
-                for j in (i + 1)..aug_size {
-                    sum -= r[(i, j)] * xtx_aug_inv[(j, col)];
-                }
-                xtx_aug_inv[(i, col)] = sum / r[(i, i)];
-            }
-        }
-
-        // Intercept SE from (0,0) element
-        let se_intercept = (mse * xtx_aug_inv[(0, 0)]).sqrt();
-
-        // Coefficient SEs from diagonal (1..n_features+1), respecting aliased
-        let mut se_coef = Col::zeros(n_features);
-        for j in 0..n_features {
-            if aliased[j] {
-                se_coef[j] = f64::NAN;
-            } else {
-                let var = mse * xtx_aug_inv[(j + 1, j + 1)];
-                se_coef[j] = if var >= 0.0 { var.sqrt() } else { f64::NAN };
-            }
-        }
-
-        Ok((se_coef, se_intercept))
+        // (X_aug'X_aug)^-1 over the intercept and the non-aliased columns only:
+        // aliased columns are not part of the estimated model (R's lm reports
+        // the standard errors of the reduced fit).
+        let inv = super::prediction::compute_xtx_inverse_augmented_reduced(x, aliased)?;
+        Ok(Self::expand_augmented_se(&inv, mse, aliased))
     }
 
     /// Compute standard errors for WLS with intercept using the weighted augmented design matrix.
@@ -201,145 +149,46 @@ impl CoefficientInference {
         mse: f64,
         aliased: &[bool],
     ) -> Result<(Col<f64>, f64), &'static str> {
-        let n_samples = x.nrows();
-        let n_features = x.ncols();
+        let inv = super::prediction::compute_xtwx_inverse_augmented_reduced(x, weights, aliased)?;
+        Ok(Self::expand_augmented_se(&inv, mse, aliased))
+    }
 
-        // Build X'WX for augmented matrix [1 | X]
-        let aug_size = n_features + 1;
-        let mut xtwx_aug: Mat<f64> = Mat::zeros(aug_size, aug_size);
-
-        for i in 0..n_samples {
-            let w = weights[i];
-
-            // (0,0): sum of weights
-            xtwx_aug[(0, 0)] += w;
-
-            // (0,j+1) and (j+1,0): weighted sum of x_j
-            for j in 0..n_features {
-                xtwx_aug[(0, j + 1)] += w * x[(i, j)];
-                xtwx_aug[(j + 1, 0)] += w * x[(i, j)];
+    /// Map the diagonal of a reduced augmented inverse (intercept first, then
+    /// the non-aliased columns in order) to `(coefficient_SE, intercept_SE)`.
+    fn expand_augmented_se(inv: &Mat<f64>, mse: f64, aliased: &[bool]) -> (Col<f64>, f64) {
+        let sd = |v: f64| {
+            let var = mse * v;
+            if var >= 0.0 {
+                var.sqrt()
+            } else {
+                f64::NAN
             }
-
-            // (j+1, k+1): weighted x_j * x_k
-            for j in 0..n_features {
-                for k in 0..n_features {
-                    xtwx_aug[(j + 1, k + 1)] += w * x[(i, j)] * x[(i, k)];
-                }
-            }
-        }
-
-        // Compute inverse using QR decomposition
-        let qr: faer::linalg::solvers::Qr<f64> = xtwx_aug.qr();
-        let q = qr.compute_thin_Q();
-        let r = qr.R();
-
-        // Check if R is singular
-        for i in 0..aug_size {
-            if r[(i, i)].abs() < 1e-10 {
-                return Err("Weighted augmented matrix is singular");
-            }
-        }
-
-        // Solve R * X = Q' for each column of identity to get inverse
-        let mut xtwx_aug_inv: Mat<f64> = Mat::zeros(aug_size, aug_size);
-        let qt = q.transpose();
-
-        for col in 0..aug_size {
-            for i in (0..aug_size).rev() {
-                let mut sum = qt[(i, col)];
-                for j in (i + 1)..aug_size {
-                    sum -= r[(i, j)] * xtwx_aug_inv[(j, col)];
-                }
-                xtwx_aug_inv[(i, col)] = sum / r[(i, i)];
-            }
-        }
-
-        // Intercept SE from (0,0) element
-        let se_intercept = (mse * xtwx_aug_inv[(0, 0)]).sqrt();
-
-        // Coefficient SEs from diagonal (1..n_features+1), respecting aliased
-        let mut se_coef = Col::zeros(n_features);
-        for j in 0..n_features {
-            if aliased[j] {
+        };
+        let se_intercept = sd(inv[(0, 0)]);
+        let mut se_coef = Col::zeros(aliased.len());
+        let mut k = 1;
+        for (j, &a) in aliased.iter().enumerate() {
+            if a {
                 se_coef[j] = f64::NAN;
             } else {
-                let var = mse * xtwx_aug_inv[(j + 1, j + 1)];
-                se_coef[j] = if var >= 0.0 { var.sqrt() } else { f64::NAN };
+                se_coef[j] = sd(inv[(k, k)]);
+                k += 1;
             }
         }
-
-        Ok((se_coef, se_intercept))
+        (se_coef, se_intercept)
     }
 
     /// Compute (X'X)^(-1) for non-aliased columns.
     fn compute_xtx_inverse(x: &Mat<f64>, aliased: &[bool]) -> Result<Mat<f64>, &'static str> {
         let n_features = x.ncols();
-        let n_active: usize = aliased.iter().filter(|&&a| !a).count();
-
-        if n_active == 0 {
-            return Err("All features are aliased");
-        }
-
-        // Extract non-aliased columns
-        let mut x_active = Mat::zeros(x.nrows(), n_active);
-        let mut col_idx = 0;
-        for j in 0..n_features {
-            if !aliased[j] {
-                for i in 0..x.nrows() {
-                    x_active[(i, col_idx)] = x[(i, j)];
-                }
-                col_idx += 1;
-            }
-        }
-
-        // Compute X'X
-        let xtx = x_active.transpose() * &x_active;
-
-        // Compute inverse using QR decomposition (more numerically stable)
-        let qr = xtx.qr();
-        let q = qr.compute_thin_Q();
-        let r = qr.R();
-
-        // Check if R is singular
-        for i in 0..n_active {
-            if r[(i, i)].abs() < 1e-10 {
-                return Err("Matrix is singular");
-            }
-        }
-
-        // Solve R * X = Q' for each column of identity to get inverse
-        let mut xtx_inv_active = Mat::zeros(n_active, n_active);
-        let qt = q.transpose();
-
-        for col in 0..n_active {
-            // Back-substitution for R * x = qt_col
-            for i in (0..n_active).rev() {
-                let mut sum = qt[(i, col)];
-                for j in (i + 1)..n_active {
-                    sum -= r[(i, j)] * xtx_inv_active[(j, col)];
-                }
-                xtx_inv_active[(i, col)] = sum / r[(i, i)];
-            }
-        }
-
-        // Map back to full size
+        let inv_active = super::prediction::compute_xtx_inverse_reduced(x, aliased)?;
+        let active: Vec<usize> = (0..n_features).filter(|&j| !aliased[j]).collect();
         let mut xtx_inv = Mat::zeros(n_features, n_features);
-        let mut ai = 0;
-        for i in 0..n_features {
-            if aliased[i] {
-                continue;
+        for (ai, &i) in active.iter().enumerate() {
+            for (aj, &j) in active.iter().enumerate() {
+                xtx_inv[(i, j)] = inv_active[(ai, aj)];
             }
-            let mut aj = 0;
-            for j in 0..n_features {
-                if aliased[j] {
-                    continue;
-                }
-                xtx_inv[(i, j)] = xtx_inv_active[(ai, aj)];
-                aj += 1;
-            }
-            ai += 1;
         }
-
         Ok(xtx_inv)
     }
 }
