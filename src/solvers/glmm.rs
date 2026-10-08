@@ -3,7 +3,8 @@
 //! random-intercept factors.
 //!
 //! Covers **Phases A–C** of the mixed-model work tracked in issue #25 (mirroring
-//! the DuckDB extension's `glmm_fit_agg`):
+//! the DuckDB extension's `glmm_fit_agg`), plus the extra families, offsets and
+//! crossed random slopes of issue #29:
 //!
 //! ```text
 //! g(μ_ij) = x_ij'β + z_ij'b_j,     b_j ~ N(0, Σ)
@@ -17,8 +18,15 @@
 //! optional slopes). [`fit_crossed`](GlmmRegressor::fit_crossed) handles several
 //! **crossed or nested** grouping factors, each contributing a random intercept
 //! with its own variance component (`(1|a) + (1|b)`, or `(1|a/b)` via the
-//! interaction id). Random slopes combined with multiple factors are not yet
-//! supported.
+//! interaction id), optionally with per-factor random slopes
+//! (`(1 + x | a) + (1 | b)`, see
+//! [`random_slopes_per_factor`](GlmmRegressorBuilder::random_slopes_per_factor)).
+//!
+//! Families: Gaussian (LMM), Poisson, binomial, negative binomial (θ estimated
+//! as `glmer.nb`, or fixed), Gamma and Tweedie (`1 < p < 2`), all with the log
+//! link except binomial (logit). An optional per-observation
+//! [`offset`](GlmmRegressorBuilder::offset) enters the linear predictor with
+//! coefficient 1.
 //!
 //! # Method
 //!
@@ -43,7 +51,10 @@
 //! * **Non-Gaussian response (GLMM).** A penalized IRLS (PIRLS) inner loop finds
 //!   the conditional modes `(β, u)` and the Laplace deviance is evaluated at the
 //!   mode. Because the fixed effects are part of the penalized conditional mode,
-//!   this matches `lme4::glmer(nAGQ = 0)` for the Poisson and binomial families.
+//!   this matches `lme4::glmer(nAGQ = 0)`. The criterion is lme4's
+//!   `log|L_θ|² + ‖u‖² + aic(y, μ)`: the family `−2 log L` (Gamma / Tweedie with
+//!   dispersion `deviance / n`, as R's `Gamma()$aic`). Gamma / Tweedie report
+//!   `σ = sqrt(pwrss / n)` and scale the fixed-effect standard errors by it.
 //!
 //! The random block `Zᵀ W Z` is block-diagonal with one dense `q×q` block per
 //! group (groups share no random columns), so the random effects are eliminated
@@ -72,29 +83,26 @@
 //! let (lo, hi) = fitted.conf_int(0.95);
 //! ```
 
-use crate::core::{BinomialFamily, BinomialLink, GlmFamily, PoissonFamily, PoissonLink};
+use crate::core::{
+    BinomialFamily, BinomialLink, GlmFamily, NegativeBinomialFamily, PoissonFamily, PoissonLink,
+    TweedieFamily,
+};
+use crate::solvers::penalized_glm::loglik::{log_likelihood as family_log_likelihood, LogLikKind};
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, Normal};
 
-/// The response family for a [`GlmmRegressor`].
-enum Response {
-    /// Gaussian response — solved as a linear mixed model (exact profiled REML/ML).
-    Gaussian,
-    /// A generalized-linear-model family solved by Laplace-approximate PIRLS.
-    Glm(Box<dyn GlmFamily>),
-}
-
 /// A GLMM with a random intercept (and optional random slopes) over one
-/// grouping factor.
+/// grouping factor, or several crossed / nested grouping factors.
 pub struct GlmmRegressor {
-    response: Response,
     kind: ResponseKind,
     with_intercept: bool,
     /// Whether the random-effects design includes a random intercept.
     random_intercept: bool,
     /// Indices into the columns of `x` that carry a random slope.
     random_slopes: Vec<usize>,
+    /// Per-factor random-slope columns for [`fit_crossed`](Self::fit_crossed).
+    random_slopes_per_factor: Option<Vec<Vec<usize>>>,
     /// Use REML (`true`) rather than ML (`false`) for the Gaussian case. Ignored
     /// for non-Gaussian families, which use the Laplace ML deviance.
     reml: bool,
@@ -104,6 +112,10 @@ pub struct GlmmRegressor {
     tolerance: f64,
     /// Upper bound on the profiled ratio θ = σ_b / σ (random-intercept case).
     theta_max: f64,
+    /// Fixed negative-binomial size θ; `None` estimates it (`glmer.nb`).
+    nb_theta: Option<f64>,
+    /// Per-observation offset added to the linear predictor.
+    offset: Option<Col<f64>>,
 }
 
 impl GlmmRegressor {
@@ -120,6 +132,29 @@ impl GlmmRegressor {
     /// Binomial response with the logit link (0/1 or proportion `y`).
     pub fn binomial() -> GlmmRegressorBuilder {
         GlmmRegressorBuilder::new(ResponseKind::Binomial)
+    }
+
+    /// Negative-binomial (NB2) response with the log link,
+    /// `Var(y) = μ + μ²/θ`. By default the size θ is estimated by maximising
+    /// the profiled Laplace log-likelihood, as `lme4::glmer.nb(nAGQ = 0)`;
+    /// fix it with [`GlmmRegressorBuilder::nb_theta`] to match
+    /// `glmer(family = MASS::negative.binomial(θ), nAGQ = 0)`.
+    pub fn negative_binomial() -> GlmmRegressorBuilder {
+        GlmmRegressorBuilder::new(ResponseKind::NegativeBinomial)
+    }
+
+    /// Gamma response with the log link (`y > 0`), matching
+    /// `lme4::glmer(family = Gamma(link = "log"), nAGQ = 0)`.
+    pub fn gamma() -> GlmmRegressorBuilder {
+        GlmmRegressorBuilder::new(ResponseKind::Gamma)
+    }
+
+    /// Tweedie (compound Poisson–gamma) response with variance power
+    /// `1 < power < 2` and the log link (`y ≥ 0`). Uses the same Laplace
+    /// criterion as lme4's Gamma GLMM (dispersion `deviance / n` inside the
+    /// family log-likelihood), with the Tweedie series density.
+    pub fn tweedie(power: f64) -> GlmmRegressorBuilder {
+        GlmmRegressorBuilder::new(ResponseKind::Tweedie(power))
     }
 
     /// Fit the model.
@@ -139,6 +174,28 @@ impl GlmmRegressor {
         y: &Col<f64>,
         group: &[usize],
     ) -> Result<FittedGlmm, RegressionError> {
+        let slopes: &[usize] = match &self.random_slopes_per_factor {
+            None => &self.random_slopes,
+            Some(per) if per.len() == 1 && self.random_slopes.is_empty() => &per[0],
+            Some(_) => {
+                return Err(RegressionError::NumericalError(
+                    "random_slopes_per_factor must have one entry per grouping factor \
+                     (and is exclusive with random_slopes)"
+                        .to_string(),
+                ))
+            }
+        };
+        self.fit_single(x, y, group, slopes)
+    }
+
+    /// Single-grouping-factor fit with the given random-slope columns.
+    fn fit_single(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        group: &[usize],
+        slopes: &[usize],
+    ) -> Result<FittedGlmm, RegressionError> {
         let n = x.nrows();
         if y.nrows() != n || group.len() != n {
             return Err(RegressionError::DimensionMismatch {
@@ -149,21 +206,16 @@ impl GlmmRegressor {
         if n < 3 {
             return Err(RegressionError::InsufficientObservations { needed: 3, got: n });
         }
+        let offset = self.offset_vec(n)?;
+        self.validate_response(y)?;
 
-        let q = usize::from(self.random_intercept) + self.random_slopes.len();
+        let q = usize::from(self.random_intercept) + slopes.len();
         if q == 0 {
             return Err(RegressionError::NumericalError(
                 "GLMM needs a random intercept or at least one random slope".to_string(),
             ));
         }
-        for &c in &self.random_slopes {
-            if c >= x.ncols() {
-                return Err(RegressionError::NumericalError(format!(
-                    "random-slope column {c} is out of range for x with {} columns",
-                    x.ncols()
-                )));
-            }
-        }
+        check_slope_columns(slopes, x.ncols())?;
 
         // Compact arbitrary group ids into 0..J and record membership.
         let (group_idx, n_groups) = compact_groups(group);
@@ -186,21 +238,27 @@ impl GlmmRegressor {
             });
         }
         let design = build_design(x, self.with_intercept);
-        let z = build_random_design(x, self.random_intercept, &self.random_slopes);
+        let z = build_random_design(x, self.random_intercept, slopes);
 
-        match &self.response {
-            Response::Gaussian => self.fit_lmm(&design, &z, y, &group_idx, n_groups, p, q),
-            Response::Glm(family) => self
-                .fit_glmm(family.as_ref(), &design, &z, y, &group_idx, n_groups, p, q)
-                .map(|f| self.with_saturated_term(f, y)),
+        if let ResponseKind::Gaussian = self.kind {
+            let y_adj = Col::from_fn(n, |i| y[i] - offset[i]);
+            return self.fit_lmm(&design, &z, &y_adj, &group_idx, n_groups, p, q);
         }
+        let y_vec: Vec<f64> = y.iter().copied().collect();
+        self.with_family(|family, nb_theta| {
+            self.fit_glmm(
+                family, nb_theta, &design, &z, &y_vec, &offset, &group_idx, n_groups, p, q,
+            )
+        })
+        .map(|f| self.with_saturated_term(f, y))
     }
 
     /// Fit with **multiple crossed or nested grouping factors**, each carrying a
-    /// random intercept with its own variance component:
+    /// random intercept (and, optionally, random slopes) with its own
+    /// covariance:
     ///
     /// ```text
-    /// g(μ_i) = x_i'β + Σ_f b_{f, level_f(i)},   b_{f,·} ~ N(0, σ_f²)
+    /// g(μ_i) = x_i'β + Σ_f z_{f,i}'b_{f, level_f(i)},   b_{f,·} ~ N(0, Σ_f)
     /// ```
     ///
     /// * `groups[f]` is the level id of factor `f` for each observation
@@ -209,10 +267,12 @@ impl GlmmRegressor {
     ///   `(1|sku) + (1|region)` → `&[&sku, &region]`.
     /// * Nested factors `(1|a/b)`: pass `a` and the interaction id `a:b` (a
     ///   globally-unique id per `(a, b)` pair) → `&[&a, &ab]`.
+    /// * Random slopes per factor, e.g. `(1 + x[0] | a) + (1 | b)`, are set
+    ///   with [`GlmmRegressorBuilder::random_slopes_per_factor`]
+    ///   (`vec![vec![0], vec![]]`); each factor then gets an unstructured
+    ///   `q_f × q_f` covariance.
     ///
-    /// With a single factor this delegates to [`fit`](Self::fit) (which also
-    /// supports random slopes). Random slopes combined with multiple factors are
-    /// not yet supported.
+    /// With a single factor this delegates to [`fit`](Self::fit).
     pub fn fit_crossed(
         &self,
         x: &Mat<f64>,
@@ -224,13 +284,30 @@ impl GlmmRegressor {
                 "fit_crossed needs at least one grouping factor".to_string(),
             ));
         }
-        if groups.len() == 1 {
-            return self.fit(x, y, groups[0]);
-        }
-        if !self.random_slopes.is_empty() {
-            return Err(RegressionError::NumericalError(
-                "random slopes with multiple grouping factors are not yet supported".to_string(),
-            ));
+        let n_factors = groups.len();
+        let slopes: Vec<Vec<usize>> = match &self.random_slopes_per_factor {
+            Some(per) => {
+                if per.len() != n_factors || !self.random_slopes.is_empty() {
+                    return Err(RegressionError::NumericalError(format!(
+                        "random_slopes_per_factor has {} entries for {n_factors} grouping \
+                         factors (it must match, and is exclusive with random_slopes)",
+                        per.len()
+                    )));
+                }
+                per.clone()
+            }
+            None if n_factors == 1 => vec![self.random_slopes.clone()],
+            None if !self.random_slopes.is_empty() => {
+                return Err(RegressionError::NumericalError(
+                    "random_slopes applies to a single grouping factor; use \
+                     random_slopes_per_factor with multiple grouping factors"
+                        .to_string(),
+                ));
+            }
+            None => vec![Vec::new(); n_factors],
+        };
+        if n_factors == 1 {
+            return self.fit_single(x, y, groups[0], &slopes[0]);
         }
 
         let n = x.nrows();
@@ -248,84 +325,145 @@ impl GlmmRegressor {
                 y_len: y.nrows(),
             });
         }
+        let offset = self.offset_vec(n)?;
+        self.validate_response(y)?;
 
-        // Compact each factor's ids and lay out combined random columns.
-        let n_factors = groups.len();
-        let mut levels = Vec::with_capacity(n_factors); // per factor: level per obs
+        // Compact each factor's ids and lay out the combined random columns.
+        let mut levels = Vec::with_capacity(n_factors);
         let mut n_levels = Vec::with_capacity(n_factors);
-        for g in groups {
+        let mut zs = Vec::with_capacity(n_factors);
+        let mut qs = Vec::with_capacity(n_factors);
+        for (g, sl) in groups.iter().zip(&slopes) {
             let (idx, jf) = compact_groups(g);
             if jf < 2 {
                 return Err(RegressionError::NumericalError(
                     "each grouping factor needs at least two distinct levels".to_string(),
                 ));
             }
+            check_slope_columns(sl, x.ncols())?;
+            let qf = usize::from(self.random_intercept) + sl.len();
+            if qf == 0 {
+                return Err(RegressionError::NumericalError(
+                    "each grouping factor needs a random intercept or a random slope".to_string(),
+                ));
+            }
             levels.push(idx);
             n_levels.push(jf);
+            zs.push(build_random_design(x, self.random_intercept, sl));
+            qs.push(qf);
         }
-        let mut col_offset = vec![0usize; n_factors];
-        let mut acc = 0;
-        for f in 0..n_factors {
-            col_offset[f] = acc;
-            acc += n_levels[f];
-        }
-        let m_dim = acc; // total random columns
+        let spec = MultiSpec::new(qs, n_levels, levels, zs);
 
         let p = if self.with_intercept {
             x.ncols() + 1
         } else {
             x.ncols()
         };
-        if n <= p + n_factors {
+        if n <= p + spec.n_theta {
             return Err(RegressionError::InsufficientObservations {
-                needed: p + n_factors + 1,
+                needed: p + spec.n_theta + 1,
                 got: n,
             });
         }
         let design = build_design(x, self.with_intercept);
 
-        // Combined column index per observation per factor.
-        let obs_cols: Vec<Vec<usize>> = (0..n)
-            .map(|i| {
-                (0..n_factors)
-                    .map(|f| col_offset[f] + levels[f][i])
-                    .collect()
-            })
-            .collect();
-        // Factor owning each combined column.
-        let mut col_factor = vec![0usize; m_dim];
-        for f in 0..n_factors {
-            for l in 0..n_levels[f] {
-                col_factor[col_offset[f] + l] = f;
-            }
+        if let ResponseKind::Gaussian = self.kind {
+            let y_adj: Vec<f64> = (0..n).map(|i| y[i] - offset[i]).collect();
+            return self.fit_lmm_multi(&design, &y_adj, &spec, p);
         }
+        let y_vec: Vec<f64> = y.iter().copied().collect();
+        self.with_family(|family, nb_theta| {
+            self.fit_glmm_multi(family, nb_theta, &design, &y_vec, &offset, &spec, p)
+        })
+        .map(|f| self.with_saturated_term(f, y))
+    }
 
-        match &self.response {
-            Response::Gaussian => self.fit_lmm_multi(
-                &design,
-                y,
-                &obs_cols,
-                &col_factor,
-                m_dim,
-                p,
-                n_factors,
-                &n_levels,
-                &col_offset,
-            ),
-            Response::Glm(family) => self
-                .fit_glmm_multi(
-                    family.as_ref(),
-                    &design,
-                    y,
-                    &obs_cols,
-                    &col_factor,
-                    m_dim,
-                    p,
-                    n_factors,
-                    &n_levels,
-                    &col_offset,
-                )
-                .map(|f| self.with_saturated_term(f, y)),
+    /// The offset as a dense vector (zeros when none was set).
+    fn offset_vec(&self, n: usize) -> Result<Vec<f64>, RegressionError> {
+        match &self.offset {
+            None => Ok(vec![0.0; n]),
+            Some(o) if o.nrows() == n => {
+                if o.iter().all(|v| v.is_finite()) {
+                    Ok(o.iter().copied().collect())
+                } else {
+                    Err(RegressionError::NumericalError(
+                        "offset must be finite".to_string(),
+                    ))
+                }
+            }
+            Some(o) => Err(RegressionError::DimensionMismatch {
+                x_rows: n,
+                y_len: o.nrows(),
+            }),
+        }
+    }
+
+    /// Family-specific checks on the response and family parameters for the
+    /// negative-binomial, Gamma and Tweedie GLMMs.
+    fn validate_response(&self, y: &Col<f64>) -> Result<(), RegressionError> {
+        let bad = |msg: &str| Err(RegressionError::NumericalError(msg.to_string()));
+        match self.kind {
+            ResponseKind::NegativeBinomial => {
+                if let Some(th) = self.nb_theta {
+                    if !(th.is_finite() && th > 0.0) {
+                        return bad("negative-binomial theta must be finite and positive");
+                    }
+                }
+                if y.iter().any(|&v| !(v.is_finite() && v >= 0.0)) {
+                    return bad("negative-binomial GLMM needs a non-negative response");
+                }
+            }
+            ResponseKind::Gamma => {
+                if y.iter().any(|&v| !(v.is_finite() && v > 0.0)) {
+                    return bad("Gamma GLMM needs a strictly positive response");
+                }
+            }
+            ResponseKind::Tweedie(power) => {
+                if !(power > 1.0 && power < 2.0) {
+                    return bad("Tweedie GLMM needs a variance power in (1, 2)");
+                }
+                if y.iter().any(|&v| !(v.is_finite() && v >= 0.0)) {
+                    return bad("Tweedie GLMM needs a non-negative response");
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Run `fit` with the GLM family of this regressor. For a negative-binomial
+    /// GLMM with an unknown size θ, θ is estimated by maximising the profiled
+    /// Laplace log-likelihood over `log θ` (as `lme4::glmer.nb`).
+    fn with_family<F>(&self, fit: F) -> Result<FittedGlmm, RegressionError>
+    where
+        F: Fn(&dyn GlmFamily, f64) -> Result<FittedGlmm, RegressionError>,
+    {
+        match self.kind {
+            ResponseKind::Gaussian => unreachable!("Gaussian is fitted as an LMM"),
+            ResponseKind::Poisson => fit(&PoissonFamily::new(PoissonLink::Log), f64::NAN),
+            ResponseKind::Binomial => fit(&BinomialFamily::new(BinomialLink::Logit), f64::NAN),
+            ResponseKind::Gamma => fit(&TweedieFamily::new(2.0, 0.0), f64::NAN),
+            ResponseKind::Tweedie(power) => fit(&TweedieFamily::new(power, 0.0), f64::NAN),
+            ResponseKind::NegativeBinomial => {
+                let at = |th: f64| fit(&NegativeBinomialFamily::new(th), th);
+                if let Some(th) = self.nb_theta {
+                    return at(th);
+                }
+                // −2 log L is minimised over log θ ∈ [log 1e-3, log 1e6].
+                let objective = |lt: f64| -> Option<f64> {
+                    at(lt.exp())
+                        .ok()
+                        .map(|m| m.deviance)
+                        .filter(|d| d.is_finite())
+                };
+                let lt = golden_section_min(
+                    (1e-3f64).ln(),
+                    (1e6f64).ln(),
+                    self.tolerance.max(1e-9),
+                    &objective,
+                )?;
+                at(lt.exp())
+            }
         }
     }
 
@@ -397,6 +535,8 @@ impl GlmmRegressor {
     /// The Laplace deviance is relative to the saturated model; add the
     /// saturated log-likelihood `Σ log f(yᵢ | μᵢ = yᵢ)` so that
     /// `log_likelihood` matches lme4's `logLik(glmer)` (zero for 0/1 data).
+    /// The negative-binomial, Gamma and Tweedie criteria already use the full
+    /// family log-likelihood (`log_likelihood = −deviance / 2`).
     fn with_saturated_term(&self, mut fitted: FittedGlmm, y: &Col<f64>) -> FittedGlmm {
         let yv: Vec<f64> = y.iter().copied().collect();
         let sat = match self.kind {
@@ -404,10 +544,63 @@ impl GlmmRegressor {
             ResponseKind::Binomial => {
                 super::fit_stats::binomial_saturated_log_likelihood(&yv, None)
             }
-            ResponseKind::Gaussian => 0.0,
+            _ => return fitted,
         };
         fitted.log_likelihood = -0.5 * fitted.deviance + sat;
         fitted
+    }
+
+    /// The Laplace criterion `log|L_θ|² + ‖u‖² + lik(y, μ)` at the conditional
+    /// mode (lme4's `ldL2 + sqrL + aic`). For Poisson / binomial `lik` is the
+    /// summed unit deviance (the saturated term is added afterwards); for the
+    /// other families it is `−2 log L` (+2 for the Gamma / Tweedie dispersion,
+    /// estimated as `deviance / n` as in R's `Gamma()$aic`).
+    fn laplace_criterion(
+        &self,
+        family: &dyn GlmFamily,
+        nb_theta: f64,
+        y: &[f64],
+        mu: &[f64],
+        u_sq: f64,
+        logdet_l2: f64,
+    ) -> f64 {
+        let dev: f64 = y
+            .iter()
+            .zip(mu)
+            .map(|(&yi, &mi)| family.unit_deviance(yi, mi))
+            .sum();
+        let lik = match self.kind {
+            ResponseKind::NegativeBinomial => {
+                -2.0 * super::fit_stats::negbin_log_likelihood(y, mu, nb_theta)
+            }
+            ResponseKind::Gamma => {
+                let dispersion = dev / y.len() as f64;
+                -2.0 * family_log_likelihood(LogLikKind::Gamma { dispersion }, y, mu) + 2.0
+            }
+            ResponseKind::Tweedie(power) => {
+                let dispersion = dev / y.len() as f64;
+                -2.0 * family_log_likelihood(LogLikKind::Tweedie { power, dispersion }, y, mu) + 2.0
+            }
+            _ => dev,
+        };
+        logdet_l2 + u_sq + lik
+    }
+
+    /// Residual scale σ and the standard-error multiplier. Families with a free
+    /// dispersion (Gamma, Tweedie) use lme4's `σ = sqrt(pwrss / n)` with
+    /// `pwrss = Σ (y − μ)²/V(μ) + ‖u‖²`; the others have σ = 1.
+    fn glmm_scale(&self, family: &dyn GlmFamily, y: &[f64], mu: &[f64], u_sq: f64) -> f64 {
+        match self.kind {
+            ResponseKind::Gamma | ResponseKind::Tweedie(_) => {
+                let pearson: f64 = y
+                    .iter()
+                    .zip(mu)
+                    .map(|(&yi, &mi)| (yi - mi).powi(2) / family.variance(mi))
+                    .sum();
+                ((pearson + u_sq) / y.len() as f64).sqrt()
+            }
+            _ => 1.0,
+        }
     }
 
     /// Fit a non-Gaussian GLMM by profiling the Laplace deviance over θ, with a
@@ -416,109 +609,104 @@ impl GlmmRegressor {
     fn fit_glmm(
         &self,
         family: &dyn GlmFamily,
+        nb_theta: f64,
         design: &Mat<f64>,
         z: &Mat<f64>,
-        y: &Col<f64>,
+        y: &[f64],
+        offset: &[f64],
         group_idx: &[usize],
         n_groups: usize,
         p: usize,
         q: usize,
     ) -> Result<FittedGlmm, RegressionError> {
-        let n = design.nrows();
-        let y_slice: Vec<f64> = (0..n).map(|i| y[i]).collect();
-        let beta0 = glm_warm_start(family, design, &y_slice, p, self.max_iterations)?;
-
-        let objective = |theta: &[f64]| -> Option<f64> {
-            let t = build_t(theta, q);
+        let beta0 = glm_warm_start(family, design, y, offset, p, self.max_iterations)?;
+        let run = |t: &[Vec<f64>]| {
             pirls(
                 family,
                 design,
                 z,
-                &y_slice,
+                y,
+                offset,
                 group_idx,
                 n_groups,
                 p,
                 q,
-                &t,
+                t,
                 &beta0,
                 self.max_iterations,
                 self.tolerance,
             )
-            .map(|s| s.laplace_deviance)
+        };
+
+        let objective = |theta: &[f64]| -> Option<f64> {
+            let t = build_t(theta, q);
+            run(&t).map(|s| self.laplace_criterion(family, nb_theta, y, &s.mu, s.u_sq, s.logdet_l2))
         };
 
         let theta = optimize_theta(q, self.theta_max, self.tolerance, &objective)?;
         let t = build_t(&theta, q);
-        let sol = pirls(
-            family,
-            design,
-            z,
-            &y_slice,
-            group_idx,
-            n_groups,
-            p,
-            q,
-            &t,
-            &beta0,
-            self.max_iterations,
-            self.tolerance,
-        )
-        .ok_or(RegressionError::ConvergenceFailed {
+        let sol = run(&t).ok_or(RegressionError::ConvergenceFailed {
             iterations: self.max_iterations,
         })?;
+        let deviance =
+            self.laplace_criterion(family, nb_theta, y, &sol.mu, sol.u_sq, sol.logdet_l2);
+        let sigma = self.glmm_scale(family, y, &sol.mu, sol.u_sq);
 
-        // Poisson/binomial dispersion is fixed at 1: Var(β) = M⁻¹, Σ = T Tᵀ.
+        // Σ = T Tᵀ (lme4 reports the GLMM random-effect covariance unscaled);
+        // Var(β) = σ² M⁻¹ with σ = 1 except for Gamma / Tweedie.
         let cov = mm(&t, &transpose(&t));
+        let std_errors = diag_sqrt(&sol.m_inv).iter().map(|s| s * sigma).collect();
 
-        Ok(FittedGlmm::new(
+        let mut fitted = FittedGlmm::new(
             self.with_intercept,
             sol.beta,
-            diag_sqrt(&sol.m_inv),
+            std_errors,
             sol.b,
             n_groups,
             q,
             t[0][0],
-            1.0,
+            sigma,
             cov,
-            sol.laplace_deviance,
+            deviance,
             false,
             sol.converged,
             sol.iterations,
-        ))
+        );
+        fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
+        Ok(fitted)
     }
 
     // -------------------------------------------------------- multi-factor ---
 
-    /// Fit a Gaussian LMM with several crossed / nested random-intercept
-    /// factors by profiling the REML/ML deviance over `(θ_1, …, θ_F)`.
-    #[allow(clippy::too_many_arguments)]
+    /// Fit a Gaussian LMM with several crossed / nested random-effect factors
+    /// by profiling the REML/ML deviance over the stacked per-factor θ.
     fn fit_lmm_multi(
         &self,
         design: &Mat<f64>,
-        y: &Col<f64>,
-        obs_cols: &[Vec<usize>],
-        col_factor: &[usize],
-        m_dim: usize,
+        y: &[f64],
+        spec: &MultiSpec,
         p: usize,
-        n_factors: usize,
-        n_levels: &[usize],
-        col_offset: &[usize],
     ) -> Result<FittedGlmm, RegressionError> {
         let n = design.nrows();
-        let y_vec: Vec<f64> = (0..n).map(|i| y[i]).collect();
-        let raw = MultiRawStats::new(design, &y_vec, obs_cols, m_dim, p, None);
+        let m_dim = spec.m_dim;
+        let solve = |theta: &[f64]| -> Option<(MultiSolution, f64)> {
+            let ts = spec.ts(theta);
+            let zl = spec.zl(&ts);
+            let st = MultiStats::new(design, y, &zl, m_dim, p, None);
+            let s = solve_multi(&st, m_dim, p)?;
+            let rss = multi_rss(design, y, &zl, &s.beta, &s.u, p);
+            Some((s, rss))
+        };
 
         let objective = |theta: &[f64]| -> Option<f64> {
-            solve_multi(&raw, theta, col_factor, m_dim, p).map(|s| {
-                let prss = multi_prss(design, &y_vec, obs_cols, &s.beta, &s.b, p) + s.u_sq;
-                deviance_from_pieces(prss, s.logdet_l2, s.logdet_rx2, n, p, self.reml)
+            solve(theta).map(|(s, rss)| {
+                deviance_from_pieces(rss + s.u_sq, s.logdet_l2, s.logdet_rx2, n, p, self.reml)
             })
         };
 
-        let theta = optimize_theta_vec(n_factors, self.tolerance, &objective)?;
-        let sol = solve_multi(&raw, &theta, col_factor, m_dim, p)
-            .ok_or(RegressionError::SingularMatrix)?;
-        let prss = multi_prss(design, &y_vec, obs_cols, &sol.beta, &sol.b, p) + sol.u_sq;
+        let theta = optimize_theta_vec(&spec.initial_theta(), self.tolerance, &objective)?;
+        let (sol, rss) = solve(&theta).ok_or(RegressionError::SingularMatrix)?;
+        let prss = rss + sol.u_sq;
 
         let dof = if self.reml { n - p } else { n };
         let sigma2 = prss / dof as f64;
@@ -526,14 +714,15 @@ impl GlmmRegressor {
         let std_errors = diag_sqrt(&scale_matrix(&sol.m_inv, sigma2));
         let deviance = deviance_from_pieces(prss, sol.logdet_l2, sol.logdet_rx2, n, p, self.reml);
 
-        let factors =
-            build_factor_summaries(&sol.b, col_offset, n_levels, n_factors, &theta, sigma);
+        let ts = spec.ts(&theta);
+        let (factors, details) = spec.summaries(&ts, &sol.u, sigma);
         Ok(FittedGlmm::new_multi(
             self.with_intercept,
             sol.beta,
             std_errors,
             sigma,
             factors,
+            details,
             deviance,
             self.reml,
             true,
@@ -541,74 +730,78 @@ impl GlmmRegressor {
         ))
     }
 
-    /// Fit a non-Gaussian GLMM with several crossed / nested random-intercept
+    /// Fit a non-Gaussian GLMM with several crossed / nested random-effect
     /// factors by profiling the Laplace deviance, PIRLS in the inner loop.
     #[allow(clippy::too_many_arguments)]
     fn fit_glmm_multi(
         &self,
         family: &dyn GlmFamily,
+        nb_theta: f64,
         design: &Mat<f64>,
-        y: &Col<f64>,
-        obs_cols: &[Vec<usize>],
-        col_factor: &[usize],
-        m_dim: usize,
+        y: &[f64],
+        offset: &[f64],
+        spec: &MultiSpec,
         p: usize,
-        n_factors: usize,
-        n_levels: &[usize],
-        col_offset: &[usize],
     ) -> Result<FittedGlmm, RegressionError> {
-        let n = design.nrows();
-        let y_slice: Vec<f64> = (0..n).map(|i| y[i]).collect();
-        let beta0 = glm_warm_start(family, design, &y_slice, p, self.max_iterations)?;
-
-        let objective = |theta: &[f64]| -> Option<f64> {
+        let beta0 = glm_warm_start(family, design, y, offset, p, self.max_iterations)?;
+        let run = |theta: &[f64]| {
             pirls_multi(
                 family,
                 design,
-                &y_slice,
-                obs_cols,
-                col_factor,
-                m_dim,
-                p,
+                y,
+                offset,
+                spec,
                 theta,
                 &beta0,
                 self.max_iterations,
                 self.tolerance,
             )
-            .map(|s| s.laplace_deviance)
         };
 
-        let theta = optimize_theta_vec(n_factors, self.tolerance, &objective)?;
-        let sol = pirls_multi(
-            family,
-            design,
-            &y_slice,
-            obs_cols,
-            col_factor,
-            m_dim,
-            p,
-            &theta,
-            &beta0,
-            self.max_iterations,
-            self.tolerance,
-        )
-        .ok_or(RegressionError::ConvergenceFailed {
+        let objective = |theta: &[f64]| -> Option<f64> {
+            run(theta)
+                .map(|s| self.laplace_criterion(family, nb_theta, y, &s.mu, s.u_sq, s.logdet_l2))
+        };
+
+        let theta = optimize_theta_vec(&spec.initial_theta(), self.tolerance, &objective)?;
+        let sol = run(&theta).ok_or(RegressionError::ConvergenceFailed {
             iterations: self.max_iterations,
         })?;
+        let deviance =
+            self.laplace_criterion(family, nb_theta, y, &sol.mu, sol.u_sq, sol.logdet_l2);
+        let sigma = self.glmm_scale(family, y, &sol.mu, sol.u_sq);
+        let std_errors = diag_sqrt(&sol.m_inv).iter().map(|s| s * sigma).collect();
 
-        let factors = build_factor_summaries(&sol.b, col_offset, n_levels, n_factors, &theta, 1.0);
-        Ok(FittedGlmm::new_multi(
+        let ts = spec.ts(&theta);
+        // GLMM random-effect covariances are unscaled (lme4 convention).
+        let (factors, details) = spec.summaries(&ts, &sol.u, 1.0);
+        let mut fitted = FittedGlmm::new_multi(
             self.with_intercept,
             sol.beta,
-            diag_sqrt(&sol.m_inv),
-            1.0,
+            std_errors,
+            sigma,
             factors,
-            sol.laplace_deviance,
+            details,
+            deviance,
             false,
             sol.converged,
             sol.iterations,
-        ))
+        );
+        fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
+        Ok(fitted)
     }
+}
+
+/// Check that every random-slope column indexes into `x`.
+fn check_slope_columns(slopes: &[usize], ncols: usize) -> Result<(), RegressionError> {
+    for &c in slopes {
+        if c >= ncols {
+            return Err(RegressionError::NumericalError(format!(
+                "random-slope column {c} is out of range for x with {ncols} columns"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// A fitted GLMM with a random intercept and optional random slopes.
@@ -636,6 +829,10 @@ pub struct FittedGlmm {
     /// factors (crossed / nested). Empty for the single-factor path, whose
     /// random effects are described by `cov` / `re_matrix`.
     factors: Vec<FactorSummary>,
+    /// Per-factor covariance and full BLUP matrices (multi-factor path).
+    factor_details: Vec<FactorDetail>,
+    /// Negative-binomial size θ (fixed or estimated); `None` otherwise.
+    nb_theta: Option<f64>,
 }
 
 /// Per-factor summary for a crossed / nested fit: one random intercept per
@@ -685,6 +882,8 @@ impl FittedGlmm {
             converged,
             iterations,
             factors: Vec::new(),
+            factor_details: Vec::new(),
+            nb_theta: None,
         }
     }
 
@@ -698,15 +897,18 @@ impl FittedGlmm {
         std_errors: Vec<f64>,
         sigma: f64,
         factors: Vec<FactorSummary>,
+        factor_details: Vec<FactorDetail>,
         deviance: f64,
         reml: bool,
         converged: bool,
         iterations: usize,
     ) -> Self {
         let f0 = &factors[0];
-        let re_matrix: Vec<Vec<f64>> = f0.blups.iter().map(|&b| vec![b]).collect();
+        let d0 = &factor_details[0];
+        let re_matrix = d0.re.clone();
         let re_intercept = f0.blups.clone();
-        let cov = vec![vec![f0.sd * f0.sd]];
+        let cov = d0.cov.clone();
+        let q = cov.len();
         let theta0 = if sigma > 0.0 { f0.sd / sigma } else { 0.0 };
         Self {
             with_intercept,
@@ -715,7 +917,7 @@ impl FittedGlmm {
             re_matrix,
             re_intercept,
             n_groups: f0.n_levels,
-            q: 1,
+            q,
             theta0,
             sigma,
             cov,
@@ -725,6 +927,8 @@ impl FittedGlmm {
             converged,
             iterations,
             factors,
+            factor_details,
+            nb_theta: None,
         }
     }
 
@@ -869,7 +1073,9 @@ impl FittedGlmm {
         self.theta0
     }
 
-    /// Residual standard deviation σ (1.0 for Poisson/binomial families).
+    /// Residual standard deviation σ: 1.0 for the Poisson, binomial and
+    /// negative-binomial families; lme4's `sigma()` = `sqrt(pwrss / n)` for
+    /// Gamma / Tweedie (it scales the fixed-effect standard errors).
     pub fn sigma(&self) -> f64 {
         self.sigma
     }
@@ -919,6 +1125,40 @@ impl FittedGlmm {
         }
     }
 
+    /// Random-effects covariance `Σ_f` (`q_f × q_f`) of grouping factor `f`
+    /// in a crossed / nested fit — component 0 is the random intercept, then
+    /// the slopes given to
+    /// [`random_slopes_per_factor`](GlmmRegressorBuilder::random_slopes_per_factor).
+    /// `None` for a single-factor fit (use [`random_cov`](Self::random_cov)) or
+    /// an out-of-range `f`.
+    pub fn factor_random_cov(&self, f: usize) -> Option<&[Vec<f64>]> {
+        self.factor_details.get(f).map(|d| d.cov.as_slice())
+    }
+
+    /// Standard deviations `sqrt(diag Σ_f)` of grouping factor `f` in a crossed
+    /// / nested fit; `None` for a single-factor fit or an out-of-range `f`.
+    pub fn factor_random_sd(&self, f: usize) -> Option<Vec<f64>> {
+        self.factor_details.get(f).map(|d| {
+            (0..d.cov.len())
+                .map(|i| d.cov[i][i].max(0.0).sqrt())
+                .collect()
+        })
+    }
+
+    /// Full BLUPs of grouping factor `f` in a crossed / nested fit, one
+    /// `q_f`-vector per level (`n_levels × q_f`); `None` for a single-factor
+    /// fit or an out-of-range `f`.
+    pub fn factor_random_effects_matrix(&self, f: usize) -> Option<&[Vec<f64>]> {
+        self.factor_details.get(f).map(|d| d.re.as_slice())
+    }
+
+    /// The negative-binomial size θ (`Var = μ + μ²/θ`) — estimated, or as
+    /// fixed via [`nb_theta`](GlmmRegressorBuilder::nb_theta). `None` for the
+    /// other families.
+    pub fn nb_theta(&self) -> Option<f64> {
+        self.nb_theta
+    }
+
     /// Whether the fit used REML (Gaussian only).
     pub fn is_reml(&self) -> bool {
         self.reml
@@ -932,6 +1172,13 @@ impl FittedGlmm {
     /// PIRLS iterations at the optimum (1 for the closed-form Gaussian LMM).
     pub fn iterations(&self) -> usize {
         self.iterations
+    }
+
+    /// Population-level linear predictor `η = x'β + offset` for new data
+    /// (random effects set to zero).
+    pub fn predict_fixed_with_offset(&self, x: &Mat<f64>, offset: &Col<f64>) -> Col<f64> {
+        let eta = self.predict_fixed(x);
+        Col::from_fn(eta.nrows(), |i| eta[i] + offset[i])
     }
 
     /// Population-level linear predictor `η = x'β` for new data (random effects
@@ -953,6 +1200,10 @@ enum ResponseKind {
     Gaussian,
     Poisson,
     Binomial,
+    NegativeBinomial,
+    Gamma,
+    /// Tweedie with the given variance power.
+    Tweedie(f64),
 }
 
 /// Builder for [`GlmmRegressor`].
@@ -961,10 +1212,13 @@ pub struct GlmmRegressorBuilder {
     with_intercept: bool,
     random_intercept: bool,
     random_slopes: Vec<usize>,
+    random_slopes_per_factor: Option<Vec<Vec<usize>>>,
     reml: bool,
     max_iterations: usize,
     tolerance: f64,
     theta_max: f64,
+    nb_theta: Option<f64>,
+    offset: Option<Col<f64>>,
 }
 
 impl GlmmRegressorBuilder {
@@ -974,10 +1228,13 @@ impl GlmmRegressorBuilder {
             with_intercept: true,
             random_intercept: true,
             random_slopes: Vec::new(),
+            random_slopes_per_factor: None,
             reml: true,
             max_iterations: 100,
             tolerance: 1e-8,
             theta_max: 1000.0,
+            nb_theta: None,
+            offset: None,
         }
     }
 
@@ -1000,6 +1257,32 @@ impl GlmmRegressorBuilder {
     /// unstructured over the intercept and these slopes.
     pub fn random_slopes(mut self, cols: Vec<usize>) -> Self {
         self.random_slopes = cols;
+        self
+    }
+
+    /// Random-slope columns of `x` **per grouping factor** for
+    /// [`fit_crossed`](GlmmRegressor::fit_crossed): entry `f` lists the
+    /// columns with a random slope on factor `f`, e.g.
+    /// `vec![vec![0], vec![]]` for `(1 + x[0] | a) + (1 | b)`. Must have one
+    /// entry per grouping factor; exclusive with
+    /// [`random_slopes`](Self::random_slopes).
+    pub fn random_slopes_per_factor(mut self, cols: Vec<Vec<usize>>) -> Self {
+        self.random_slopes_per_factor = Some(cols);
+        self
+    }
+
+    /// Fix the negative-binomial size θ (`Var = μ + μ²/θ`) instead of
+    /// estimating it. Only used by [`GlmmRegressor::negative_binomial`].
+    pub fn nb_theta(mut self, theta: f64) -> Self {
+        self.nb_theta = Some(theta);
+        self
+    }
+
+    /// Per-observation offset added to the linear predictor with a fixed
+    /// coefficient of 1 (e.g. `log(exposure)` for counts), as `offset()` in an
+    /// lme4 formula. Its length must equal the number of observations.
+    pub fn offset(mut self, offset: Col<f64>) -> Self {
+        self.offset = Some(offset);
         self
     }
 
@@ -1030,23 +1313,18 @@ impl GlmmRegressorBuilder {
 
     /// Build the [`GlmmRegressor`].
     pub fn build(self) -> GlmmRegressor {
-        let response = match self.kind {
-            ResponseKind::Gaussian => Response::Gaussian,
-            ResponseKind::Poisson => Response::Glm(Box::new(PoissonFamily::new(PoissonLink::Log))),
-            ResponseKind::Binomial => {
-                Response::Glm(Box::new(BinomialFamily::new(BinomialLink::Logit)))
-            }
-        };
         GlmmRegressor {
-            response,
             kind: self.kind,
             with_intercept: self.with_intercept,
             random_intercept: self.random_intercept,
             random_slopes: self.random_slopes,
+            random_slopes_per_factor: self.random_slopes_per_factor,
             reml: self.reml,
             max_iterations: self.max_iterations,
             tolerance: self.tolerance,
             theta_max: self.theta_max,
+            nb_theta: self.nb_theta,
+            offset: self.offset,
         }
     }
 }
@@ -1251,21 +1529,26 @@ fn solve_lmm_theta(
 struct PirlsSolution {
     beta: Vec<f64>,
     b: Vec<Vec<f64>>,
-    /// Laplace deviance d(θ) = Σ dᵢ(yᵢ, μᵢ) + ‖u‖² + log|L_θ|².
-    laplace_deviance: f64,
+    /// Fitted means at the conditional mode.
+    mu: Vec<f64>,
+    /// ‖u‖² at the mode.
+    u_sq: f64,
+    /// log|L_θ|² at the converged weights.
+    logdet_l2: f64,
     m_inv: Vec<Vec<f64>>,
     converged: bool,
     iterations: usize,
 }
 
-/// Penalized IRLS: find the conditional modes `(β, u)` for a fixed `T`, then
-/// form the Laplace-approximate deviance at the mode.
+/// Penalized IRLS: find the conditional modes `(β, u)` for a fixed `T`; the
+/// linear predictor is `η = Xβ + Z T u + offset`.
 #[allow(clippy::too_many_arguments)]
 fn pirls(
     family: &dyn GlmFamily,
     design: &Mat<f64>,
     z: &Mat<f64>,
     y: &[f64],
+    offset: &[f64],
     group_idx: &[usize],
     n_groups: usize,
     p: usize,
@@ -1284,25 +1567,30 @@ fn pirls(
     let mut iterations = 0;
     let mut last_m_inv = vec![vec![0.0; p]; p];
 
+    let eta_of = |beta: &[f64], u: &[Vec<f64>], i: usize| -> f64 {
+        let g = group_idx[i];
+        let tu = matvec(t, &u[g]);
+        let mut eta = offset[i];
+        for k in 0..p {
+            eta += design[(i, k)] * beta[k];
+        }
+        for a in 0..q {
+            eta += z[(i, a)] * tu[a];
+        }
+        eta
+    };
+
     for iter in 0..max_iter {
         iterations = iter + 1;
 
-        // Working response ζ at the current (β, u): η = Xβ + Z T u.
+        // Working response ζ (offset removed) and weights at the current mode.
         let mut zeta = vec![0.0; n];
         let mut weights = vec![0.0; n];
         for i in 0..n {
-            let g = group_idx[i];
-            let tu = matvec(t, &u[g]);
-            let mut eta = 0.0;
-            for k in 0..p {
-                eta += design[(i, k)] * beta[k];
-            }
-            for a in 0..q {
-                eta += z[(i, a)] * tu[a];
-            }
+            let eta = eta_of(&beta, &u, i);
             let mu = family.clamp_mu(family.link_inverse(eta));
             weights[i] = family.irls_weight(mu).max(1e-10);
-            zeta[i] = family.working_response(y[i], mu, eta);
+            zeta[i] = family.working_response(y[i], mu, eta) - offset[i];
         }
 
         // Per-group cross-products at the current working response and weights.
@@ -1313,18 +1601,11 @@ fn pirls(
         let mut rhs = stats.xty.clone();
         let mut aib_all = Vec::with_capacity(n_groups);
         let mut aic_all = Vec::with_capacity(n_groups);
-        let mut ok = true;
         for g in 0..n_groups {
             let a = add_identity(&mm(&tt, &mm(&stats.ztz[g], t)));
             let bmat = mm(&tt, &stats.ztx[g]);
             let c = matvec(&tt, &stats.zty[g]);
-            let chol = match cholesky(&a) {
-                Some(ch) => ch,
-                None => {
-                    ok = false;
-                    break;
-                }
-            };
+            let chol = cholesky(&a)?;
             let aib = chol_solve_mat(&chol, &bmat);
             let aic = cholesky_solve(&chol, &c);
             let btaib = mm(&transpose(&bmat), &aib);
@@ -1337,9 +1618,6 @@ fn pirls(
             }
             aib_all.push(aib);
             aic_all.push(aic);
-        }
-        if !ok {
-            return None;
         }
 
         let chol_m = cholesky(&m)?;
@@ -1369,31 +1647,19 @@ fn pirls(
         }
     }
 
-    // Laplace deviance at the mode: Σ unit_deviance + ‖u‖² + log|L|².
-    let mut disc = 0.0;
-    let mut u_sq = 0.0;
-    let mut logdet_l2 = 0.0;
+    // Pieces of the Laplace criterion at the mode.
+    let mut mu = vec![0.0; n];
     let mut weights = vec![0.0; n];
     for i in 0..n {
-        let g = group_idx[i];
-        let tu = matvec(t, &u[g]);
-        let mut eta = 0.0;
-        for k in 0..p {
-            eta += design[(i, k)] * beta[k];
-        }
-        for a in 0..q {
-            eta += z[(i, a)] * tu[a];
-        }
-        let mu = family.clamp_mu(family.link_inverse(eta));
-        weights[i] = family.irls_weight(mu).max(1e-10);
-        disc += family.unit_deviance(y[i], mu);
+        let eta = eta_of(&beta, &u, i);
+        mu[i] = family.clamp_mu(family.link_inverse(eta));
+        weights[i] = family.irls_weight(mu[i]).max(1e-10);
     }
-    for ug in &u {
-        u_sq += ug.iter().map(|&v| v * v).sum::<f64>();
-    }
+    let u_sq: f64 = u.iter().flatten().map(|&v| v * v).sum();
     // log|L|² = Σⱼ log det(Aⱼ) at the converged weights (only ZᵀWZ is needed).
     let zeros = vec![0.0; n];
     let stats = GroupStats::new(design, z, &zeros, group_idx, n_groups, p, q, Some(&weights));
+    let mut logdet_l2 = 0.0;
     for g in 0..n_groups {
         let a = add_identity(&mm(&tt, &mm(&stats.ztz[g], t)));
         let chol = cholesky(&a)?;
@@ -1405,7 +1671,9 @@ fn pirls(
     Some(PirlsSolution {
         beta,
         b,
-        laplace_deviance: disc + u_sq + logdet_l2,
+        mu,
+        u_sq,
+        logdet_l2,
         m_inv: last_m_inv,
         converged,
         iterations,
@@ -1417,6 +1685,7 @@ fn glm_warm_start(
     family: &dyn GlmFamily,
     design: &Mat<f64>,
     y: &[f64],
+    offset: &[f64],
     p: usize,
     max_iter: usize,
 ) -> Result<Vec<f64>, RegressionError> {
@@ -1431,7 +1700,7 @@ fn glm_warm_start(
             let m = family.clamp_mu(mu[i]);
             let eta = family.link(m);
             let w = family.irls_weight(m).max(1e-10);
-            let zeta = family.working_response(y[i], m, eta);
+            let zeta = family.working_response(y[i], m, eta) - offset[i];
             for k in 0..p {
                 let wx = w * design[(i, k)];
                 xtwz[k] += wx * zeta;
@@ -1450,7 +1719,7 @@ fn glm_warm_start(
         beta = beta_new;
 
         for i in 0..n {
-            let mut eta = 0.0;
+            let mut eta = offset[i];
             for k in 0..p {
                 eta += design[(i, k)] * beta[k];
             }
@@ -1465,42 +1734,153 @@ fn glm_warm_start(
 
 // ============================================= multi-factor engine ==========
 
-/// Raw (θ-independent) cross-products for the combined random design `Z` of a
-/// crossed / nested fit. `Z` is an indicator with one 1 per factor per row.
-struct MultiRawStats {
-    ztz: Vec<Vec<f64>>, // M×M
-    ztx: Vec<Vec<f64>>, // M×p
-    ztr: Vec<f64>,      // M  (against the response / working response)
-    xtx: Vec<Vec<f64>>, // p×p
-    xtr: Vec<f64>,      // p
+/// Layout of several crossed / nested random-effect factors. Factor `f` has
+/// `q_f` random effects per level (intercept and/or slopes) with relative
+/// covariance factor `T_f` (`q_f(q_f+1)/2` parameters); its combined random
+/// columns are `col_offset[f] + level·q_f + a`.
+struct MultiSpec {
+    q: Vec<usize>,
+    n_levels: Vec<usize>,
+    col_offset: Vec<usize>,
+    theta_offset: Vec<usize>,
+    n_theta: usize,
+    m_dim: usize,
+    /// Per factor: compacted level of each observation.
+    levels: Vec<Vec<usize>>,
+    /// Per factor: random design `Z_f` (`n × q_f`).
+    z: Vec<Mat<f64>>,
 }
 
-impl MultiRawStats {
+/// Per-factor random-effect covariance and BLUPs (`n_levels × q_f`).
+#[derive(Debug, Clone)]
+struct FactorDetail {
+    cov: Vec<Vec<f64>>,
+    re: Vec<Vec<f64>>,
+}
+
+impl MultiSpec {
+    fn new(q: Vec<usize>, n_levels: Vec<usize>, levels: Vec<Vec<usize>>, z: Vec<Mat<f64>>) -> Self {
+        let mut col_offset = Vec::with_capacity(q.len());
+        let mut theta_offset = Vec::with_capacity(q.len());
+        let (mut cols, mut ths) = (0, 0);
+        for (qf, jf) in q.iter().zip(&n_levels) {
+            col_offset.push(cols);
+            theta_offset.push(ths);
+            cols += qf * jf;
+            ths += qf * (qf + 1) / 2;
+        }
+        Self {
+            q,
+            n_levels,
+            col_offset,
+            theta_offset,
+            n_theta: ths,
+            m_dim: cols,
+            levels,
+            z,
+        }
+    }
+
+    /// Stacked identity starting values (`[1.0; F]` for random intercepts).
+    fn initial_theta(&self) -> Vec<f64> {
+        self.q.iter().flat_map(|&qf| initial_theta(qf)).collect()
+    }
+
+    /// The per-factor relative covariance factors `T_f`.
+    fn ts(&self, theta: &[f64]) -> Vec<Vec<Vec<f64>>> {
+        self.q
+            .iter()
+            .zip(&self.theta_offset)
+            .map(|(&qf, &off)| build_t(&theta[off..off + qf * (qf + 1) / 2], qf))
+            .collect()
+    }
+
+    /// Non-zero entries `(column, value)` of each row of `Z Λ_θ`.
+    #[allow(clippy::needless_range_loop)]
+    fn zl(&self, ts: &[Vec<Vec<f64>>]) -> Vec<Vec<(usize, f64)>> {
+        let n = self.levels.first().map_or(0, Vec::len);
+        (0..n)
+            .map(|i| {
+                let mut row = Vec::new();
+                for (f, t) in ts.iter().enumerate() {
+                    let qf = self.q[f];
+                    let base = self.col_offset[f] + self.levels[f][i] * qf;
+                    for a in 0..qf {
+                        let v: f64 = (0..qf).map(|r| self.z[f][(i, r)] * t[r][a]).sum();
+                        row.push((base + a, v));
+                    }
+                }
+                row
+            })
+            .collect()
+    }
+
+    /// Per-factor summaries from the spherical modes `u` (`b = Λ_θ u`);
+    /// covariances are `scale² · T_f T_fᵀ`.
+    fn summaries(
+        &self,
+        ts: &[Vec<Vec<f64>>],
+        u: &[f64],
+        scale: f64,
+    ) -> (Vec<FactorSummary>, Vec<FactorDetail>) {
+        let mut summaries = Vec::with_capacity(self.q.len());
+        let mut details = Vec::with_capacity(self.q.len());
+        for (f, t) in ts.iter().enumerate() {
+            let qf = self.q[f];
+            let re: Vec<Vec<f64>> = (0..self.n_levels[f])
+                .map(|l| {
+                    let start = self.col_offset[f] + l * qf;
+                    matvec(t, &u[start..start + qf])
+                })
+                .collect();
+            let cov = scale_matrix(&mm(t, &transpose(t)), scale * scale);
+            summaries.push(FactorSummary {
+                n_levels: self.n_levels[f],
+                sd: cov[0][0].max(0.0).sqrt(),
+                blups: re.iter().map(|b| b[0]).collect(),
+            });
+            details.push(FactorDetail { cov, re });
+        }
+        (summaries, details)
+    }
+}
+
+/// Cross-products of `[ZΛ, X]` against a response with optional weights,
+/// assembled into `A = ΛᵀZᵀWZΛ + I`, `B = ΛᵀZᵀWX`, `c = ΛᵀZᵀWr`.
+struct MultiStats {
+    a: Vec<Vec<f64>>,    // M×M
+    bmat: Vec<Vec<f64>>, // M×p
+    cvec: Vec<f64>,      // M
+    xtx: Vec<Vec<f64>>,  // p×p
+    xtr: Vec<f64>,       // p
+}
+
+impl MultiStats {
     fn new(
         design: &Mat<f64>,
         resp: &[f64],
-        obs_cols: &[Vec<usize>],
+        zl: &[Vec<(usize, f64)>],
         m_dim: usize,
         p: usize,
         weights: Option<&[f64]>,
     ) -> Self {
         let n = design.nrows();
-        let mut ztz = vec![vec![0.0; m_dim]; m_dim];
-        let mut ztx = vec![vec![0.0; p]; m_dim];
-        let mut ztr = vec![0.0; m_dim];
+        let mut a = vec![vec![0.0; m_dim]; m_dim];
+        let mut bmat = vec![vec![0.0; p]; m_dim];
+        let mut cvec = vec![0.0; m_dim];
         let mut xtx = vec![vec![0.0; p]; p];
         let mut xtr = vec![0.0; p];
         for i in 0..n {
             let w = weights.map_or(1.0, |w| w[i]);
-            let ri = resp.get(i).copied().unwrap_or(0.0);
-            let cols = &obs_cols[i];
-            for &c in cols {
-                ztr[c] += w * ri;
+            let ri = resp[i];
+            for &(c, vc) in &zl[i] {
+                let wv = w * vc;
+                cvec[c] += wv * ri;
                 for k in 0..p {
-                    ztx[c][k] += w * design[(i, k)];
+                    bmat[c][k] += wv * design[(i, k)];
                 }
-                for &d in cols {
-                    ztz[c][d] += w;
+                for &(d, vd) in &zl[i] {
+                    a[c][d] += wv * vd;
                 }
             }
             for k in 0..p {
@@ -1511,10 +1891,13 @@ impl MultiRawStats {
                 }
             }
         }
+        for (c, row) in a.iter_mut().enumerate() {
+            row[c] += 1.0;
+        }
         Self {
-            ztz,
-            ztx,
-            ztr,
+            a,
+            bmat,
+            cvec,
             xtx,
             xtr,
         }
@@ -1524,72 +1907,27 @@ impl MultiRawStats {
 /// Solution of the multi-factor penalized least-squares problem at fixed θ.
 struct MultiSolution {
     beta: Vec<f64>,
-    /// Random BLUPs per combined column, `b[c] = θ_{factor(c)}·u[c]`.
-    b: Vec<f64>,
-    /// Σ u² for the penalty term of the pRSS.
+    /// Spherical random effects `u` (one per combined column).
+    u: Vec<f64>,
     u_sq: f64,
     logdet_l2: f64,
     logdet_rx2: f64,
     m_inv: Vec<Vec<f64>>,
 }
 
-/// Converged PIRLS solution for the multi-factor GLMM at fixed θ.
-struct PirlsMultiSolution {
-    beta: Vec<f64>,
-    /// Random BLUPs per combined column.
-    b: Vec<f64>,
-    laplace_deviance: f64,
-    m_inv: Vec<Vec<f64>>,
-    converged: bool,
-    iterations: usize,
-}
-
-/// Assemble the combined random block `A = D_θ ZᵀWZ D_θ + I`, the cross term
-/// `B = D_θ ZᵀWX`, and `c = D_θ ZᵀWr` from raw stats and the per-factor θ.
-/// Returns `(column-scales, A, B, c)`.
-#[allow(clippy::type_complexity)]
-fn multi_blocks(
-    raw: &MultiRawStats,
-    theta: &[f64],
-    col_factor: &[usize],
-    m_dim: usize,
-    p: usize,
-) -> (Vec<f64>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<f64>) {
-    let tc: Vec<f64> = (0..m_dim).map(|c| theta[col_factor[c]].abs()).collect();
-    let mut a = vec![vec![0.0; m_dim]; m_dim];
-    for c in 0..m_dim {
-        for d in 0..m_dim {
-            a[c][d] = tc[c] * tc[d] * raw.ztz[c][d];
-        }
-        a[c][c] += 1.0;
-    }
-    let bmat: Vec<Vec<f64>> = (0..m_dim)
-        .map(|c| (0..p).map(|k| tc[c] * raw.ztx[c][k]).collect())
-        .collect();
-    let cvec: Vec<f64> = (0..m_dim).map(|c| tc[c] * raw.ztr[c]).collect();
-    (tc, a, bmat, cvec)
-}
-
-/// Solve for `(β, u)` given raw stats and θ (crossed / nested LMM step, or one
-/// PIRLS iteration). `None` if the combined block or Schur complement is
+/// Solve for `(β, u)` from assembled stats (crossed / nested LMM step, or one
+/// PIRLS iteration). `None` if the random block or Schur complement is
 /// singular.
-fn solve_multi(
-    raw: &MultiRawStats,
-    theta: &[f64],
-    col_factor: &[usize],
-    m_dim: usize,
-    p: usize,
-) -> Option<MultiSolution> {
-    let (tc, a, bmat, cvec) = multi_blocks(raw, theta, col_factor, m_dim, p);
-    let chol_a = cholesky(&a)?;
+fn solve_multi(st: &MultiStats, m_dim: usize, p: usize) -> Option<MultiSolution> {
+    let chol_a = cholesky(&st.a)?;
     let logdet_l2 = 2.0 * (0..m_dim).map(|i| chol_a[i][i].ln()).sum::<f64>();
-    let aib = chol_solve_mat(&chol_a, &bmat); // M×p
-    let aic = cholesky_solve(&chol_a, &cvec); // M
+    let aib = chol_solve_mat(&chol_a, &st.bmat); // M×p
+    let aic = cholesky_solve(&chol_a, &st.cvec); // M
 
-    let mut mfix = raw.xtx.clone();
-    let mut rhs = raw.xtr.clone();
-    let btaib = mm(&transpose(&bmat), &aib);
-    let btaic = matvec(&transpose(&bmat), &aic);
+    let mut mfix = st.xtx.clone();
+    let mut rhs = st.xtr.clone();
+    let btaib = mm(&transpose(&st.bmat), &aib);
+    let btaic = matvec(&transpose(&st.bmat), &aic);
     for k in 0..p {
         rhs[k] -= btaic[k];
         for l in 0..p {
@@ -1601,18 +1939,14 @@ fn solve_multi(
     let beta = cholesky_solve(&chol_m, &rhs);
     let m_inv = cholesky_inverse(&chol_m);
 
-    let mut b = vec![0.0; m_dim];
-    let mut u_sq = 0.0;
-    for c in 0..m_dim {
-        let dot: f64 = (0..p).map(|k| aib[c][k] * beta[k]).sum();
-        let u = aic[c] - dot;
-        u_sq += u * u;
-        b[c] = tc[c] * u;
-    }
+    let u: Vec<f64> = (0..m_dim)
+        .map(|c| aic[c] - (0..p).map(|k| aib[c][k] * beta[k]).sum::<f64>())
+        .collect();
+    let u_sq = u.iter().map(|v| v * v).sum();
 
     Some(MultiSolution {
         beta,
-        b,
+        u,
         u_sq,
         logdet_l2,
         logdet_rx2,
@@ -1620,29 +1954,28 @@ fn solve_multi(
     })
 }
 
-/// Residual sum of squares ‖y − Xβ − Zb‖² for the multi-factor LMM.
-fn multi_prss(
+/// `x_iᵀβ + (ZΛu)_i` for one observation.
+fn multi_eta(design: &Mat<f64>, zl_row: &[(usize, f64)], beta: &[f64], u: &[f64], i: usize) -> f64 {
+    let fixed: f64 = beta
+        .iter()
+        .enumerate()
+        .map(|(k, b)| design[(i, k)] * b)
+        .sum();
+    fixed + zl_row.iter().map(|&(c, v)| v * u[c]).sum::<f64>()
+}
+
+/// Residual sum of squares ‖y − Xβ − ZΛu‖² for the multi-factor LMM.
+fn multi_rss(
     design: &Mat<f64>,
     y: &[f64],
-    obs_cols: &[Vec<usize>],
+    zl: &[Vec<(usize, f64)>],
     beta: &[f64],
-    b: &[f64],
-    p: usize,
+    u: &[f64],
+    _p: usize,
 ) -> f64 {
-    let n = design.nrows();
-    let mut rss = 0.0;
-    for i in 0..n {
-        let mut fit = 0.0;
-        for k in 0..p {
-            fit += design[(i, k)] * beta[k];
-        }
-        for &c in &obs_cols[i] {
-            fit += b[c];
-        }
-        let e = y[i] - fit;
-        rss += e * e;
-    }
-    rss
+    (0..design.nrows())
+        .map(|i| (y[i] - multi_eta(design, &zl[i], beta, u, i)).powi(2))
+        .sum()
 }
 
 /// Profiled REML / ML deviance from the pRSS and log-determinant pieces.
@@ -1663,23 +1996,35 @@ fn deviance_from_pieces(
     }
 }
 
+/// Converged PIRLS solution for the multi-factor GLMM at fixed θ.
+struct PirlsMultiSolution {
+    beta: Vec<f64>,
+    u: Vec<f64>,
+    mu: Vec<f64>,
+    u_sq: f64,
+    logdet_l2: f64,
+    m_inv: Vec<Vec<f64>>,
+    converged: bool,
+    iterations: usize,
+}
+
 /// PIRLS for the multi-factor GLMM: conditional modes `(β, u)` at fixed θ.
-#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+#[allow(clippy::too_many_arguments)]
 fn pirls_multi(
     family: &dyn GlmFamily,
     design: &Mat<f64>,
     y: &[f64],
-    obs_cols: &[Vec<usize>],
-    col_factor: &[usize],
-    m_dim: usize,
-    p: usize,
+    offset: &[f64],
+    spec: &MultiSpec,
     theta: &[f64],
     beta0: &[f64],
     max_iter: usize,
     tol: f64,
 ) -> Option<PirlsMultiSolution> {
     let n = design.nrows();
-    let tc: Vec<f64> = (0..m_dim).map(|c| theta[col_factor[c]].abs()).collect();
+    let p = design.ncols();
+    let m_dim = spec.m_dim;
+    let zl = spec.zl(&spec.ts(theta));
 
     let mut beta = beta0.to_vec();
     let mut u = vec![0.0; m_dim];
@@ -1687,96 +2032,58 @@ fn pirls_multi(
     let mut iterations = 0;
     let mut last_m_inv = vec![vec![0.0; p]; p];
 
-    let eta_of = |beta: &[f64], u: &[f64], i: usize| -> f64 {
-        let mut eta = 0.0;
-        for k in 0..p {
-            eta += design[(i, k)] * beta[k];
-        }
-        for &c in &obs_cols[i] {
-            eta += tc[c] * u[c];
-        }
-        eta
-    };
-
     for iter in 0..max_iter {
         iterations = iter + 1;
         let mut zeta = vec![0.0; n];
         let mut weights = vec![0.0; n];
         for i in 0..n {
-            let eta = eta_of(&beta, &u, i);
+            let eta = multi_eta(design, &zl[i], &beta, &u, i) + offset[i];
             let mu = family.clamp_mu(family.link_inverse(eta));
             weights[i] = family.irls_weight(mu).max(1e-10);
-            zeta[i] = family.working_response(y[i], mu, eta);
+            zeta[i] = family.working_response(y[i], mu, eta) - offset[i];
         }
-        let raw = MultiRawStats::new(design, &zeta, obs_cols, m_dim, p, Some(&weights));
-        let sol = solve_multi(&raw, theta, col_factor, m_dim, p)?;
+        let st = MultiStats::new(design, &zeta, &zl, m_dim, p, Some(&weights));
+        let sol = solve_multi(&st, m_dim, p)?;
         last_m_inv = sol.m_inv;
 
-        // Recover u from b (= tc·u); tc is 0 only if a factor's θ hit 0.
-        let mut max_change = 0.0f64;
-        let mut u_new = vec![0.0; m_dim];
-        for c in 0..m_dim {
-            u_new[c] = if tc[c] > 0.0 { sol.b[c] / tc[c] } else { 0.0 };
-            max_change = max_change.max((u_new[c] - u[c]).abs());
-        }
-        for k in 0..p {
-            max_change = max_change.max((sol.beta[k] - beta[k]).abs());
-        }
+        let max_change = sol
+            .u
+            .iter()
+            .zip(&u)
+            .chain(sol.beta.iter().zip(&beta))
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f64, f64::max);
         beta = sol.beta;
-        u = u_new;
+        u = sol.u;
         if max_change < tol {
             converged = true;
             break;
         }
     }
 
-    // Laplace deviance at the mode.
-    let mut disc = 0.0;
+    // Pieces of the Laplace criterion at the mode.
+    let mut mu = vec![0.0; n];
     let mut weights = vec![0.0; n];
     for i in 0..n {
-        let eta = eta_of(&beta, &u, i);
-        let mu = family.clamp_mu(family.link_inverse(eta));
-        weights[i] = family.irls_weight(mu).max(1e-10);
-        disc += family.unit_deviance(y[i], mu);
+        let eta = multi_eta(design, &zl[i], &beta, &u, i) + offset[i];
+        mu[i] = family.clamp_mu(family.link_inverse(eta));
+        weights[i] = family.irls_weight(mu[i]).max(1e-10);
     }
     let u_sq: f64 = u.iter().map(|&v| v * v).sum();
-    let raw = MultiRawStats::new(design, &vec![0.0; n], obs_cols, m_dim, p, Some(&weights));
-    let (_, a, _, _) = multi_blocks(&raw, theta, col_factor, m_dim, p);
-    let chol_a = cholesky(&a)?;
+    let st = MultiStats::new(design, &vec![0.0; n], &zl, m_dim, p, Some(&weights));
+    let chol_a = cholesky(&st.a)?;
     let logdet_l2 = 2.0 * (0..m_dim).map(|i| chol_a[i][i].ln()).sum::<f64>();
-    let b: Vec<f64> = (0..m_dim).map(|c| tc[c] * u[c]).collect();
 
     Some(PirlsMultiSolution {
         beta,
-        b,
-        laplace_deviance: disc + u_sq + logdet_l2,
+        u,
+        mu,
+        u_sq,
+        logdet_l2,
         m_inv: last_m_inv,
         converged,
         iterations,
     })
-}
-
-/// Build per-factor summaries (variance component + BLUPs) from the combined
-/// random-effect vector.
-fn build_factor_summaries(
-    b: &[f64],
-    col_offset: &[usize],
-    n_levels: &[usize],
-    n_factors: usize,
-    theta: &[f64],
-    sigma: f64,
-) -> Vec<FactorSummary> {
-    (0..n_factors)
-        .map(|f| {
-            let start = col_offset[f];
-            let jf = n_levels[f];
-            FactorSummary {
-                n_levels: jf,
-                sd: theta[f].abs() * sigma,
-                blups: b[start..start + jf].to_vec(),
-            }
-        })
-        .collect()
 }
 
 // ================================================= θ optimisation ============
@@ -1807,16 +2114,15 @@ fn optimize_theta(
     }
 }
 
-/// Optimise the profiled deviance over one variance-ratio `θ_f` per grouping
-/// factor (crossed / nested case) by Nelder–Mead.
+/// Optimise the profiled deviance over the stacked per-factor θ (crossed /
+/// nested case) by Nelder–Mead, starting from `x0`.
 fn optimize_theta_vec(
-    n_factors: usize,
+    x0: &[f64],
     tol: f64,
     f: &dyn Fn(&[f64]) -> Option<f64>,
 ) -> Result<Vec<f64>, RegressionError> {
-    let x0 = vec![1.0; n_factors];
     let cost = |th: &[f64]| f(th).unwrap_or(f64::INFINITY);
-    let best = nelder_mead(&x0, &cost, tol.max(1e-9), 4000);
+    let best = nelder_mead(x0, &cost, tol.max(1e-9), 4000);
     if best.iter().all(|v| v.is_finite()) {
         Ok(best)
     } else {
