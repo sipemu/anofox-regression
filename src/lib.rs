@@ -48,6 +48,7 @@ pub mod prelude {
     };
     pub use crate::inference::{HcInference, HcType};
     pub use crate::solvers::aft::{AftDistribution, AftRegressor, FittedAft};
+    pub use crate::solvers::eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, TauMethod};
     pub use crate::solvers::penalized_glm::{
         FittedPenalizedGlm, PenalizedGlmFamily, PenalizedGlmRegressor, PriorSpec, VcovType,
     };

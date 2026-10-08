@@ -33,6 +33,14 @@
 //!     DemandType::Intermittent => println!("Intermittent demand pattern"),
 //! }
 //! ```
+//!
+//! # Moment-heuristic variant
+//!
+//! [`heuristic`] provides the lightweight, fit-free classification and the
+//! per-observation anomaly flags used by the `anofox-statistics` DuckDB extension
+//! ([`heuristic::compute_aid`], [`heuristic::compute_aid_anomalies`]).
+
+pub mod heuristic;
 
 use crate::solvers::alm::{AlmDistribution, AlmRegressor};
 use crate::solvers::lm_dynamic::InformationCriterion;

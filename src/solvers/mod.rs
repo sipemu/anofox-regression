@@ -6,6 +6,7 @@ pub mod alm;
 mod bayesian;
 mod binomial;
 mod bls;
+pub mod eb_shrink;
 mod elastic_net;
 mod fit_stats;
 mod gamma;
