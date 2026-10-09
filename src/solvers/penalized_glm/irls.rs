@@ -78,6 +78,25 @@ pub fn fit_irls<F: GlmFamily + ?Sized>(
     penalty: &Penalty,
     config: &IrlsConfig,
 ) -> GlmEngineResult<IrlsFit> {
+    fit_irls_from(family, x_design, y, offset, penalty, config, None)
+}
+
+/// [`fit_irls`] started from given coefficients instead of `family.initialize_mu`.
+///
+/// This is R's `glm.fit(etastart = X %*% beta_start + offset)`: `MASS::glm.nb`
+/// warm-starts every IRLS fit of its theta alternation from the previous fit,
+/// which typically converges in one or two iterations instead of a cold start's
+/// five or more. `beta_start` is in design-matrix order (intercept first when
+/// fitted) and is ignored when its length does not match or it is not finite.
+pub fn fit_irls_from<F: GlmFamily + ?Sized>(
+    family: &F,
+    x_design: &Mat<f64>,
+    y: &[f64],
+    offset: Option<&[f64]>,
+    penalty: &Penalty,
+    config: &IrlsConfig,
+    beta_start: Option<&[f64]>,
+) -> GlmEngineResult<IrlsFit> {
     let n = x_design.nrows();
     let p = x_design.ncols();
 
@@ -97,6 +116,17 @@ pub fn fit_irls<F: GlmFamily + ?Sized>(
     let mut eta: Vec<f64> = mu.iter().map(|&m| family.link(m)).collect();
 
     let mut beta: Col<f64> = Col::zeros(p);
+    if let Some(start) = beta_start.filter(|b| b.len() == p && b.iter().all(|v| v.is_finite())) {
+        let candidate = Col::from_fn(p, |j| start[j]);
+        let mut eta_s = vec![0.0; n];
+        let mut mu_s = vec![0.0; n];
+        // A start whose linear predictor is unusable falls back to the cold start.
+        if update_eta_mu(family, x_design, &candidate, offset, &mut eta_s, &mut mu_s).is_ok() {
+            beta = candidate;
+            eta = eta_s;
+            mu = mu_s;
+        }
+    }
     let mut weights = vec![0.0; n];
     let mut z = vec![0.0; n];
 
@@ -106,7 +136,8 @@ pub fn fit_irls<F: GlmFamily + ?Sized>(
 
     // Problem scale, used to floor the step-halving test so a deviance that has
     // decayed to rounding noise cannot masquerade as divergence.
-    let scale = family.null_deviance(y).abs();
+    let null_dev = family.null_deviance(y);
+    let scale = null_dev.abs();
 
     for iter in 0..config.max_iterations {
         iterations = iter as u32 + 1;
@@ -215,7 +246,7 @@ pub fn fit_irls<F: GlmFamily + ?Sized>(
         eta,
         weights,
         deviance: dev,
-        null_deviance: family.null_deviance(y),
+        null_deviance: null_dev,
         iterations,
         converged,
         information,

@@ -232,6 +232,45 @@ pub fn fit<F: GlmFamily + ?Sized>(
     dispersion_rule: DispersionRule,
     loglik_for: impl Fn(f64) -> LogLikKind,
 ) -> GlmEngineResult<EngineFit> {
+    fit_impl(
+        family,
+        y,
+        x,
+        options,
+        dispersion_rule,
+        loglik_for,
+        None,
+        FitDepth::Full,
+    )
+}
+
+/// How much of a fit [`fit_impl`] computes beyond the IRLS mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FitDepth {
+    /// Null deviance, dispersion, log-likelihood / AIC / BIC and (if requested)
+    /// inference: a reportable fit.
+    Full,
+    /// The IRLS mode only (`beta`, `mu`, deviance). Null deviance, log-likelihood,
+    /// AIC and BIC are `NaN`, the dispersion is only meaningful for
+    /// [`DispersionRule::Fixed`] / [`DispersionRule::Given`], and no inference is
+    /// computed. Used for the intermediate fits of the Negative Binomial theta
+    /// alternation, whose results are never reported.
+    Probe,
+}
+
+/// [`fit`] with an optional warm start (`beta_start`, design-matrix order, as
+/// returned in [`IrlsFit::beta`]) and a choice of how much to compute.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fit_impl<F: GlmFamily + ?Sized>(
+    family: &F,
+    y: &[f64],
+    x: &[Vec<f64>],
+    options: &EngineOptions,
+    dispersion_rule: DispersionRule,
+    loglik_for: impl Fn(f64) -> LogLikKind,
+    beta_start: Option<&[f64]>,
+    depth: FitDepth,
+) -> GlmEngineResult<EngineFit> {
     let design = design::build(&DesignSpec {
         y,
         x,
@@ -248,16 +287,33 @@ pub fn fit<F: GlmFamily + ?Sized>(
         ..IrlsConfig::default()
     };
 
-    let irls = irls::fit_irls(
+    let mut irls = irls::fit_irls_from(
         family,
         &design.matrix,
         &design.y,
         design.offset.as_deref(),
         &penalty,
         &config,
+        beta_start,
     )?;
 
-    let mut irls = irls;
+    if depth == FitDepth::Probe {
+        irls.null_deviance = f64::NAN;
+        let dispersion = match dispersion_rule {
+            DispersionRule::Given(v) => v,
+            _ => 1.0,
+        };
+        return Ok(EngineFit {
+            design,
+            irls,
+            dispersion,
+            log_likelihood: f64::NAN,
+            aic: f64::NAN,
+            bic: f64::NAN,
+            inference: None,
+        });
+    }
+
     irls.null_deviance = null_deviance(
         family,
         &design.y,

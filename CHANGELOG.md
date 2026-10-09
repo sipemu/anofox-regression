@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.22] - 2026-10-09
+
+### Fixed
+
+- **`penalized_glm::fit_negbinomial` (estimated theta) and `fit_tweedie` were 15-40x slower than `fit_poisson` on large `n` (#72).** The `MASS::glm.nb` theta alternation now follows MASS more closely: every IRLS fit is warm-started from the previous coefficients (`etastart`), and `theta.ml` in round k uses the means of round k-1's fit (MASS updates `mu` after the theta step). On data without overdispersion, where the ML theta diverges and each `theta.ml` hits its iteration limit, the alternation therefore stops after one round instead of running all 25. The intermediate fits skip the null deviance, log-likelihood and inference, and the digamma / trigamma / lgamma sums of `theta.ml` and the convergence log-likelihood are evaluated once per distinct count instead of per row. The Tweedie series density (log-likelihood / AIC / BIC) is accumulated in one streaming pass (no per-row allocation, each term evaluated once, `lgamma(j + 1)` by recurrence). 250k rows, 2 features: negative binomial with estimated theta 8.4 s -> 0.5 s (Poisson 0.2 s), Tweedie (p = 1.5) 0.60 s -> 0.42 s with the log-likelihood 0.33 s -> 0.12 s. Results are unchanged within tolerance; on overdispersed data the estimates agree with `MASS::glm.nb` to ~1e-10 (slightly closer than before). New: `irls::fit_irls_from` (warm-started IRLS). Tests: `tests/issue72_glm_nb_tweedie_perf.rs` (MASS reference, Poisson limit, and a release-only timing gate relative to `fit_poisson`).
+
 ## [0.5.21] - 2026-10-09
 
 ### Fixed

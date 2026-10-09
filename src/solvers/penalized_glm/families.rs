@@ -18,7 +18,7 @@
 //!   old numbers.
 
 use super::design::ConstantColumnPolicy;
-use super::engine::{self as glm_engine, DispersionRule, EngineFit, EngineOptions};
+use super::engine::{self as glm_engine, DispersionRule, EngineFit, EngineOptions, FitDepth};
 use super::error::{GlmEngineError, GlmEngineResult};
 use super::loglik::{self, LogLikKind};
 use super::types::{
@@ -29,6 +29,7 @@ use crate::core::{
     BinomialFamily, BinomialLink, GlmFamily, NegativeBinomialFamily, PoissonFamily, PoissonLink,
     TweedieFamily,
 };
+use statrs::function::gamma::ln_gamma;
 
 /// Combined GLM result with optional inference.
 #[derive(Debug, Clone)]
@@ -227,56 +228,63 @@ pub fn fit_negbinomial(
         constant_policy: ConstantColumnPolicy::Drop,
     };
 
-    let run = |theta: f64, opts: &EngineOptions| {
-        glm_engine::fit(
+    let run = |theta: f64, opts: &EngineOptions, start: Option<&[f64]>, depth: FitDepth| {
+        glm_engine::fit_impl(
             &NegativeBinomialFamily::new(theta.clamp(THETA_MIN, THETA_MAX)),
             y,
             x,
             opts,
             DispersionRule::Given(theta),
             |_| LogLikKind::NegativeBinomial { theta },
+            start,
+            depth,
         )
     };
 
     // `alpha` given: a single fit at that theta.
     if let Some(theta) = options.alpha {
-        return Ok(run(theta, &engine_opts)?.into());
+        return Ok(run(theta, &engine_opts, None, FitDepth::Full)?.into());
     }
 
     // Otherwise follow MASS::glm.nb: start from a (near-)Poisson fit, then
     // alternate an IRLS fit at the current theta with a maximum-likelihood
     // update of theta (MASS::theta.ml) until both the log-likelihood and theta
-    // settle.
-    let mut probe = engine_opts.clone();
-    probe.compute_inference = false;
-    let mut fit = run(THETA_MAX, &probe)?;
-    let mut theta = theta_ml(&fit.design.y, &fit.irls.mu);
-    let df_resid = fit
-        .design
-        .y
-        .len()
-        .saturating_sub(fit.irls.beta.len())
-        .max(1) as f64;
+    // settle. As in MASS:
+    // * every IRLS fit is warm-started from the previous one (`etastart`), so it
+    //   typically needs one or two iterations rather than a cold start's five+;
+    // * `theta.ml` in round k uses the means of round k-1's fit (MASS updates `mu`
+    //   only after the theta step), so on data without overdispersion -- where
+    //   the ML theta diverges and every `theta.ml` call runs into its iteration
+    //   limit -- the first round reproduces the starting theta and the alternation
+    //   stops at once instead of running all 25 rounds (issue #72);
+    // * the intermediate fits skip the null deviance, log-likelihood and
+    //   inference, which are only needed for the reported fit.
+    let mut fit = run(THETA_MAX, &engine_opts, None, FitDepth::Probe)?;
+    let yd = fit.design.y.clone();
+    let mut mu = std::mem::take(&mut fit.irls.mu);
+    let mut theta = theta_ml(&yd, &mu);
+    let df_resid = yd.len().saturating_sub(fit.irls.beta.len()).max(1) as f64;
     let d1 = (2.0 * df_resid).sqrt();
     let d2 = 1.0;
     let mut del = 1.0_f64;
-    let mut lm = nb_loglik(&fit.design.y, &fit.irls.mu, theta);
+    let mut lm = nb_loglik(&yd, &mu, theta);
     let mut lm0 = lm + 2.0 * d1;
     let mut iter = 0;
     while iter < 25 && ((lm0 - lm).abs() / d1 + del.abs() / d2) > 1e-8 {
         iter += 1;
-        fit = run(theta, &probe)?;
+        fit = run(theta, &engine_opts, Some(&fit.irls.beta), FitDepth::Probe)?;
         let t0 = theta;
-        theta = theta_ml(&fit.design.y, &fit.irls.mu);
+        theta = theta_ml(&yd, &mu);
+        mu = std::mem::take(&mut fit.irls.mu);
         del = t0 - theta;
         lm0 = lm;
-        lm = nb_loglik(&fit.design.y, &fit.irls.mu, theta);
+        lm = nb_loglik(&yd, &mu, theta);
         if !lm.is_finite() {
             break;
         }
     }
 
-    Ok(run(theta, &engine_opts)?.into())
+    Ok(run(theta, &engine_opts, Some(&fit.irls.beta), FitDepth::Full)?.into())
 }
 
 /// Bounds for the estimated Negative Binomial theta. The upper bound stands in
@@ -286,14 +294,34 @@ const THETA_MIN: f64 = 1e-8;
 const THETA_MAX: f64 = 1e8;
 
 /// Negative Binomial log-likelihood at `(mu, theta)` (the convergence
-/// criterion of `MASS::glm.nb`), summed from the engine's unit log-likelihood.
+/// criterion of `MASS::glm.nb`). Equal to summing the engine's unit
+/// log-likelihood, but the `lgamma` terms, which depend on the row only through
+/// `y`, are evaluated once per distinct `y` (issue #72).
 fn nb_loglik(y: &[f64], mu: &[f64], theta: f64) -> f64 {
-    y.iter()
+    let Some(groups) = crate::core::negative_binomial_distinct_values(y) else {
+        return y
+            .iter()
+            .zip(mu)
+            .map(|(&yi, &mi)| {
+                loglik::unit_log_likelihood(LogLikKind::NegativeBinomial { theta }, yi, mi)
+            })
+            .sum();
+    };
+    let theta = theta.max(1e-300);
+    let lg_t = ln_gamma(theta);
+    let lgamma_part: f64 = groups
+        .iter()
+        .map(|&(yk, ck)| ck * (ln_gamma(yk + theta) - lg_t - ln_gamma(yk + 1.0)))
+        .sum();
+    let row_part: f64 = y
+        .iter()
         .zip(mu)
         .map(|(&yi, &mi)| {
-            loglik::unit_log_likelihood(LogLikKind::NegativeBinomial { theta }, yi, mi)
+            let mi = mi.max(1e-300);
+            theta * (theta / (theta + mi)).ln() + yi * (mi / (theta + mi)).ln()
         })
-        .sum()
+        .sum();
+    lgamma_part + row_part
 }
 
 /// Maximum-likelihood theta for fixed `mu` (`MASS::theta.ml`), computed by
