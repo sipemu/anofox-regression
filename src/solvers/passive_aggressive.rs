@@ -21,6 +21,7 @@
 
 #![allow(clippy::needless_range_loop)]
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
@@ -330,6 +331,12 @@ pub struct FittedPassiveAggressive {
     intercept: f64,
     with_intercept: bool,
     n_iter: usize,
+}
+
+impl HasModelInfo for FittedPassiveAggressive {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::linear("passive_aggressive")
+    }
 }
 
 impl FittedPassiveAggressive {

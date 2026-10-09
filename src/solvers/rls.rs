@@ -1,5 +1,6 @@
 //! Recursive Least Squares solver.
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
@@ -326,6 +327,12 @@ pub struct FittedRls {
     /// The P matrix (inverse covariance estimate) after fitting.
     p_matrix: Mat<f64>,
     result: RegressionResult,
+}
+
+impl HasModelInfo for FittedRls {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("rls")
+    }
 }
 
 impl FittedRls {

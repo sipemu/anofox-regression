@@ -23,6 +23,7 @@
 //! - Huber, P. J. (1964). Robust estimation of a location parameter. Ann. Math. Stat.
 //! - Default epsilon of 1.35 matches sklearn's `HuberRegressor`.
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
@@ -568,6 +569,12 @@ pub struct FittedHuber {
     epsilon: f64,
     /// Boolean mask: true if |r_i| > epsilon * scale (outlier).
     outlier_mask: Vec<bool>,
+}
+
+impl HasModelInfo for FittedHuber {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::linear("huber")
+    }
 }
 
 impl FittedHuber {

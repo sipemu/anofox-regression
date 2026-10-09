@@ -46,6 +46,7 @@
 //! println!("Coefficients: {:?}", fitted.coefficients());
 //! ```
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
@@ -167,6 +168,38 @@ pub enum AlmDistribution {
 }
 
 impl AlmDistribution {
+    /// Stable `snake_case` name of the distribution, e.g. `"normal"`,
+    /// `"log_normal"`, `"negative_binomial"`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AlmDistribution::Normal => "normal",
+            AlmDistribution::Laplace => "laplace",
+            AlmDistribution::StudentT => "student_t",
+            AlmDistribution::Logistic => "logistic",
+            AlmDistribution::AsymmetricLaplace => "asymmetric_laplace",
+            AlmDistribution::GeneralisedNormal => "generalised_normal",
+            AlmDistribution::S => "s",
+            AlmDistribution::LogNormal => "log_normal",
+            AlmDistribution::LogLaplace => "log_laplace",
+            AlmDistribution::LogS => "log_s",
+            AlmDistribution::LogGeneralisedNormal => "log_generalised_normal",
+            AlmDistribution::FoldedNormal => "folded_normal",
+            AlmDistribution::RectifiedNormal => "rectified_normal",
+            AlmDistribution::BoxCoxNormal => "box_cox_normal",
+            AlmDistribution::Gamma => "gamma",
+            AlmDistribution::InverseGaussian => "inverse_gaussian",
+            AlmDistribution::Exponential => "exponential",
+            AlmDistribution::Beta => "beta",
+            AlmDistribution::LogitNormal => "logit_normal",
+            AlmDistribution::Poisson => "poisson",
+            AlmDistribution::NegativeBinomial => "negative_binomial",
+            AlmDistribution::Binomial => "binomial",
+            AlmDistribution::Geometric => "geometric",
+            AlmDistribution::CumulativeLogistic => "cumulative_logistic",
+            AlmDistribution::CumulativeNormal => "cumulative_normal",
+        }
+    }
+
     /// Returns the canonical link function for this distribution.
     pub fn canonical_link(&self) -> LinkFunction {
         match self {
@@ -267,6 +300,19 @@ pub enum LinkFunction {
 }
 
 impl LinkFunction {
+    /// Lower-case name of the link (`"identity"`, `"log"`, `"logit"`, …).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LinkFunction::Identity => "identity",
+            LinkFunction::Log => "log",
+            LinkFunction::Logit => "logit",
+            LinkFunction::Probit => "probit",
+            LinkFunction::Inverse => "inverse",
+            LinkFunction::Sqrt => "sqrt",
+            LinkFunction::Cloglog => "cloglog",
+        }
+    }
+
     /// Apply the link function: eta = g(mu)
     pub fn link(&self, mu: f64) -> f64 {
         match self {
@@ -2382,6 +2428,13 @@ pub struct FittedAlm {
     loss: AlmLoss,
     scale: f64,
     result: RegressionResult,
+}
+
+impl HasModelInfo for FittedAlm {
+    /// The family is the [`AlmDistribution`] name, e.g. `"normal"`, `"log_normal"`.
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::new("alm", Some(self.distribution.as_str()), self.link.as_str())
+    }
 }
 
 impl FittedAlm {

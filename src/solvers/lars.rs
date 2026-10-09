@@ -28,6 +28,7 @@
 
 #![allow(clippy::needless_range_loop)]
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::prelude::Solve;
@@ -530,6 +531,12 @@ pub struct FittedLars {
     method: LarsMethod,
     #[allow(dead_code)]
     fit_intercept: bool,
+}
+
+impl HasModelInfo for FittedLars {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("lars")
+    }
 }
 
 impl FittedLars {

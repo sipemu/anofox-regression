@@ -1,5 +1,6 @@
 //! Weighted Least Squares solver.
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
     SolverType,
@@ -735,6 +736,12 @@ pub struct FittedWls {
     xtwx_inverse: Option<Mat<f64>>,
     /// Which columns are aliased (collinear or constant)
     aliased: Vec<bool>,
+}
+
+impl HasModelInfo for FittedWls {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("wls")
+    }
 }
 
 impl FittedWls {

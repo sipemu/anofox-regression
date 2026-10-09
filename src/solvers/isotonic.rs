@@ -18,6 +18,7 @@
 //!   Statistical Inference under Order Restrictions. Wiley.
 //! - Validated against R's `isoreg()` function
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
@@ -339,6 +340,12 @@ pub struct FittedIsotonic {
     result: RegressionResult,
     /// Out-of-bounds handling
     out_of_bounds: OutOfBounds,
+}
+
+impl HasModelInfo for FittedIsotonic {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::linear("isotonic")
+    }
 }
 
 impl FittedIsotonic {

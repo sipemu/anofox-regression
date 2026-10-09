@@ -25,6 +25,7 @@
 //! let acc = fitted.score(&x, &y);        // classification accuracy
 //! ```
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::solvers::binomial::{BinomialRegressor, FittedBinomial};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
@@ -123,6 +124,16 @@ impl LogisticRegression {
 pub struct FittedLogistic {
     inner: FittedBinomial,
     threshold: f64,
+}
+
+impl HasModelInfo for FittedLogistic {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::new(
+            "logistic",
+            Some("binomial"),
+            self.inner.family().link.as_str(),
+        )
+    }
 }
 
 impl FittedLogistic {

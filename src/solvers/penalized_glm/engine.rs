@@ -146,6 +146,7 @@ impl EngineFit {
     pub fn to_glm_inference(&self) -> Option<GlmInferenceResult> {
         let inf = self.inference.as_ref()?;
         let expand = |v: &[f64]| self.design.expand(v).0;
+        let intercept = |v: &[f64]| self.design.expand(v).1;
 
         // What each row of the matrices is. The vectors above are expanded into the
         // original feature order with `NaN` for dropped columns and the intercept
@@ -165,6 +166,11 @@ impl EngineFit {
             ci_lower: expand(&inf.ci_lower),
             ci_upper: expand(&inf.ci_upper),
             confidence_level: inf.confidence_level,
+            intercept_std_error: intercept(&inf.std_errors),
+            intercept_z_value: intercept(&inf.z_values),
+            intercept_p_value: intercept(&inf.p_values),
+            intercept_ci_lower: intercept(&inf.ci_lower),
+            intercept_ci_upper: intercept(&inf.ci_upper),
             vcov: Some(inf.vcov.clone()),
             information: Some(self.irls.information.clone()),
             matrix_parameters,

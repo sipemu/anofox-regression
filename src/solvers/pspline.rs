@@ -9,6 +9,7 @@
 //! The design matrix passed to [`Regressor::fit`] is the raw predictor as a
 //! single column (n × 1); the basis is built internally.
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
@@ -202,6 +203,12 @@ pub struct FittedPSpline {
     xmin: f64,
     xmax: f64,
     result: RegressionResult,
+}
+
+impl HasModelInfo for FittedPSpline {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("pspline")
+    }
 }
 
 impl FittedPSpline {

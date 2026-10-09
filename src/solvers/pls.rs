@@ -16,6 +16,7 @@
 //!   Chemometrics and Intelligent Laboratory Systems, 18, 251-263.
 //! - Validated against R's `pls` package: <https://cran.r-project.org/package=pls>
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector};
@@ -513,6 +514,12 @@ pub struct FittedPls {
     y_loadings: Col<f64>,
     /// Score matrix T (n x n_components)
     scores: Mat<f64>,
+}
+
+impl HasModelInfo for FittedPls {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("pls")
+    }
 }
 
 impl FittedPls {

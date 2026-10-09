@@ -8,6 +8,7 @@
 //! - Lawson, C.L. and Hanson, R.J. (1974). "Solving Least Squares Problems". Prentice-Hall.
 //! - R package `nnls`: <https://cran.r-project.org/web/packages/nnls/index.html>
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
@@ -325,8 +326,8 @@ impl BlsRegressor {
         intercept: Option<f64>,
         rank: usize,
         n_params: usize,
-        _lower: &[f64],
-        _upper: &[f64],
+        lower: &[f64],
+        upper: &[f64],
     ) -> Result<FittedBls, RegressionError> {
         let n_samples = x.nrows();
         let n_features = x.ncols();
@@ -371,6 +372,7 @@ impl BlsRegressor {
         Ok(FittedBls {
             result,
             options: self.options.clone(),
+            non_negative: is_non_negative(lower, upper),
         })
     }
 }
@@ -417,6 +419,20 @@ pub struct FittedBls {
     result: RegressionResult,
     #[allow(dead_code)]
     options: RegressionOptions,
+    /// Every coefficient bound is `[0, ∞)`, i.e. this is an NNLS fit.
+    non_negative: bool,
+}
+
+/// True when the bounds are exactly the non-negativity constraints of NNLS.
+fn is_non_negative(lower: &[f64], upper: &[f64]) -> bool {
+    lower.iter().all(|&l| l == 0.0) && upper.iter().all(|&u| u == f64::INFINITY)
+}
+
+impl HasModelInfo for FittedBls {
+    /// `"nnls"` when every coefficient is bounded to `[0, ∞)`, `"bls"` otherwise.
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian(if self.non_negative { "nnls" } else { "bls" })
+    }
 }
 
 impl FittedRegressor for FittedBls {

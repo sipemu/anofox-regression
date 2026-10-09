@@ -1,5 +1,6 @@
 //! Builder-style front end over the penalized GLM engine.
 
+use crate::core::{HasModelInfo, ModelInfo};
 use faer::{Col, Mat};
 
 use super::error::{GlmEngineError, GlmEngineResult};
@@ -375,6 +376,30 @@ pub struct FittedPenalizedGlm {
     result: GlmResult,
     accuracy: Option<f64>,
     separation: SeparationCheck,
+}
+
+impl HasModelInfo for FittedPenalizedGlm {
+    /// Family and link of [`PenalizedGlmFamily`]; `Logistic` reports the
+    /// `"binomial"` family with the logit link, and a Tweedie power of 1 or 2
+    /// reports `"poisson"` / `"gamma"` (see [`TweedieFamily::family_name`]).
+    fn model_info(&self) -> ModelInfo {
+        let (family, link) = match self.family {
+            PenalizedGlmFamily::Poisson(link) => ("poisson", link.as_str()),
+            PenalizedGlmFamily::Binomial(link) => ("binomial", link.as_str()),
+            PenalizedGlmFamily::Logistic { .. } => ("binomial", "logit"),
+            PenalizedGlmFamily::NegativeBinomial { .. } => ("negative_binomial", "log"),
+            PenalizedGlmFamily::Gamma => ("gamma", "log"),
+            PenalizedGlmFamily::Tweedie { power } => (
+                TweedieFamily {
+                    var_power: power,
+                    link_power: 0.0,
+                }
+                .family_name(),
+                "log",
+            ),
+        };
+        ModelInfo::new("penalized_glm", Some(family), link)
+    }
 }
 
 impl FittedPenalizedGlm {

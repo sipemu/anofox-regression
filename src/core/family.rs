@@ -184,6 +184,31 @@ impl TweedieFamily {
         }
     }
 
+    /// R family name of this variance power: `"gaussian"` (0), `"poisson"` (1),
+    /// `"gamma"` (2), `"inverse_gaussian"` (3), `"tweedie"` for any other power.
+    pub fn family_name(&self) -> &'static str {
+        match self.var_power {
+            0.0 => "gaussian",
+            1.0 => "poisson",
+            2.0 => "gamma",
+            3.0 => "inverse_gaussian",
+            _ => "tweedie",
+        }
+    }
+
+    /// Name of the power link: `"log"` (0), `"identity"` (1), `"inverse"` (-1),
+    /// `"sqrt"` (0.5), `"inverse_squared"` (-2), `"power"` for any other power.
+    pub fn link_name(&self) -> &'static str {
+        match self.link_power {
+            0.0 => "log",
+            1.0 => "identity",
+            -1.0 => "inverse",
+            0.5 => "sqrt",
+            -2.0 => "inverse_squared",
+            _ => "power",
+        }
+    }
+
     /// Create a Gaussian (Normal) family.
     pub fn gaussian() -> Self {
         Self::new(0.0, 1.0) // var_power=0 (constant variance), identity link
@@ -418,7 +443,7 @@ impl TweedieFamily {
         let y_mean: f64 = y.iter().sum::<f64>() / n as f64;
 
         match self.var_power {
-            p if p == 0.0 => {
+            0.0 => {
                 // Normal: μ = y is fine
                 y.to_vec()
             }

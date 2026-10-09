@@ -52,6 +52,17 @@ fn check_glm<const K: usize>(
     let shift = K - f.coefficients().nrows();
     if shift == 1 {
         rel_close(f.intercept().unwrap(), coef[0], 1e-6, what);
+        // #66: intercept inference matches R's first row.
+        let inf = f.inference().unwrap();
+        rel_close(inf.intercept_std_error.unwrap(), se[0], 1e-5, what);
+        rel_close(
+            inf.intercept_z_value.unwrap(),
+            f.intercept().unwrap() / inf.intercept_std_error.unwrap(),
+            1e-12,
+            what,
+        );
+        assert!(inf.intercept_ci_lower.unwrap() < f.intercept().unwrap());
+        assert!(inf.intercept_ci_upper.unwrap() > f.intercept().unwrap());
     } else {
         assert!(f.intercept().is_none(), "{what}: unexpected intercept");
     }
@@ -297,6 +308,14 @@ fn aft_check(
     rel_close(f.log_likelihood(), ll[1], 1e-7, &what);
     let inf = f.inference().unwrap();
     rel_close(inf.intercept_std_error.unwrap(), se[0], 1e-5, &what);
+    // #66: the intercept carries the full Wald row, like the slopes.
+    let b0 = f.intercept().unwrap();
+    let se0 = inf.intercept_std_error.unwrap();
+    rel_close(inf.intercept_z_value.unwrap(), b0 / se0, 1e-12, &what);
+    let zq = (inf.ci_upper[0] - f.coefficients()[0]) / inf.std_errors[0];
+    rel_close(inf.intercept_ci_lower.unwrap(), b0 - zq * se0, 1e-10, &what);
+    rel_close(inf.intercept_ci_upper.unwrap(), b0 + zq * se0, 1e-10, &what);
+    assert!(inf.intercept_p_value.unwrap() >= 0.0 && inf.intercept_p_value.unwrap() <= 1.0);
     rel_close(inf.std_errors[0], se[1], 1e-5, &what);
     rel_close(inf.std_errors[1], se[2], 1e-5, &what);
     if se.len() == 4 {

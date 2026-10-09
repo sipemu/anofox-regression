@@ -32,6 +32,7 @@
 
 #![allow(clippy::needless_range_loop)]
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::prelude::Solve;
@@ -257,6 +258,12 @@ pub struct FittedBayesianRidge {
     alpha: f64,
     lambda: f64,
     sigma_diag: Vec<f64>,
+}
+
+impl HasModelInfo for FittedBayesianRidge {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("bayesian_ridge")
+    }
 }
 
 impl FittedBayesianRidge {
@@ -552,6 +559,12 @@ pub struct FittedArd {
     result: RegressionResult,
     alpha: f64,
     lambdas: Vec<f64>,
+}
+
+impl HasModelInfo for FittedArd {
+    fn model_info(&self) -> ModelInfo {
+        ModelInfo::gaussian("ard")
+    }
 }
 
 impl FittedArd {

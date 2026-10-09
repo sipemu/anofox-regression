@@ -593,6 +593,21 @@ agreement is ~1e-5–5e-5; NB θ agrees to 2.6e-4 (glmer.nb's `optimize`).
 **Scope note**: the default `glmer(nAGQ = 1)` joint `(θ, β)` refinement is a
 follow-up beyond the estimators validated here.
 
+#### 24c. Intercept inference, linear logLik/AIC/BIC, `augment` (#66)
+
+Generator `tests/r_scripts/generate_m1a_validation.R`, test `tests/r_validation_m1a.rs` (R 4.6.1, MASS 7.3-65, broom 1.0.13; GLMs refitted with `glm.control(epsilon = 1e-14)` so R's own convergence does not limit the comparison).
+
+| Model (data) | Compared | R | Tolerance |
+|---|---|---|---|
+| OLS `mpg ~ wt + hp` (mtcars), no-intercept variant | full coefficient table incl. intercept (est, SE, t, p, `confint`), `logLik`/`AIC`/`BIC` | `summary.lm`, `confint`, `logLik`, `AIC`, `BIC`, `broom::glance` | 1e-8 |
+| WLS, weights `1/cyl` | same | same | 1e-8 |
+| Ridge λ = 0 | `logLik`/`AIC`/`BIC`, intercept SE | `lm` | 1e-8 |
+| Binomial logit / probit `vs ~ mpg` | full table incl. intercept, Wald CI | `summary.glm`, `confint.default` | 1e-6 |
+| Poisson `carb ~ wt + hp`, Gamma(log) `mpg ~ wt + hp` (t on residual df), NB `breaks ~ wool + tension` (warpbreaks) | full table incl. intercept | `summary.glm`, `MASS::glm.nb` | 1e-6 |
+| `diagnostics::augment` on OLS, WLS, binomial, Poisson, Gamma, NB | fitted, residual (response / deviance / Pearson), `rstandard` (deviance and Pearson), `rstudent`, `hatvalues`, `cooks.distance`, `dffits` | stats 4.6 (cross-checked with `influence.measures`, `broom::augment`) | 1e-8 / 1e-6 |
+
+The probit comparison exposed an inaccurate normal CDF (Abramowitz-Stegun erf, 1.5e-7) and a mistyped AS 241 coefficient in the probit link; both now use `statrs` `erfc` / `erfc_inv`.
+
 ## Test Coverage
 
 | Category | Tests | Tolerance |
@@ -913,7 +928,7 @@ These tests verify robustness rather than exact numerical agreement with a refer
 
 ### Known Differences from R
 
-1. **Log-likelihood formula**: R uses `RSS/n` in the log-likelihood calculation while this library uses `RSS/(n-p)` (MSE), causing small AIC/BIC differences
+1. **Log-likelihood formula**: the linear models use R's `logLik.lm` (ML variance `RSS/n`, sigma counted as a parameter in AIC/BIC) and match R exactly (section 24c)
 2. **Lambda scaling**: `glmnet` uses λ/n scaling by default; tests adjust accordingly
 3. **Coordinate descent**: Elastic Net convergence may differ slightly from `glmnet`
 
