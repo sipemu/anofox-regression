@@ -171,3 +171,122 @@ mod tests {
         assert!(!constant_loose[1]);
     }
 }
+
+/// Default tolerance of the R-`lm`-style aliasing test ([`lm_alias_columns`]).
+///
+/// Matches `tol = 1e-7` used by R's `lm.fit` / `lm.wfit` (LINPACK `dqrdc2`).
+pub const LM_ALIAS_TOLERANCE: f64 = 1e-7;
+
+/// Choose aliased columns the way R's `lm` does (LINPACK `dqrdc2` with
+/// *limited* pivoting).
+///
+/// Columns are processed in their given order. Column `j` is aliased when the
+/// norm of its residual after projecting out the intercept column (if any)
+/// and all earlier **non-aliased** columns falls below `tol` times its
+/// original norm. Hence the *later* column of a collinear set is aliased, the
+/// decision is invariant to rescaling any column, and exact duplicates or
+/// linear combinations are caught with a margin of ~9 orders of magnitude
+/// over floating-point rounding.
+///
+/// * `x` – design columns as R sees them (uncentered; multiplied by
+///   `sqrt(w)` for weighted fits).
+/// * `intercept` – the intercept column as R sees it (ones, or `sqrt(w)`),
+///   placed first and never aliased; `None` for models without intercept.
+/// * `pre_aliased` – columns already known to be aliased (e.g. constants).
+///
+/// The projection uses modified Gram–Schmidt with one re-orthogonalisation
+/// pass, which is accurate to working precision.
+pub fn lm_alias_columns(
+    x: &Mat<f64>,
+    intercept: Option<&Col<f64>>,
+    pre_aliased: &[bool],
+    tol: f64,
+) -> Vec<bool> {
+    let n = x.nrows();
+    let p = x.ncols();
+    let mut basis: Vec<Vec<f64>> = Vec::with_capacity(p + 1);
+    let norm = |v: &[f64]| v.iter().map(|a| a * a).sum::<f64>().sqrt();
+
+    if let Some(ic) = intercept {
+        let v: Vec<f64> = (0..n).map(|i| ic[i]).collect();
+        let nv = norm(&v);
+        if nv > 0.0 {
+            basis.push(v.iter().map(|a| a / nv).collect());
+        }
+    }
+
+    let mut aliased = vec![false; p];
+    for j in 0..p {
+        if pre_aliased.get(j).copied().unwrap_or(false) {
+            aliased[j] = true;
+            continue;
+        }
+        let mut v: Vec<f64> = (0..n).map(|i| x[(i, j)]).collect();
+        let original = norm(&v);
+        if original == 0.0 || !original.is_finite() {
+            aliased[j] = true;
+            continue;
+        }
+        for _ in 0..2 {
+            for q in &basis {
+                let d: f64 = q.iter().zip(&v).map(|(a, b)| a * b).sum();
+                for (vi, qi) in v.iter_mut().zip(q) {
+                    *vi -= d * qi;
+                }
+            }
+        }
+        let residual = norm(&v);
+        if residual < tol * original {
+            aliased[j] = true;
+        } else {
+            basis.push(v.iter().map(|a| a / residual).collect());
+        }
+    }
+    aliased
+}
+
+/// Solve a least-squares problem on the non-aliased columns only.
+///
+/// Builds the sub-matrix of `x` holding the columns with `aliased[j] ==
+/// false`, rescales each to unit norm (so the solver's own rank threshold
+/// is independent of column scaling), calls `solve` on it with no columns
+/// pre-aliased and maps the result back: aliased columns get NaN, the rest
+/// are un-scaled. Columns the solver itself drops are also reported aliased.
+pub fn solve_on_kept_columns<E, F>(
+    x: &Mat<f64>,
+    aliased: &[bool],
+    solve: F,
+) -> Result<(Col<f64>, Vec<bool>, usize), E>
+where
+    F: FnOnce(&Mat<f64>, &[bool]) -> Result<(Col<f64>, Vec<bool>, usize), E>,
+{
+    let p = x.ncols();
+    let n = x.nrows();
+    let kept: Vec<usize> = (0..p).filter(|&j| !aliased[j]).collect();
+    let mut out_aliased = aliased.to_vec();
+    let mut coefficients = Col::from_fn(p, |_| f64::NAN);
+    if kept.is_empty() {
+        return Ok((coefficients, vec![true; p], 0));
+    }
+    let scales: Vec<f64> = kept
+        .iter()
+        .map(|&j| {
+            let s = (0..n).map(|i| x[(i, j)] * x[(i, j)]).sum::<f64>().sqrt();
+            if s > 0.0 && s.is_finite() {
+                s
+            } else {
+                1.0
+            }
+        })
+        .collect();
+    let xr = Mat::from_fn(n, kept.len(), |i, k| x[(i, kept[k])] / scales[k]);
+    let (beta, sub_aliased, rank) = solve(&xr, &vec![false; kept.len()])?;
+    for (k, &j) in kept.iter().enumerate() {
+        if sub_aliased[k] || beta[k].is_nan() {
+            out_aliased[j] = true;
+        } else {
+            coefficients[j] = beta[k] / scales[k];
+        }
+    }
+    Ok((coefficients, out_aliased, rank))
+}
