@@ -465,3 +465,59 @@ fn augment_rejects_mismatched_lengths() {
     assert!(augment(&fit, &x, &short, None).is_err());
     assert!(augment(&fit, &x, &y, Some(&short)).is_err());
 }
+
+#[test]
+fn augment_residual_type_names_and_wrappers() {
+    assert_eq!(ResidualType::Response.as_str(), "response");
+    assert_eq!(ResidualType::Pearson.as_str(), "pearson");
+    assert_eq!(ResidualType::Deviance.as_str(), "deviance");
+
+    // LogisticRegression delegates to its binomial fit.
+    let x = design(&[&MT_MPG]);
+    let y = col(&MT_VS);
+    let fit = LogisticRegression::builder()
+        .tolerance(1e-12)
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    let a = augment(&fit, &x, &y, None).unwrap();
+    close_all("logistic hat", &a.leverage, &BIN_HAT, 1e-5);
+
+    // A Gamma fit through the Tweedie factory equals GammaRegressor.
+    let x = mtcars_x();
+    let y = col(&MT_MPG);
+    let tw = TweedieRegressor::gamma()
+        .with_intercept(true)
+        .tolerance(1e-12)
+        .max_iterations(100)
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    let a = augment(&tw, &x, &y, None).unwrap();
+    close_all("tweedie(2) cooks", &a.cooks_d, &GAMMA_COOK, 1e-6);
+    let ar = augment_with(&tw, &x, &y, None, ResidualType::Response).unwrap();
+    for i in 0..y.nrows() {
+        close(
+            "tweedie response residual",
+            ar.residual[i],
+            MT_MPG[i] - GAMMA_FITTED[i],
+            1e-6,
+        );
+    }
+}
+
+#[test]
+fn augment_weights_validation_and_zero_weight_rows() {
+    let x = mtcars_x();
+    let y = col(&MT_MPG);
+    let fit = OlsRegressor::builder().build().fit(&x, &y).unwrap();
+    let mut w = Col::from_fn(y.nrows(), |_| 1.0);
+    w[0] = -1.0;
+    assert!(augment(&fit, &x, &y, Some(&w)).is_err());
+    w[0] = f64::NAN;
+    assert!(augment(&fit, &x, &y, Some(&w)).is_err());
+    // A zero-weight row has zero leverage.
+    w[0] = 0.0;
+    let a = augment(&fit, &x, &y, Some(&w)).unwrap();
+    assert_eq!(a.leverage[0], 0.0);
+}
