@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.21] - 2026-10-09
+
+### Fixed
+
+- **OLS / WLS alias rank-deficient designs like R's `lm` for every solver (#64).** Aliasing is now decided up front, independently of the solver, with R's LINPACK `dqrdc2` rule (limited pivoting, tolerance `1e-7` relative to each column's own norm): columns are taken in their given order and a column that is numerically a linear combination of the intercept and the earlier kept columns gets a `NaN` coefficient and `aliased[j] = true`. The model is then solved on the kept columns (unit-scaled), so coefficients, intercept, standard errors, sigma, R² / adjusted R² and `n_parameters` equal R's `lm` / `lm(weights = )`. Behaviour changes: the `Svd` solver (the DuckDB default) no longer returns a minimum-norm split of collinear columns with no flag (`[x1, x1]` gave `[0.744, 0.744]`) but aliases the later column; `Qr` / WLS alias the *later* column of a collinear set (`[x1, 2*x1]` aliased column 1 before); the decision no longer depends on column scaling. New: `OlsRegressor::with_alias_tolerance` / `OlsRegressorBuilder::alias_tolerance` (same on WLS), `utils::lm_alias_columns`, `utils::LM_ALIAS_TOLERANCE`. Validated against R in `tests/issue64_lm_aliasing.rs` (exact duplicates, scaled copies, combinations of 2 and 3 columns, near-collinear just below / above the tolerance, WLS, no intercept; generator `tests/r_scripts/issue64_lm_aliasing.R`).
+- WLS without intercept computed standard errors from the full (singular) `X'WX` when a column was aliased; they now come from the reduced fit, as R.
+- **LARS / LassoLars fill `adj_r_squared`, `mse` and `rmse` (#65).** They were left at the `0.0` placeholders. `rmse` is the residual standard error `sqrt(RSS / (n - df))` and `adj_r_squared` uses the OLS convention, with `df` = active coefficients + intercept (Efron et al. 2004); `NaN` when `n <= df`. On the full LARS path the values equal R's `summary(lm(...))` (`tests/issue65_lars_fit_stats.rs`).
+
 ## [0.5.20] - 2026-10-08
 
 ### Added
@@ -18,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Probit link accuracy (#66).** The binomial probit link used an Abramowitz-Stegun erf (absolute error 1.5e-7) for the normal CDF and an AS 241 quantile with a mistyped coefficient, which put probit standard errors off R in the 5th digit. Both now use `statrs` `erfc` / `erfc_inv`.
 - Wald p-values of the GLMs use the survival function, so very small p-values no longer underflow to 0.
+
 ## [0.5.19] - 2026-10-08
 
 ### Fixed

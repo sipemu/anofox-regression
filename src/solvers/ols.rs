@@ -13,7 +13,7 @@ use crate::inference::{
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{
     center_columns, center_vector, detect_constant_columns, detect_constant_columns_relative,
-    detect_zero_columns,
+    detect_zero_columns, lm_alias_columns, solve_on_kept_columns, LM_ALIAS_TOLERANCE,
 };
 use faer::prelude::Solve;
 use faer::{Col, Mat};
@@ -44,12 +44,48 @@ use statrs::distribution::ContinuousCDF;
 #[derive(Debug, Clone)]
 pub struct OlsRegressor {
     options: RegressionOptions,
+    alias_tolerance: f64,
 }
 
 impl OlsRegressor {
     /// Create a new OLS regressor with the given options.
     pub fn new(options: RegressionOptions) -> Self {
-        Self { options }
+        Self {
+            options,
+            alias_tolerance: LM_ALIAS_TOLERANCE,
+        }
+    }
+
+    /// Set the tolerance of the R-`lm`-style aliasing test (default
+    /// [`LM_ALIAS_TOLERANCE`] = `1e-7`, as R's `lm`). See
+    /// [`crate::utils::lm_alias_columns`].
+    pub fn with_alias_tolerance(mut self, tol: f64) -> Self {
+        self.alias_tolerance = tol;
+        self
+    }
+
+    /// Choose aliased columns R-`lm`-style for every solver: columns are
+    /// tested in their given order and a column that is (to within
+    /// `alias_tolerance`, relative to its own norm) a linear combination of
+    /// the intercept and the earlier kept columns is aliased.
+    fn lm_aliased(&self, x: &Mat<f64>, pre_aliased: &[bool]) -> Vec<bool> {
+        let ones = Col::from_fn(x.nrows(), |_| 1.0);
+        let intercept = self.options.with_intercept.then_some(&ones);
+        lm_alias_columns(x, intercept, pre_aliased, self.alias_tolerance)
+    }
+
+    /// Dispatch to the configured solver on the non-aliased columns.
+    fn solve_dispatch(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        aliased: &[bool],
+    ) -> Result<(Col<f64>, Vec<bool>, usize), RegressionError> {
+        solve_on_kept_columns(x, aliased, |xr, none| match self.options.solver {
+            SolverType::Qr => self.solve_with_qr(xr, y, none),
+            SolverType::Svd => self.solve_with_svd(xr, y, none),
+            SolverType::Cholesky => self.solve_with_cholesky(xr, y, none),
+        })
     }
 
     /// Create a builder for configuring the regressor.
@@ -338,13 +374,9 @@ impl Regressor for OlsRegressor {
             let (y_centered, y_mean) = center_vector(y);
 
             // Dispatch to selected solver
-            let (coefficients, aliased, rank) = match self.options.solver {
-                SolverType::Qr => self.solve_with_qr(&x_centered, &y_centered, &constant_cols)?,
-                SolverType::Svd => self.solve_with_svd(&x_centered, &y_centered, &constant_cols)?,
-                SolverType::Cholesky => {
-                    self.solve_with_cholesky(&x_centered, &y_centered, &constant_cols)?
-                }
-            };
+            let lm_aliased = self.lm_aliased(x, &constant_cols);
+            let (coefficients, aliased, rank) =
+                self.solve_dispatch(&x_centered, &y_centered, &lm_aliased)?;
 
             // Sanity-check the solver output. Non-aliased coefficients must
             // be finite and within a reasonable magnitude; aliased ones are
@@ -406,11 +438,8 @@ impl Regressor for OlsRegressor {
                 return Err(RegressionError::AllFeaturesConstant);
             }
 
-            let (coefficients, aliased, rank) = match self.options.solver {
-                SolverType::Qr => self.solve_with_qr(x, y, &constant_cols)?,
-                SolverType::Svd => self.solve_with_svd(x, y, &constant_cols)?,
-                SolverType::Cholesky => self.solve_with_cholesky(x, y, &constant_cols)?,
-            };
+            let lm_aliased = self.lm_aliased(x, &constant_cols);
+            let (coefficients, aliased, rank) = self.solve_dispatch(x, y, &lm_aliased)?;
 
             // See the corresponding intercept branch above and #21.
             check_coefficients_finite(&coefficients, &aliased)?;
@@ -1055,6 +1084,7 @@ impl FittedOls {
 #[derive(Debug, Clone, Default)]
 pub struct OlsRegressorBuilder {
     builder: RegressionOptionsBuilder,
+    alias_tolerance: Option<f64>,
 }
 
 impl OlsRegressorBuilder {
@@ -1093,10 +1123,20 @@ impl OlsRegressorBuilder {
         self
     }
 
+    /// Set the tolerance of the R-`lm`-style aliasing test (default `1e-7`,
+    /// as R's `lm`): a column whose residual norm, after projecting out the
+    /// intercept and the earlier kept columns, is below `tol` times its own
+    /// norm is aliased (NaN coefficient).
+    pub fn alias_tolerance(mut self, tol: f64) -> Self {
+        self.alias_tolerance = Some(tol);
+        self
+    }
+
     /// Build the OLS regressor.
     pub fn build(self) -> OlsRegressor {
         // Use unchecked build since OLS doesn't use lambda/alpha
         OlsRegressor::new(self.builder.build_unchecked())
+            .with_alias_tolerance(self.alias_tolerance.unwrap_or(LM_ALIAS_TOLERANCE))
     }
 }
 

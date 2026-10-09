@@ -11,8 +11,10 @@ use crate::inference::{
 };
 use crate::solvers::ols::OlsRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
-use crate::utils::{detect_constant_columns_relative, detect_zero_columns};
-use faer::linalg::solvers::Qr;
+use crate::utils::{
+    detect_constant_columns_relative, detect_zero_columns, lm_alias_columns, solve_on_kept_columns,
+    LM_ALIAS_TOLERANCE,
+};
 use faer::prelude::Solve;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, StudentsT};
@@ -48,6 +50,7 @@ use statrs::distribution::{ContinuousCDF, StudentsT};
 pub struct WlsRegressor {
     options: RegressionOptions,
     weights: Option<Col<f64>>,
+    alias_tolerance: f64,
 }
 
 impl WlsRegressor {
@@ -56,7 +59,35 @@ impl WlsRegressor {
         Self {
             options,
             weights: None,
+            alias_tolerance: LM_ALIAS_TOLERANCE,
         }
+    }
+
+    /// Set the tolerance of the R-`lm`-style aliasing test (default `1e-7`,
+    /// as R's `lm.wfit`). See [`crate::utils::lm_alias_columns`].
+    pub fn with_alias_tolerance(mut self, tol: f64) -> Self {
+        self.alias_tolerance = tol;
+        self
+    }
+
+    /// R-`lm.wfit`-style aliasing on `sqrt(w)·X` (intercept column `sqrt(w)`).
+    fn lm_aliased(&self, x_weighted: &Mat<f64>, sqrt_w: &Col<f64>, pre: &[bool]) -> Vec<bool> {
+        let intercept = self.options.with_intercept.then_some(sqrt_w);
+        lm_alias_columns(x_weighted, intercept, pre, self.alias_tolerance)
+    }
+
+    /// Dispatch to the configured solver on the non-aliased columns.
+    fn solve_dispatch(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        aliased: &[bool],
+    ) -> Result<(Col<f64>, Vec<bool>, usize), RegressionError> {
+        solve_on_kept_columns(x, aliased, |xr, none| match self.options.solver {
+            SolverType::Qr => self.solve_with_qr(xr, y, none),
+            SolverType::Svd => self.solve_with_svd(xr, y, none),
+            SolverType::Cholesky => self.solve_with_cholesky(xr, y, none),
+        })
     }
 
     /// Set the observation weights.
@@ -141,7 +172,8 @@ impl Regressor for WlsRegressor {
         let all_unit = weights.iter().all(|&w| (w - 1.0).abs() < 1e-14);
 
         if all_unit {
-            let ols = OlsRegressor::new(self.options.clone());
+            let ols =
+                OlsRegressor::new(self.options.clone()).with_alias_tolerance(self.alias_tolerance);
             let ols_fitted = ols.fit(x, y)?;
             // For uniform weights, use unweighted (X'X)⁻¹ with aliased columns filtered
             let aliased = ols_fitted.result().aliased.clone();
@@ -186,13 +218,9 @@ impl Regressor for WlsRegressor {
             let constant_cols = detect_constant_columns_relative(x, self.options.rank_tolerance);
 
             // Dispatch to selected solver
-            let (coefficients, aliased, rank) = match self.options.solver {
-                SolverType::Qr => self.solve_with_qr(&x_centered, &y_centered, &constant_cols)?,
-                SolverType::Svd => self.solve_with_svd(&x_centered, &y_centered, &constant_cols)?,
-                SolverType::Cholesky => {
-                    self.solve_with_cholesky(&x_centered, &y_centered, &constant_cols)?
-                }
-            };
+            let lm_aliased = self.lm_aliased(&x_weighted, &sqrt_weights, &constant_cols);
+            let (coefficients, aliased, rank) =
+                self.solve_dispatch(&x_centered, &y_centered, &lm_aliased)?;
 
             // Guard against the "garbage coefficient" failure mode tracked
             // in #21 (NaN / implausibly-large values on otherwise valid
@@ -250,13 +278,9 @@ impl Regressor for WlsRegressor {
             // No intercept: a constant column is the intercept and is kept;
             // only identically-zero columns are dropped (see OLS).
             let constant_cols = detect_zero_columns(x);
-            let (coefficients, aliased, rank) = match self.options.solver {
-                SolverType::Qr => self.solve_with_qr(&x_weighted, &y_weighted, &constant_cols)?,
-                SolverType::Svd => self.solve_with_svd(&x_weighted, &y_weighted, &constant_cols)?,
-                SolverType::Cholesky => {
-                    self.solve_with_cholesky(&x_weighted, &y_weighted, &constant_cols)?
-                }
-            };
+            let lm_aliased = self.lm_aliased(&x_weighted, &sqrt_weights, &constant_cols);
+            let (coefficients, aliased, rank) =
+                self.solve_dispatch(&x_weighted, &y_weighted, &lm_aliased)?;
 
             // See the intercept branch above and #21.
             super::ols::check_coefficients_finite(&coefficients, &aliased)?;
@@ -661,50 +685,19 @@ impl WlsRegressor {
                 }
             }
         } else {
-            // No intercept case - use X'WX directly
-            let n_features = x.ncols();
-            let n_samples = x.nrows();
-
-            let mut xtwx: Mat<f64> = Mat::zeros(n_features, n_features);
-            for i in 0..n_samples {
-                for j in 0..n_features {
-                    for k in 0..n_features {
-                        xtwx[(j, k)] += weights[i] * x[(i, j)] * x[(i, k)];
-                    }
-                }
-            }
-
-            // Invert X'WX using QR
-            let qr: Qr<f64> = xtwx.qr();
-            let q = qr.compute_thin_Q();
-            let r = qr.R();
-
-            let mut xtwx_inv: Mat<f64> = Mat::zeros(n_features, n_features);
-            let qt = q.transpose();
-
-            for col in 0..n_features {
-                for i in (0..n_features).rev() {
-                    if r[(i, i)].abs() < 1e-14 {
-                        continue;
-                    }
-                    let mut sum = qt[(i, col)];
-                    for j in (i + 1)..n_features {
-                        sum -= r[(i, j)] * xtwx_inv[(j, col)];
-                    }
-                    xtwx_inv[(i, col)] = sum / r[(i, i)];
-                }
-            }
-
-            // Compute standard errors
-            let mut std_errors = Col::zeros(n_features);
-            for j in 0..n_features {
-                if result.aliased[j] {
-                    std_errors[j] = f64::NAN;
-                } else {
-                    let var = result.mse * xtwx_inv[(j, j)];
-                    std_errors[j] = if var >= 0.0 { var.sqrt() } else { f64::NAN };
-                }
-            }
+            // No intercept: (X'WX)⁻¹ over the non-aliased columns only (R's
+            // lm reports the standard errors of the reduced fit). Inverting
+            // the full, singular X'WX gave meaningless SEs for kept columns.
+            let x_weighted =
+                Mat::from_fn(x.nrows(), x.ncols(), |i, j| x[(i, j)] * weights[i].sqrt());
+            let std_errors = match CoefficientInference::standard_errors(
+                &x_weighted,
+                result.mse,
+                &result.aliased,
+            ) {
+                Ok(se) => se,
+                Err(_) => return Ok(()),
+            };
 
             let t_stats = CoefficientInference::t_statistics(&result.coefficients, &std_errors);
             let p_vals = CoefficientInference::p_values(&t_stats, df);
@@ -885,6 +878,7 @@ impl FittedWls {
 pub struct WlsRegressorBuilder {
     builder: RegressionOptionsBuilder,
     weights: Option<Col<f64>>,
+    alias_tolerance: Option<f64>,
 }
 
 impl WlsRegressorBuilder {
@@ -923,9 +917,16 @@ impl WlsRegressorBuilder {
         self
     }
 
+    /// Set the tolerance of the R-`lm`-style aliasing test (default `1e-7`).
+    pub fn alias_tolerance(mut self, tol: f64) -> Self {
+        self.alias_tolerance = Some(tol);
+        self
+    }
+
     /// Build the WLS regressor.
     pub fn build(self) -> WlsRegressor {
-        let mut regressor = WlsRegressor::new(self.builder.build_unchecked());
+        let mut regressor = WlsRegressor::new(self.builder.build_unchecked())
+            .with_alias_tolerance(self.alias_tolerance.unwrap_or(LM_ALIAS_TOLERANCE));
         if let Some(w) = self.weights {
             regressor = regressor.with_weights(w);
         }

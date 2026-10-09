@@ -187,6 +187,37 @@ impl Regressor for LarsRegressor {
         result.n_observations = n;
         result.r_squared = compute_r_squared(y, &result.residuals);
 
+        // Residual-based fit statistics with the usual LARS degrees of
+        // freedom (Efron et al. 2004): the number of active (non-zero,
+        // non-aliased) coefficients plus the intercept. On the full LARS path
+        // this is the OLS fit on the active set, so `adj_r_squared` and
+        // `rmse` (residual standard error, sqrt(RSS / (n - df))) equal
+        // R's `summary(lm(...))` values. Undefined (NaN) when n <= df.
+        let n_active = (0..p)
+            .filter(|&j| !result.aliased[j] && result.coefficients[j] != 0.0)
+            .count();
+        let df = n_active + usize::from(self.fit_intercept);
+        let rss: f64 = result.residuals.iter().map(|r| r * r).sum();
+        let df_resid = n as f64 - df as f64;
+        let df_total = if self.fit_intercept {
+            n as f64 - 1.0
+        } else {
+            n as f64
+        };
+        if df_resid > 0.0 {
+            result.mse = rss / df_resid;
+            result.rmse = result.mse.sqrt();
+            result.adj_r_squared = if df_total > 0.0 {
+                1.0 - (1.0 - result.r_squared) * df_total / df_resid
+            } else {
+                f64::NAN
+            };
+        } else {
+            result.mse = f64::NAN;
+            result.rmse = f64::NAN;
+            result.adj_r_squared = f64::NAN;
+        }
+
         Ok(FittedLars {
             result,
             alphas,
