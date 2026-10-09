@@ -218,20 +218,71 @@ pub fn estimate_theta_ml(y: &[f64], mu: &[f64], max_iter: usize, tol: f64) -> f6
 }
 
 /// Score and (observed) information of the NB log-likelihood w.r.t. θ.
+///
+/// The `ψ(θ+y)` / `ψ'(θ+y)` terms depend on the row only through `y`, and count
+/// responses take few distinct values, so they are evaluated once per distinct
+/// `y` and weighted by its frequency (issue #72: per-row special functions made
+/// each Newton step the dominant cost on large `n`). The per-row terms stay
+/// per row.
 fn theta_score_and_info(y: &[f64], mu: &[f64], theta: f64) -> (f64, f64) {
     let mut score = 0.0;
     let mut info = 0.0;
     let psi_t = digamma(theta);
     let tri_t = trigamma(theta);
+    let ln_t = theta.ln();
 
-    for (&yi, &mui) in y.iter().zip(mu.iter()) {
-        let mui = mui.max(1e-10);
-        let mt = mui + theta;
-        score += digamma(theta + yi) - psi_t + theta.ln() + 1.0 - mt.ln() - (yi + theta) / mt;
-        info += -trigamma(theta + yi) + tri_t - 1.0 / theta + 2.0 / mt - (yi + theta) / (mt * mt);
+    match distinct_values(y) {
+        Some(groups) => {
+            for &(yk, ck) in &groups {
+                score += ck * (digamma(theta + yk) - psi_t);
+                info += ck * (tri_t - trigamma(theta + yk));
+            }
+            for (&yi, &mui) in y.iter().zip(mu.iter()) {
+                let mt = mui.max(1e-10) + theta;
+                score += ln_t + 1.0 - mt.ln() - (yi + theta) / mt;
+                info += -1.0 / theta + 2.0 / mt - (yi + theta) / (mt * mt);
+            }
+        }
+        None => {
+            for (&yi, &mui) in y.iter().zip(mu.iter()) {
+                let mui = mui.max(1e-10);
+                let mt = mui + theta;
+                score += digamma(theta + yi) - psi_t + ln_t + 1.0 - mt.ln() - (yi + theta) / mt;
+                info += -trigamma(theta + yi) + tri_t - 1.0 / theta + 2.0 / mt
+                    - (yi + theta) / (mt * mt);
+            }
+        }
     }
 
     (score, info)
+}
+
+/// Distinct values of `y` with their frequencies, in first-seen order, or `None`
+/// when grouping would not pay off (short input, or more than `n / 4` distinct
+/// values, as for non-count data).
+pub(crate) fn distinct_values(y: &[f64]) -> Option<Vec<(f64, f64)>> {
+    let n = y.len();
+    if n < 64 {
+        return None;
+    }
+    let limit = n / 4;
+    let mut index: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+    let mut groups: Vec<(f64, f64)> = Vec::new();
+    for &v in y {
+        // `+ 0.0` folds -0.0 into 0.0 so both share a group.
+        let key = (v + 0.0).to_bits();
+        match index.get(&key) {
+            Some(&k) => groups[k].1 += 1.0,
+            None => {
+                if groups.len() >= limit {
+                    return None;
+                }
+                index.insert(key, groups.len());
+                groups.push((v, 1.0));
+            }
+        }
+    }
+    Some(groups)
 }
 
 /// Trigamma function ψ'(x) for x > 0 (recurrence + asymptotic expansion).
@@ -254,6 +305,39 @@ fn trigamma(mut x: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grouped_score_and_info_match_the_per_row_sums() {
+        // 200 rows over 7 distinct counts: the grouped path is taken.
+        let y: Vec<f64> = (0..200).map(|i| (i % 7) as f64).collect();
+        let mu: Vec<f64> = (0..200)
+            .map(|i| 1.0 + (i as f64 * 0.37).sin().abs() * 4.0)
+            .collect();
+        assert!(distinct_values(&y).is_some());
+        for &theta in &[0.3, 2.5, 40.0, 1e5] {
+            let (s, i) = theta_score_and_info(&y, &mu, theta);
+            let (mut s0, mut i0) = (0.0, 0.0);
+            for (&yi, &mi) in y.iter().zip(&mu) {
+                let mt = mi + theta;
+                s0 += digamma(theta + yi) - digamma(theta) + theta.ln() + 1.0
+                    - mt.ln()
+                    - (yi + theta) / mt;
+                i0 += -trigamma(theta + yi) + trigamma(theta) - 1.0 / theta + 2.0 / mt
+                    - (yi + theta) / (mt * mt);
+            }
+            assert!(
+                (s - s0).abs() <= 1e-9 * (1.0 + s0.abs()),
+                "score {s} vs {s0}"
+            );
+            assert!(
+                (i - i0).abs() <= 1e-9 * (1.0 + i0.abs()),
+                "info {i} vs {i0}"
+            );
+        }
+        // Continuous data is not grouped.
+        let yc: Vec<f64> = (0..200).map(|i| i as f64 * 0.1).collect();
+        assert!(distinct_values(&yc).is_none());
+    }
 
     #[test]
     fn test_trigamma_known_values() {

@@ -129,36 +129,51 @@ fn tweedie_log_density(y: f64, mu: f64, p: f64, phi: f64) -> f64 {
     let j_max = (y.powf(2.0 - p) / (phi * (2.0 - p))).max(1.0);
     let j_center = j_max.round().max(1.0) as usize;
 
-    let term = |j: usize| -> f64 {
-        let jf = j as f64;
-        jf * log_z - ln_gamma(jf + 1.0) - ln_gamma(-alpha * jf)
+    // Walk outward from the peak until terms are negligible, accumulating
+    // log(sum_j exp(w_j)) in one streaming pass (running maximum + rescaled sum)
+    // and stepping ln_gamma(j + 1) by its recurrence. The earlier version kept
+    // every index in a per-row `Vec`, evaluated each term twice and called
+    // `ln_gamma` twice per term, which made the Tweedie log-likelihood several
+    // times the cost of the whole IRLS fit (issue #72).
+    let neg_alpha = -alpha;
+    let mut max_w = f64::NEG_INFINITY;
+    let mut sum = 0.0_f64;
+    let mut add = |w: f64, max_w: &mut f64| {
+        if w > *max_w {
+            sum = sum * (*max_w - w).exp() + 1.0;
+            *max_w = w;
+        } else {
+            sum += (w - *max_w).exp();
+        }
     };
 
-    // Walk outward from the peak until terms are negligible.
-    let peak = term(j_center);
-    let mut max_w = peak;
-    let mut indices: Vec<usize> = vec![j_center];
+    let jc = j_center as f64;
+    let lg_center = ln_gamma(jc + 1.0); // ln Γ(j_center + 1)
+    add(
+        jc * log_z - lg_center - ln_gamma(neg_alpha * jc),
+        &mut max_w,
+    );
 
+    let mut lg = lg_center;
     let mut j = j_center + 1;
     loop {
-        let w = term(j);
-        if w > max_w {
-            max_w = w;
-        }
-        indices.push(j);
+        let jf = j as f64;
+        lg += jf.ln(); // ln Γ(j + 1) = ln Γ(j) + ln j
+        let w = jf * log_z - lg - ln_gamma(neg_alpha * jf);
+        add(w, &mut max_w);
         if w < max_w - 40.0 || j > j_center + 100_000 {
             break;
         }
         j += 1;
     }
     if j_center > 1 {
+        let mut lg = lg_center;
         let mut j = j_center - 1;
         loop {
-            let w = term(j);
-            if w > max_w {
-                max_w = w;
-            }
-            indices.push(j);
+            let jf = j as f64;
+            lg -= (jf + 1.0).ln(); // ln Γ(j + 1) = ln Γ(j + 2) - ln(j + 1)
+            let w = jf * log_z - lg - ln_gamma(neg_alpha * jf);
+            add(w, &mut max_w);
             if w < max_w - 40.0 || j == 1 {
                 break;
             }
@@ -166,7 +181,6 @@ fn tweedie_log_density(y: f64, mu: f64, p: f64, phi: f64) -> f64 {
         }
     }
 
-    let sum: f64 = indices.iter().map(|&j| (term(j) - max_w).exp()).sum();
     let log_w = max_w + sum.ln();
 
     log_w - y.ln() + kernel
