@@ -21,13 +21,14 @@ use super::design::ConstantColumnPolicy;
 use super::engine::{self as glm_engine, DispersionRule, EngineFit, EngineOptions, FitDepth};
 use super::error::{GlmEngineError, GlmEngineResult};
 use super::loglik::{self, LogLikKind};
+use super::regressor::PenalizedGlmFamily;
 use super::types::{
     BinomialOptions, GammaOptions, GlmFitResult, GlmInferenceResult, LogisticOptions,
     NegBinomialOptions, PoissonOptions, TweedieOptions,
 };
 use crate::core::{
-    BinomialFamily, BinomialLink, GlmFamily, NegativeBinomialFamily, PoissonFamily, PoissonLink,
-    TweedieFamily,
+    BinomialFamily, BinomialLink, GlmFamily, HasModelInfo, ModelInfo, NegativeBinomialFamily,
+    PoissonFamily, PoissonLink, TweedieFamily,
 };
 use statrs::function::gamma::ln_gamma;
 
@@ -50,10 +51,13 @@ pub struct GlmResult {
     /// Indices into the input rows that were used (rows with a non-finite value
     /// in `y`, a feature or the offset are dropped).
     pub valid_rows: Vec<usize>,
+    /// What was fitted: model type `"glm"`, family and link.
+    pub model_info: ModelInfo,
 }
 
-impl From<EngineFit> for GlmResult {
-    fn from(fit: EngineFit) -> Self {
+impl GlmResult {
+    /// The result of an engine fit of `family`.
+    pub fn from_engine_fit(fit: EngineFit, family: &PenalizedGlmFamily) -> Self {
         GlmResult {
             core: fit.to_glm_fit_result(),
             inference: fit.to_glm_inference(),
@@ -61,7 +65,14 @@ impl From<EngineFit> for GlmResult {
             bic: fit.bic,
             fitted_values: fit.irls.mu.clone(),
             valid_rows: fit.design.valid_rows.clone(),
+            model_info: family.model_info(),
         }
+    }
+}
+
+impl HasModelInfo for GlmResult {
+    fn model_info(&self) -> ModelInfo {
+        self.model_info
     }
 }
 
@@ -135,7 +146,10 @@ pub fn fit_poisson(
         },
         |_| LogLikKind::Poisson,
     )?;
-    Ok(fit.into())
+    Ok(GlmResult::from_engine_fit(
+        fit,
+        &PenalizedGlmFamily::Poisson(options.link),
+    ))
 }
 
 /// Fit a Binomial (Logistic) regression model (for binary outcomes)
@@ -173,7 +187,10 @@ pub fn fit_binomial(
     let fit = glm_engine::fit(&family, y, x, &engine_opts, DispersionRule::Fixed, |_| {
         LogLikKind::Binomial
     })?;
-    Ok(fit.into())
+    Ok(GlmResult::from_engine_fit(
+        fit,
+        &PenalizedGlmFamily::Binomial(options.link),
+    ))
 }
 
 fn binomial_family(link: BinomialLink) -> GlmEngineResult<BinomialFamily> {
@@ -243,7 +260,10 @@ pub fn fit_negbinomial(
 
     // `alpha` given: a single fit at that theta.
     if let Some(theta) = options.alpha {
-        return Ok(run(theta, &engine_opts, None, FitDepth::Full)?.into());
+        return Ok(GlmResult::from_engine_fit(
+            run(theta, &engine_opts, None, FitDepth::Full)?,
+            &PenalizedGlmFamily::NegativeBinomial { theta: Some(theta) },
+        ));
     }
 
     // Otherwise follow MASS::glm.nb: start from a (near-)Poisson fit, then
@@ -284,7 +304,10 @@ pub fn fit_negbinomial(
         }
     }
 
-    Ok(run(theta, &engine_opts, Some(&fit.irls.beta), FitDepth::Full)?.into())
+    Ok(GlmResult::from_engine_fit(
+        run(theta, &engine_opts, Some(&fit.irls.beta), FitDepth::Full)?,
+        &PenalizedGlmFamily::NegativeBinomial { theta: None },
+    ))
 }
 
 /// Bounds for the estimated Negative Binomial theta. The upper bound stands in
@@ -389,7 +412,12 @@ pub fn fit_tweedie(
             dispersion: phi,
         },
     )?;
-    Ok(fit.into())
+    Ok(GlmResult::from_engine_fit(
+        fit,
+        &PenalizedGlmFamily::Tweedie {
+            power: options.power,
+        },
+    ))
 }
 
 /// Fit a Gamma GLM. Equivalent to Tweedie with `var_power = 2.0` baked in;
@@ -423,7 +451,10 @@ pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> GlmEngine
         DispersionRule::Pearson,
         |phi| LogLikKind::Gamma { dispersion: phi },
     )?;
-    Ok(with_gamma_ml_log_likelihood(fit).into())
+    Ok(GlmResult::from_engine_fit(
+        with_gamma_ml_log_likelihood(fit),
+        &PenalizedGlmFamily::Gamma,
+    ))
 }
 
 /// Re-evaluate a Gamma fit's log-likelihood / AIC / BIC as R's `logLik.glm`
@@ -512,7 +543,12 @@ pub fn fit_logistic(
     let accuracy = correct as f64 / fit.design.n_observations().max(1) as f64;
 
     Ok(LogisticResult {
-        fit: fit.into(),
+        fit: GlmResult::from_engine_fit(
+            fit,
+            &PenalizedGlmFamily::Logistic {
+                threshold: options.threshold,
+            },
+        ),
         accuracy,
         threshold: options.threshold,
     })

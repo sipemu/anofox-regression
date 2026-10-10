@@ -378,12 +378,13 @@ pub struct FittedPenalizedGlm {
     separation: SeparationCheck,
 }
 
-impl HasModelInfo for FittedPenalizedGlm {
-    /// Family and link of [`PenalizedGlmFamily`]; `Logistic` reports the
-    /// `"binomial"` family with the logit link, and a Tweedie power of 1 or 2
-    /// reports `"poisson"` / `"gamma"` (see [`TweedieFamily::family_name`]).
-    fn model_info(&self) -> ModelInfo {
-        let (family, link) = match self.family {
+impl PenalizedGlmFamily {
+    /// What a fit of this family is: model type `"glm"`, the R family name and
+    /// the link. `Logistic` reports the `"binomial"` family with the logit
+    /// link, and a Tweedie power of 1 or 2 reports `"poisson"` / `"gamma"` (see
+    /// [`TweedieFamily::family_name`]).
+    pub fn model_info(&self) -> ModelInfo {
+        let (family, link) = match *self {
             PenalizedGlmFamily::Poisson(link) => ("poisson", link.as_str()),
             PenalizedGlmFamily::Binomial(link) => ("binomial", link.as_str()),
             PenalizedGlmFamily::Logistic { .. } => ("binomial", "logit"),
@@ -398,7 +399,14 @@ impl HasModelInfo for FittedPenalizedGlm {
                 "log",
             ),
         };
-        ModelInfo::new("penalized_glm", Some(family), link)
+        ModelInfo::new("glm", Some(family), link)
+    }
+}
+
+impl HasModelInfo for FittedPenalizedGlm {
+    /// See [`PenalizedGlmFamily::model_info`].
+    fn model_info(&self) -> ModelInfo {
+        self.family.model_info()
     }
 }
 

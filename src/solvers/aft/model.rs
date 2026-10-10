@@ -21,6 +21,7 @@
 //! exactly one place for both model families. Gaussian priors on the coefficients
 //! also work here, reusing [`crate::solvers::penalized_glm::penalty`].
 
+use crate::core::{HasModelInfo, ModelInfo};
 use crate::solvers::aft::distribution::AftDistribution;
 use crate::solvers::penalized_glm::error::{GlmEngineError, GlmEngineResult};
 use crate::solvers::penalized_glm::laplace::{self, LaplaceInference};
@@ -84,6 +85,20 @@ pub struct AftFitResult {
 pub struct AftResult {
     pub core: AftFitResult,
     pub inference: Option<AftInference>,
+    /// What was fitted: model type `"aft"`, the survival-time distribution as
+    /// the family and the `"log"` link.
+    pub model_info: ModelInfo,
+}
+
+impl HasModelInfo for AftResult {
+    fn model_info(&self) -> ModelInfo {
+        self.model_info
+    }
+}
+
+/// Model description of an AFT fit with survival-time distribution `dist`.
+pub(crate) fn aft_model_info(dist: AftDistribution) -> ModelInfo {
+    ModelInfo::new("aft", Some(dist.as_str()), "log")
 }
 
 /// Curvature-based inference for an AFT fit.
@@ -322,7 +337,11 @@ pub fn fit_aft(
         None
     };
 
-    Ok(AftResult { core, inference })
+    Ok(AftResult {
+        core,
+        inference,
+        model_info: aft_model_info(options.dist),
+    })
 }
 
 fn build_penalty(
