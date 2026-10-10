@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.24] - 2026-10-10
+
+### Fixed
+
+- `FittedGlmm::n_parameters` (and so `aic` / `bic`) did not count a fixed negative-binomial θ (`nb_theta`). lme4 counts it for both `glmer.nb` and `glmer(family = negative.binomial(θ))` (`df = 4` for one fixed effect, one random intercept and θ); it is now counted in both cases. Regression test against lme4 in `tests/model_summary_glm_aft_glmm.rs`.
+
 ## [0.5.23] - 2026-10-10
 
 ### Added

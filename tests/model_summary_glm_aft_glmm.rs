@@ -6,6 +6,7 @@
 //!   m1 <- glmer(pc ~ q1 + (1 | g), family = poisson, nAGQ = 0)
 //!   m2 <- lmer(yg ~ q1 + (1 | g))            # REML, yg <- pc + 2 * q1
 //!   m3 <- lmer(yg ~ q1 + (1 + q1 | g))
+//!   m4 <- glmer(pc ~ q1 + (1 | g), family = MASS::negative.binomial(2), nAGQ = 0)
 //!   attr(logLik(m), "df"); logLik(m); AIC(m); BIC(m)
 use anofox_regression::core::{HasModelInfo, ModelInfo};
 use anofox_regression::solvers::aft::{fit_aft, AftDistribution, AftOptions};
@@ -154,4 +155,22 @@ fn gaussian_lmm_information_criteria_match_lme4() {
     assert_eq!(s.n_parameters(), 6);
     close(s.aic(), 186.9209557285, 1e-2, "aic (slope)");
     close(s.bic(), 198.1481617940, 1e-2, "bic (slope)");
+}
+
+#[test]
+fn fixed_theta_negative_binomial_glmm_counts_theta_like_lme4() {
+    // lme4 reports df = 4 for a fixed negative.binomial(theta) family too.
+    let x = Mat::from_fn(48, 1, |i, _| Q1[i]);
+    let y = Col::from_fn(48, |i| PC[i]);
+    let f = GlmmRegressor::negative_binomial()
+        .with_intercept(true)
+        .nb_theta(2.0)
+        .build()
+        .fit(&x, &y, &G)
+        .unwrap();
+    assert_eq!(f.n_parameters(), 4);
+    close(f.fixed_effects()[1], 0.60816384566946, 1e-3, "slope");
+    close(f.log_likelihood(), -96.5836393330, 2e-2, "logLik");
+    close(f.aic(), 201.1672786659, 4e-2, "aic");
+    close(f.bic(), 208.6520827096, 4e-2, "bic");
 }

@@ -680,7 +680,6 @@ impl GlmmRegressor {
             sol.iterations,
         );
         fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
-        fitted.nb_theta_fixed = self.nb_theta.is_some();
         fitted.kind = self.kind;
         Ok(fitted)
     }
@@ -797,7 +796,6 @@ impl GlmmRegressor {
             sol.iterations,
         );
         fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
-        fitted.nb_theta_fixed = self.nb_theta.is_some();
         fitted.kind = self.kind;
         Ok(fitted)
     }
@@ -846,8 +844,6 @@ pub struct FittedGlmm {
     nb_theta: Option<f64>,
     /// Response family of the fit (Gaussian for the LMM path).
     kind: ResponseKind,
-    /// Whether the negative-binomial θ was fixed by the caller rather than estimated.
-    nb_theta_fixed: bool,
     /// Number of observations the model was fitted on.
     n_observations: usize,
 }
@@ -926,7 +922,6 @@ impl FittedGlmm {
             factor_details: Vec::new(),
             nb_theta: None,
             kind: ResponseKind::Gaussian,
-            nb_theta_fixed: false,
             n_observations: 0,
         }
     }
@@ -974,7 +969,6 @@ impl FittedGlmm {
             factor_details,
             nb_theta: None,
             kind: ResponseKind::Gaussian,
-            nb_theta_fixed: false,
             n_observations: 0,
         }
     }
@@ -1153,8 +1147,9 @@ impl FittedGlmm {
     /// Number of estimated parameters, as the `df` of lme4's `logLik`: the fixed
     /// effects, the random-effects covariance parameters (`q(q+1)/2` per
     /// grouping factor with `q` random terms) and, for families that have one,
-    /// the dispersion (Gaussian σ, Gamma / Tweedie φ, an estimated
-    /// negative-binomial θ).
+    /// the dispersion (Gaussian σ, Gamma / Tweedie φ, negative-binomial θ). lme4
+    /// counts θ whether it is estimated (`glmer.nb`) or fixed
+    /// (`glmer(family = negative.binomial(θ))`).
     pub fn n_parameters(&self) -> usize {
         let cov_params = |q: usize| q * (q + 1) / 2;
         let n_cov = if self.factor_details.is_empty() {
@@ -1167,8 +1162,10 @@ impl FittedGlmm {
         };
         let dispersion = match self.kind {
             ResponseKind::Poisson | ResponseKind::Binomial => 0,
-            ResponseKind::NegativeBinomial => usize::from(!self.nb_theta_fixed),
-            ResponseKind::Gaussian | ResponseKind::Gamma | ResponseKind::Tweedie(_) => 1,
+            ResponseKind::Gaussian
+            | ResponseKind::NegativeBinomial
+            | ResponseKind::Gamma
+            | ResponseKind::Tweedie(_) => 1,
         };
         self.fixed_effects.len() + n_cov + dispersion
     }
