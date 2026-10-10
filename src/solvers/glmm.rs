@@ -187,6 +187,7 @@ impl GlmmRegressor {
             }
         };
         self.fit_single(x, y, group, slopes)
+            .map(|f| f.with_n_observations(y.nrows()))
     }
 
     /// Single-grouping-factor fit with the given random-slope columns.
@@ -308,7 +309,9 @@ impl GlmmRegressor {
             None => vec![Vec::new(); n_factors],
         };
         if n_factors == 1 {
-            return self.fit_single(x, y, groups[0], &slopes[0]);
+            return self
+                .fit_single(x, y, groups[0], &slopes[0])
+                .map(|f| f.with_n_observations(y.nrows()));
         }
 
         let n = x.nrows();
@@ -370,13 +373,16 @@ impl GlmmRegressor {
 
         if let ResponseKind::Gaussian = self.kind {
             let y_adj: Vec<f64> = (0..n).map(|i| y[i] - offset[i]).collect();
-            return self.fit_lmm_multi(&design, &y_adj, &spec, p);
+            return self
+                .fit_lmm_multi(&design, &y_adj, &spec, p)
+                .map(|f| f.with_n_observations(n));
         }
         let y_vec: Vec<f64> = y.iter().copied().collect();
         self.with_family(|family, nb_theta| {
             self.fit_glmm_multi(family, nb_theta, &design, &y_vec, &offset, &spec, p)
         })
         .map(|f| self.with_saturated_term(f, y))
+        .map(|f| f.with_n_observations(n))
     }
 
     /// The offset as a dense vector (zeros when none was set).
@@ -674,6 +680,7 @@ impl GlmmRegressor {
             sol.iterations,
         );
         fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
+        fitted.nb_theta_fixed = self.nb_theta.is_some();
         fitted.kind = self.kind;
         Ok(fitted)
     }
@@ -790,6 +797,7 @@ impl GlmmRegressor {
             sol.iterations,
         );
         fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
+        fitted.nb_theta_fixed = self.nb_theta.is_some();
         fitted.kind = self.kind;
         Ok(fitted)
     }
@@ -838,6 +846,10 @@ pub struct FittedGlmm {
     nb_theta: Option<f64>,
     /// Response family of the fit (Gaussian for the LMM path).
     kind: ResponseKind,
+    /// Whether the negative-binomial θ was fixed by the caller rather than estimated.
+    nb_theta_fixed: bool,
+    /// Number of observations the model was fitted on.
+    n_observations: usize,
 }
 
 impl HasModelInfo for FittedGlmm {
@@ -914,6 +926,8 @@ impl FittedGlmm {
             factor_details: Vec::new(),
             nb_theta: None,
             kind: ResponseKind::Gaussian,
+            nb_theta_fixed: false,
+            n_observations: 0,
         }
     }
 
@@ -960,6 +974,8 @@ impl FittedGlmm {
             factor_details,
             nb_theta: None,
             kind: ResponseKind::Gaussian,
+            nb_theta_fixed: false,
+            n_observations: 0,
         }
     }
 
@@ -1132,6 +1148,49 @@ impl FittedGlmm {
     /// `−deviance/2 + Σ log f(yᵢ | μᵢ = yᵢ)`, as lme4's `logLik(glmer)`.
     pub fn log_likelihood(&self) -> f64 {
         self.log_likelihood
+    }
+
+    /// Number of estimated parameters, as the `df` of lme4's `logLik`: the fixed
+    /// effects, the random-effects covariance parameters (`q(q+1)/2` per
+    /// grouping factor with `q` random terms) and, for families that have one,
+    /// the dispersion (Gaussian σ, Gamma / Tweedie φ, an estimated
+    /// negative-binomial θ).
+    pub fn n_parameters(&self) -> usize {
+        let cov_params = |q: usize| q * (q + 1) / 2;
+        let n_cov = if self.factor_details.is_empty() {
+            cov_params(self.cov.len().max(1))
+        } else {
+            self.factor_details
+                .iter()
+                .map(|d| cov_params(d.cov.len().max(1)))
+                .sum()
+        };
+        let dispersion = match self.kind {
+            ResponseKind::Poisson | ResponseKind::Binomial => 0,
+            ResponseKind::NegativeBinomial => usize::from(!self.nb_theta_fixed),
+            ResponseKind::Gaussian | ResponseKind::Gamma | ResponseKind::Tweedie(_) => 1,
+        };
+        self.fixed_effects.len() + n_cov + dispersion
+    }
+
+    /// Number of observations the model was fitted on.
+    pub fn n_observations(&self) -> usize {
+        self.n_observations
+    }
+
+    /// Akaike information criterion `2k − 2 log L`, as R's `AIC` of an lme4 fit.
+    pub fn aic(&self) -> f64 {
+        2.0 * self.n_parameters() as f64 - 2.0 * self.log_likelihood
+    }
+
+    /// Bayesian information criterion `k log n − 2 log L`, as R's `BIC`.
+    pub fn bic(&self) -> f64 {
+        self.n_parameters() as f64 * (self.n_observations as f64).ln() - 2.0 * self.log_likelihood
+    }
+
+    fn with_n_observations(mut self, n: usize) -> Self {
+        self.n_observations = n;
+        self
     }
 
     /// Number of groups (levels of the grouping factor).

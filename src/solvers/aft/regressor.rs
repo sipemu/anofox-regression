@@ -126,7 +126,7 @@ impl HasModelInfo for FittedAft {
     /// `"lognormal"`, `"loglogistic"`, `"exponential"`); AFT models are linear
     /// in `log T`, so the link is `"log"`.
     fn model_info(&self) -> ModelInfo {
-        ModelInfo::new("aft", Some(self.distribution.as_str()), "log")
+        super::model::aft_model_info(self.distribution)
     }
 }
 

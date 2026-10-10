@@ -249,7 +249,7 @@ fn penalized_glm_families() {
             .build()
             .fit(&x, &y)
             .unwrap();
-        assert_eq!(f.model_info(), info("penalized_glm", Some(name), link));
+        assert_eq!(f.model_info(), info("glm", Some(name), link));
     }
 }
 

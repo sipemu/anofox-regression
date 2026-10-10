@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.23] - 2026-10-10
+
+### Added
+
+- **Model description on every family-function result.** `penalized_glm::GlmResult` (returned by `fit_poisson`, `fit_binomial`, `fit_logistic`, `fit_negbinomial`, `fit_gamma`, `fit_tweedie`) and `aft::AftResult` (`fit_aft`) gain a `model_info: ModelInfo` field and implement `HasModelInfo`, so callers that use the family functions instead of the regressors can label a fit. New: `PenalizedGlmFamily::model_info`.
+- **`FittedGlmm::n_parameters`, `aic`, `bic` and `n_observations`.** The parameter count is the `df` of lme4's `logLik`: fixed effects, `q(q+1)/2` covariance parameters per grouping factor, and the dispersion for Gaussian, Gamma, Tweedie and an estimated negative-binomial theta. AIC / BIC match `AIC()` / `BIC()` of `glmer(nAGQ = 0)` and `lmer` (REML), including random slopes (`tests/model_summary_glm_aft_glmm.rs`).
+
+### Changed
+
+- The penalized GLM engine reports `model_type` `"glm"` instead of `"penalized_glm"` (family and link unchanged), matching the anofox integration contract.
+- `impl From<EngineFit> for GlmResult` is replaced by `GlmResult::from_engine_fit(fit, &family)`, because the result now records the family.
+
 ## [0.5.22] - 2026-10-09
 
 ### Fixed
