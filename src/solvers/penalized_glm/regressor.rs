@@ -12,9 +12,11 @@ use super::types::{
     NegBinomialOptions, PoissonOptions, PriorSpec, TweedieOptions, VcovType,
 };
 use crate::core::{
-    BinomialFamily, BinomialLink, GlmFamily, PoissonFamily, PoissonLink, TweedieFamily,
+    BinomialFamily, BinomialLink, GlmFamily, NegativeBinomialFamily, PoissonFamily, PoissonLink,
+    TweedieFamily,
 };
 use crate::diagnostics::{check_binary_separation, SeparationCheck};
+use crate::diagnostics::{Augment, ResidualType};
 
 /// Response family (and link) fitted by [`PenalizedGlmRegressor`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -80,6 +82,23 @@ impl PenalizedGlmFamily {
             Self::NegativeBinomial { .. } => eta.exp(),
             Self::Gamma => TweedieFamily::new(2.0, 0.0).link_inverse(eta),
             Self::Tweedie { power } => TweedieFamily::new(power, 0.0).link_inverse(eta),
+        }
+    }
+
+    /// The family object the engine fitted with. `theta` is the Negative Binomial
+    /// shape actually used (the estimate when it was not fixed); it is ignored by
+    /// the other families.
+    pub(crate) fn glm_family(&self, theta: Option<f64>) -> Box<dyn GlmFamily> {
+        match *self {
+            Self::Poisson(link) => Box::new(PoissonFamily::new(link)),
+            Self::Binomial(link) => Box::new(BinomialFamily::new(link)),
+            Self::Logistic { .. } => Box::new(BinomialFamily::logistic()),
+            Self::NegativeBinomial { theta: fixed } => {
+                let t = theta.or(fixed).unwrap_or(1.0);
+                Box::new(NegativeBinomialFamily::new(t.clamp(1e-8, 1e8)))
+            }
+            Self::Gamma => Box::new(TweedieFamily::new(2.0, 0.0)),
+            Self::Tweedie { power } => Box::new(TweedieFamily::new(power, 0.0)),
         }
     }
 
@@ -501,6 +520,37 @@ impl FittedPenalizedGlm {
     /// Fitted means over the rows used.
     pub fn fitted_values(&self) -> &[f64] {
         &self.result.fitted_values
+    }
+
+    /// Per-observation diagnostics (fitted mean, deviance residual, `rstandard`,
+    /// `rstudent`, `hatvalues`, `cooks.distance`, `dffits`), as
+    /// [`crate::diagnostics::augment`] for the dedicated GLM regressors.
+    ///
+    /// `x` and `y` must be the data passed to [`PenalizedGlmRegressor::fit`]
+    /// (without the offset, which only enters through the stored fitted means).
+    /// Rows the fit dropped (non-finite values) are `NaN` in every field. A
+    /// penalized fit (`lambda > 0` or a non-flat prior) is rejected; see
+    /// [`crate::diagnostics::augment_glm`].
+    pub fn augment(&self, x: &Mat<f64>, y: &Col<f64>) -> GlmEngineResult<Augment> {
+        self.augment_with(x, y, ResidualType::Deviance)
+    }
+
+    /// [`Self::augment`] with an explicit residual type.
+    pub fn augment_with(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        resid_type: ResidualType,
+    ) -> GlmEngineResult<Augment> {
+        let yv: Vec<f64> = (0..y.nrows()).map(|i| y[i]).collect();
+        crate::diagnostics::augment::augment_glm_impl(
+            &self.result,
+            &yv,
+            x.nrows(),
+            x.ncols(),
+            &|i, j| x[(i, j)],
+            resid_type,
+        )
     }
 
     /// Linear predictor `intercept + x * beta` (dropped columns contribute 0).

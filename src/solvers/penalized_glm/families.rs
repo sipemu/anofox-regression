@@ -53,11 +53,41 @@ pub struct GlmResult {
     pub valid_rows: Vec<usize>,
     /// What was fitted: model type `"glm"`, family and link.
     pub model_info: ModelInfo,
+    /// The family (and link) that was fitted. For a Negative Binomial fit with
+    /// `theta` estimated this is `NegativeBinomial { theta: None }`; the estimate
+    /// is [`GlmFitResult::dispersion`].
+    pub family: PenalizedGlmFamily,
+    /// How the dispersion was obtained ([`DispersionRule::Fixed`] for binomial and
+    /// Poisson, [`DispersionRule::Pearson`] for Gamma, Tweedie and Poisson with
+    /// `estimate_dispersion`, [`DispersionRule::Given`] with `theta` for the
+    /// Negative Binomial).
+    pub dispersion_rule: DispersionRule,
+    /// The 1-based offset column of `x` the fit was given, if any (it is not a
+    /// feature: [`GlmFitResult::coefficients`] has no entry for it).
+    pub offset_column: Option<usize>,
+    /// Whether a penalty entered the fit (`lambda > 0` or a non-flat prior), i.e.
+    /// the coefficients are a posterior mode rather than the maximum-likelihood
+    /// estimate.
+    pub penalized: bool,
 }
 
 impl GlmResult {
     /// The result of an engine fit of `family`.
+    ///
+    /// The engine fit does not record the offset column or the penalty, so
+    /// [`Self::offset_column`] is `None` and [`Self::penalized`] is `false`, and
+    /// [`Self::dispersion_rule`] is the family's default (fixed for Poisson); the
+    /// `fit_*` functions set all three from their options.
     pub fn from_engine_fit(fit: EngineFit, family: &PenalizedGlmFamily) -> Self {
+        let dispersion_rule = match family {
+            PenalizedGlmFamily::Poisson(_)
+            | PenalizedGlmFamily::Binomial(_)
+            | PenalizedGlmFamily::Logistic { .. } => DispersionRule::Fixed,
+            PenalizedGlmFamily::NegativeBinomial { .. } => DispersionRule::Given(fit.dispersion),
+            PenalizedGlmFamily::Gamma | PenalizedGlmFamily::Tweedie { .. } => {
+                DispersionRule::Pearson
+            }
+        };
         GlmResult {
             core: fit.to_glm_fit_result(),
             inference: fit.to_glm_inference(),
@@ -66,7 +96,25 @@ impl GlmResult {
             fitted_values: fit.irls.mu.clone(),
             valid_rows: fit.design.valid_rows.clone(),
             model_info: family.model_info(),
+            family: *family,
+            dispersion_rule,
+            offset_column: None,
+            penalized: false,
         }
+    }
+
+    /// Record the fit options [`Self::from_engine_fit`] cannot see.
+    fn with_options(
+        mut self,
+        opts: &EngineOptions,
+        dispersion_rule: Option<DispersionRule>,
+    ) -> Self {
+        self.offset_column = opts.offset_column;
+        self.penalized = opts.lambda > 0.0 || !opts.priors.iter().all(|p| p.is_flat());
+        if let Some(rule) = dispersion_rule {
+            self.dispersion_rule = rule;
+        }
+        self
     }
 }
 
@@ -146,10 +194,15 @@ pub fn fit_poisson(
         },
         |_| LogLikKind::Poisson,
     )?;
-    Ok(GlmResult::from_engine_fit(
-        fit,
-        &PenalizedGlmFamily::Poisson(options.link),
-    ))
+    let rule = if options.estimate_dispersion {
+        DispersionRule::Pearson
+    } else {
+        DispersionRule::Fixed
+    };
+    Ok(
+        GlmResult::from_engine_fit(fit, &PenalizedGlmFamily::Poisson(options.link))
+            .with_options(&engine_opts, Some(rule)),
+    )
 }
 
 /// Fit a Binomial (Logistic) regression model (for binary outcomes)
@@ -187,10 +240,10 @@ pub fn fit_binomial(
     let fit = glm_engine::fit(&family, y, x, &engine_opts, DispersionRule::Fixed, |_| {
         LogLikKind::Binomial
     })?;
-    Ok(GlmResult::from_engine_fit(
-        fit,
-        &PenalizedGlmFamily::Binomial(options.link),
-    ))
+    Ok(
+        GlmResult::from_engine_fit(fit, &PenalizedGlmFamily::Binomial(options.link))
+            .with_options(&engine_opts, None),
+    )
 }
 
 fn binomial_family(link: BinomialLink) -> GlmEngineResult<BinomialFamily> {
@@ -263,7 +316,8 @@ pub fn fit_negbinomial(
         return Ok(GlmResult::from_engine_fit(
             run(theta, &engine_opts, None, FitDepth::Full)?,
             &PenalizedGlmFamily::NegativeBinomial { theta: Some(theta) },
-        ));
+        )
+        .with_options(&engine_opts, None));
     }
 
     // Otherwise follow MASS::glm.nb: start from a (near-)Poisson fit, then
@@ -307,7 +361,8 @@ pub fn fit_negbinomial(
     Ok(GlmResult::from_engine_fit(
         run(theta, &engine_opts, Some(&fit.irls.beta), FitDepth::Full)?,
         &PenalizedGlmFamily::NegativeBinomial { theta: None },
-    ))
+    )
+    .with_options(&engine_opts, None))
 }
 
 /// Bounds for the estimated Negative Binomial theta. The upper bound stands in
@@ -417,7 +472,8 @@ pub fn fit_tweedie(
         &PenalizedGlmFamily::Tweedie {
             power: options.power,
         },
-    ))
+    )
+    .with_options(&engine_opts, None))
 }
 
 /// Fit a Gamma GLM. Equivalent to Tweedie with `var_power = 2.0` baked in;
@@ -454,7 +510,8 @@ pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> GlmEngine
     Ok(GlmResult::from_engine_fit(
         with_gamma_ml_log_likelihood(fit),
         &PenalizedGlmFamily::Gamma,
-    ))
+    )
+    .with_options(&engine_opts, None))
 }
 
 /// Re-evaluate a Gamma fit's log-likelihood / AIC / BIC as R's `logLik.glm`
@@ -548,7 +605,8 @@ pub fn fit_logistic(
             &PenalizedGlmFamily::Logistic {
                 threshold: options.threshold,
             },
-        ),
+        )
+        .with_options(&engine_opts, None),
         accuracy,
         threshold: options.threshold,
     })
