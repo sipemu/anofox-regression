@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.25] - 2026-10-11
+
+### Added
+
+- **Per-observation diagnostics for the penalized GLM engine (#78).** New `diagnostics::augment_glm(&GlmResult, y, x)` / `augment_glm_with(.., ResidualType)` for the results of `penalized_glm::fit_poisson`, `fit_binomial`, `fit_logistic`, `fit_negbinomial`, `fit_gamma` and `fit_tweedie` (same `y` / column-major `x` as the fit, offset column included), and `FittedPenalizedGlm::augment` / `augment_with` for `PenalizedGlmRegressor`. They return the same `Augment` as `diagnostics::augment` on the dedicated regressors: fitted mean, deviance (default) / Pearson / response residual, `rstandard`, `rstudent`, `hatvalues` (from the final IRLS weights), `cooks.distance` and `dffits`. Dispersion conventions follow R and the dedicated regressors: binomial / logistic / Poisson use 1 throughout, the negative binomial (fixed or estimated theta) uses 1 for `rstandard` / Cook's distance and the leave-one-out scale for `rstudent` / DFFITS (as `MASS::glm.nb`), Gamma / Tweedie / Poisson with `estimate_dispersion` (R's `quasipoisson`) use the Pearson estimate. Offsets enter only through the fitted means; constant columns (`NaN` coefficients) are excluded and the rank is found by a pivoted QR, so collinear columns count once; rows dropped for non-finite values are `NaN` in every field. A penalized fit (`lambda > 0` or a non-flat prior) is rejected with `GlmEngineError::InvalidInput`, since the R diagnostics assume the maximum-likelihood fit. The engine has no prior weights, so none are taken. Validated against R 4.6.1 `glm` / `MASS::glm.nb` / `statmod::tweedie` (Poisson, Poisson with offset, quasipoisson, binomial 0/1 and proportions, logistic, negative binomial with estimated and fixed theta, Gamma(log), Tweedie p = 1.5) and against `augment` on the dedicated regressors in `tests/r_validation_augment_penalized_glm.rs` (generator `tests/r_scripts/generate_augment_penalized_glm_validation.R`).
+- `GlmResult` records what the diagnostics need: `family: PenalizedGlmFamily`, `dispersion_rule: DispersionRule`, `offset_column: Option<usize>` and `penalized: bool`.
+
+### Changed
+
+- `GlmResult` gains the four public fields above, so code that builds a `GlmResult` with a struct literal must set them; `GlmResult::from_engine_fit` fills them with the family's defaults (no offset, not penalized), and the `fit_*` functions set them from their options.
+
 ## [0.5.24] - 2026-10-10
 
 ### Fixed

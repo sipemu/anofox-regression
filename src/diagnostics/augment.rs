@@ -7,6 +7,13 @@
 //! and the GLMs ([`FittedPoisson`], [`FittedBinomial`], [`FittedLogistic`],
 //! [`FittedNegativeBinomial`], [`FittedTweedie`], [`FittedGamma`]).
 //!
+//! Fits of the penalized GLM engine have their own entry points with the same
+//! output: [`augment_glm`] / [`augment_glm_with`] for the [`GlmResult`] of the
+//! per-family functions (`penalized_glm::fit_poisson`, ...), and
+//! [`FittedPenalizedGlm::augment`](crate::solvers::penalized_glm::FittedPenalizedGlm::augment)
+//! for the builder. They follow the same conventions (see [`augment_glm`] for
+//! offsets, dropped rows / columns and penalized fits).
+//!
 //! # Memory
 //!
 //! The leverages are the squared row norms of the thin `Q` factor of the
@@ -35,6 +42,7 @@
 //! the studentised residuals and DFFITS. Rows with `hᵢ = 1` give `NaN`.
 
 use crate::core::{GlmFamily, RegressionResult};
+use crate::solvers::penalized_glm::{DispersionRule, GlmEngineError, GlmEngineResult, GlmResult};
 use crate::solvers::{
     FittedBinomial, FittedGamma, FittedLogistic, FittedNegativeBinomial, FittedOls, FittedPoisson,
     FittedRegressor, FittedTweedie, FittedWls, RegressionError,
@@ -198,9 +206,58 @@ pub fn augment_with<M: Augmentable + ?Sized>(
             return Err(RegressionError::InvalidWeights);
         }
     }
+    // Active design columns (aliased ones dropped), intercept first.
+    let with_intercept = result.intercept.is_some();
+    let active: Vec<usize> = (0..x.ncols())
+        .filter(|&j| !result.aliased.get(j).copied().unwrap_or(false))
+        .collect();
+    let off = usize::from(with_intercept);
+    let k = active.len() + off;
+    let design = Mat::from_fn(n, k, |i, j| {
+        if with_intercept && j == 0 {
+            1.0
+        } else {
+            x[(i, active[j - off])]
+        }
+    });
+    Ok(augment_core(&Core {
+        design: &design,
+        y,
+        mu: &result.fitted_values,
+        family: spec.family,
+        fixed_dispersion: spec.fixed_dispersion,
+        unit_dispersion: spec.unit_dispersion,
+        weights,
+        resid_type,
+        rank_revealing: false,
+    }))
+}
+
+/// Everything the diagnostics are computed from, after the model-specific
+/// parts (aliased columns, offset, dropped rows) have been resolved.
+struct Core<'a> {
+    /// Unweighted design over the used rows, intercept column included.
+    design: &'a Mat<f64>,
+    y: &'a Col<f64>,
+    mu: &'a Col<f64>,
+    family: Option<&'a dyn GlmFamily>,
+    fixed_dispersion: bool,
+    unit_dispersion: bool,
+    weights: Option<&'a Col<f64>>,
+    resid_type: ResidualType,
+    /// Determine the rank by a column-pivoted QR (as R's `glm.fit`) instead of
+    /// assuming the design has full column rank.
+    rank_revealing: bool,
+}
+
+/// Relative tolerance on the pivoted-QR diagonal below which a column counts as
+/// linearly dependent (R's `glm.fit` uses `1e-11` on its own scaling).
+const RANK_TOL: f64 = 1e-10;
+
+fn augment_core(c: &Core<'_>) -> Augment {
+    let n = c.y.nrows();
+    let (y, mu, family, weights, resid_type) = (c.y, c.mu, c.family, c.weights, c.resid_type);
     let prior = |i: usize| weights.map_or(1.0, |w| w[i]);
-    let mu = &result.fitted_values;
-    let family = spec.family;
 
     // Variance function and IRLS weight per row.
     let variance = |i: usize| family.map_or(1.0, |f| f.variance(mu[i]));
@@ -212,32 +269,38 @@ pub fn augment_with<M: Augmentable + ?Sized>(
         }
     });
 
-    // Leverage from the thin QR of diag(√W) X (active columns only).
-    let with_intercept = result.intercept.is_some();
-    let active: Vec<usize> = (0..x.ncols())
-        .filter(|&j| !result.aliased.get(j).copied().unwrap_or(false))
-        .collect();
-    let off = usize::from(with_intercept);
-    let k = active.len() + off;
-    let leverage = if k == 0 {
-        Col::zeros(n)
+    // Leverage from the thin QR of diag(√W) X: `h_i = ‖Q_i·‖²` over the first
+    // `rank` columns of Q.
+    let k_cols = c.design.ncols();
+    let (leverage, k) = if k_cols == 0 {
+        (Col::zeros(n), 0)
     } else {
-        let design = Mat::from_fn(n, k, |i, j| {
-            let v = if with_intercept && j == 0 {
-                1.0
-            } else {
-                x[(i, active[j - off])]
-            };
-            irls_w[i].max(0.0).sqrt() * v
+        let wx = Mat::from_fn(n, k_cols, |i, j| {
+            irls_w[i].max(0.0).sqrt() * c.design[(i, j)]
         });
-        let q = design.qr().compute_thin_Q();
-        Col::from_fn(n, |i| {
+        let (q, rank) = if c.rank_revealing {
+            let qr = wx.col_piv_qr();
+            let r = qr.thin_R();
+            let d = r.nrows().min(r.ncols());
+            let r00 = if d > 0 { r[(0, 0)].abs() } else { 0.0 };
+            let rank = (0..d)
+                .take_while(|&i| r[(i, i)].abs() > RANK_TOL * r00.max(f64::MIN_POSITIVE))
+                .count();
+            (qr.compute_thin_Q(), rank)
+        } else {
+            (wx.qr().compute_thin_Q(), k_cols)
+        };
+        let lev = Col::from_fn(n, |i| {
             if prior(i) > 0.0 {
-                (0..k).map(|j| q[(i, j)] * q[(i, j)]).sum::<f64>().min(1.0)
+                (0..rank)
+                    .map(|j| q[(i, j)] * q[(i, j)])
+                    .sum::<f64>()
+                    .min(1.0)
             } else {
                 0.0
             }
-        })
+        });
+        (lev, rank)
     };
 
     let pearson = Col::from_fn(n, |i| prior(i).sqrt() * (y[i] - mu[i]) / variance(i).sqrt());
@@ -261,7 +324,7 @@ pub fn augment_with<M: Augmentable + ?Sized>(
         .filter(|&i| prior(i) > 0.0)
         .map(|i| pearson[i] * pearson[i])
         .sum();
-    let phi = if spec.unit_dispersion {
+    let phi = if c.unit_dispersion {
         1.0
     } else if df > 0.0 {
         sum_e2 / df
@@ -287,7 +350,7 @@ pub fn augment_with<M: Augmentable + ?Sized>(
         nan_if_inf(std_source[i] / (phi * (1.0 - leverage[i])).sqrt())
     });
     let scale = |i: usize| {
-        if spec.fixed_dispersion {
+        if c.fixed_dispersion {
             1.0
         } else {
             loo_sigma(i)
@@ -305,7 +368,7 @@ pub fn augment_with<M: Augmentable + ?Sized>(
         nan_if_inf(pearson[i] * h.sqrt() / (scale(i) * (1.0 - h)))
     });
 
-    Ok(Augment {
+    Augment {
         fitted: mu.clone(),
         residual,
         resid_type,
@@ -314,7 +377,7 @@ pub fn augment_with<M: Augmentable + ?Sized>(
         leverage,
         cooks_d,
         dffits,
-    })
+    }
 }
 
 impl Augmentable for FittedOls {
@@ -363,4 +426,171 @@ impl Augmentable for FittedGamma {
     fn augment_spec(&self) -> AugmentSpec<'_> {
         self.inner().augment_spec()
     }
+}
+
+/// Per-observation diagnostics of a penalized-GLM-engine fit, with deviance
+/// residuals (as R's `broom::augment` on a `glm`).
+///
+/// `y` and `x` must be exactly what was passed to the `penalized_glm::fit_*`
+/// function that produced `fit` (column-major `x`, including the offset column
+/// if one was used). The output has one entry per input row; rows the fit
+/// dropped because of a non-finite value are `NaN` in every field.
+///
+/// Conventions, matching [`augment`] on the dedicated regressors and R's
+/// `glm` / `MASS::glm.nb`:
+///
+/// * The dispersion follows [`GlmResult::dispersion_rule`]: `Fixed` (binomial,
+///   logistic, Poisson) uses `φ = 1` everywhere; `Given` (Negative Binomial,
+///   fixed or estimated `theta`) uses `φ = 1` for `rstandard` / Cook's distance
+///   and the leave-one-out scale for `rstudent` / DFFITS; `Pearson` (Gamma,
+///   Tweedie, Poisson with `estimate_dispersion`, as R's `quasipoisson`) uses
+///   the Pearson estimate.
+/// * An offset enters only through the fitted means; it is not part of the
+///   design whose leverage is computed.
+/// * Columns dropped as constant (`NaN` coefficient) are left out of the
+///   design, and the rank is determined by a column-pivoted QR, so collinear
+///   columns count once (as R's `glm`).
+/// * The engine has no prior weights; every used row has weight 1.
+///
+/// # Errors
+///
+/// [`GlmEngineError::InvalidInput`] for a penalized fit ([`GlmResult::penalized`]:
+/// `lambda > 0` or a non-flat prior). The hat matrix of a posterior mode is
+/// `W½X(X'WX + P)⁻¹X'W½`, for which R's `rstandard` / `rstudent` / Cook's
+/// distance have no counterpart, so it is rejected rather than reported with
+/// the unpenalized formulas. [`GlmEngineError::DimensionMismatch`] when `y` /
+/// `x` do not match the fit.
+pub fn augment_glm(fit: &GlmResult, y: &[f64], x: &[Vec<f64>]) -> GlmEngineResult<Augment> {
+    augment_glm_with(fit, y, x, ResidualType::Deviance)
+}
+
+/// [`augment_glm`] with an explicit residual type.
+pub fn augment_glm_with(
+    fit: &GlmResult,
+    y: &[f64],
+    x: &[Vec<f64>],
+    resid_type: ResidualType,
+) -> GlmEngineResult<Augment> {
+    let n = y.len();
+    for col in x {
+        if col.len() != n {
+            return Err(GlmEngineError::DimensionMismatch {
+                y_len: n,
+                x_rows: col.len(),
+            });
+        }
+    }
+    let offset_idx = fit.offset_column.and_then(|c| c.checked_sub(1));
+    let features: Vec<&Vec<f64>> = x
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| Some(*j) != offset_idx)
+        .map(|(_, c)| c)
+        .collect();
+    augment_glm_impl(
+        fit,
+        y,
+        n,
+        features.len(),
+        &|i, j| features[j][i],
+        resid_type,
+    )
+}
+
+/// Shared implementation of [`augment_glm_with`] and
+/// `FittedPenalizedGlm::augment_with`: `feature(i, j)` is feature `j` (offset
+/// excluded) of input row `i`.
+pub(crate) fn augment_glm_impl(
+    fit: &GlmResult,
+    y: &[f64],
+    n_rows: usize,
+    n_features: usize,
+    feature: &dyn Fn(usize, usize) -> f64,
+    resid_type: ResidualType,
+) -> GlmEngineResult<Augment> {
+    if fit.penalized {
+        return Err(GlmEngineError::InvalidInput(
+            "augment is not defined for a penalized GLM fit (lambda > 0 or a non-flat prior): \
+             the standardised residuals, leverage and Cook's distance assume the \
+             maximum-likelihood fit"
+                .to_string(),
+        ));
+    }
+    if y.len() != n_rows {
+        return Err(GlmEngineError::DimensionMismatch {
+            y_len: y.len(),
+            x_rows: n_rows,
+        });
+    }
+    let coefs = &fit.core.coefficients;
+    if n_features != coefs.len() {
+        return Err(GlmEngineError::InvalidInput(format!(
+            "augment: x has {n_features} feature columns (offset excluded) but the fit has {}",
+            coefs.len()
+        )));
+    }
+    let rows = &fit.valid_rows;
+    if rows.len() != fit.fitted_values.len() || rows.iter().any(|&r| r >= n_rows) {
+        return Err(GlmEngineError::DimensionMismatch {
+            y_len: n_rows,
+            x_rows: rows.iter().max().map_or(0, |&r| r + 1),
+        });
+    }
+
+    let with_intercept = fit.core.intercept.is_some();
+    let active: Vec<usize> = (0..n_features).filter(|&j| !coefs[j].is_nan()).collect();
+    let off = usize::from(with_intercept);
+    let m = rows.len();
+    let design = Mat::from_fn(m, active.len() + off, |i, j| {
+        if with_intercept && j == 0 {
+            1.0
+        } else {
+            feature(rows[i], active[j - off])
+        }
+    });
+    let yv = Col::from_fn(m, |i| y[rows[i]]);
+    let mu = Col::from_fn(m, |i| fit.fitted_values[i]);
+
+    let theta = match fit.dispersion_rule {
+        DispersionRule::Given(t) => Some(t),
+        _ => fit.core.dispersion,
+    };
+    let family = fit.family.glm_family(theta);
+    let (fixed_dispersion, unit_dispersion) = match fit.dispersion_rule {
+        DispersionRule::Fixed => (true, true),
+        DispersionRule::Given(_) => (false, true),
+        DispersionRule::Pearson | DispersionRule::PearsonFlooredAtOne => (false, false),
+    };
+
+    let a = augment_core(&Core {
+        design: &design,
+        y: &yv,
+        mu: &mu,
+        family: Some(family.as_ref()),
+        fixed_dispersion,
+        unit_dispersion,
+        weights: None,
+        resid_type,
+        rank_revealing: true,
+    });
+    if m == n_rows && rows.iter().enumerate().all(|(i, &r)| i == r) {
+        return Ok(a);
+    }
+    let expand = |v: &Col<f64>| {
+        let mut out = Col::from_fn(n_rows, |_| f64::NAN);
+        for (i, &r) in rows.iter().enumerate() {
+            out[r] = v[i];
+        }
+        out
+    };
+    Ok(Augment {
+        fitted: expand(&a.fitted),
+        residual: expand(&a.residual),
+        resid_type: a.resid_type,
+        std_residual: expand(&a.std_residual),
+        stud_residual: expand(&a.stud_residual),
+        leverage: expand(&a.leverage),
+        cooks_d: expand(&a.cooks_d),
+        dffits: expand(&a.dffits),
+    })
 }
