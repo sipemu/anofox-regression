@@ -37,6 +37,7 @@
 
 pub mod distribution;
 mod model;
+mod predict;
 mod regressor;
 
 pub use distribution::AftDistribution;

@@ -1080,6 +1080,41 @@ impl BinomialRegressorBuilder {
     }
 }
 
+impl crate::inference::PredictWithSe for FittedBinomial {
+    /// See [`crate::inference::PredictWithSe`]. Needs a fit with
+    /// `compute_inference(true)` (the stored `(X'WX)⁻¹`); the dispersion is the
+    /// one used for the coefficient standard errors.
+    fn predict_se(
+        &self,
+        x: &Mat<f64>,
+        options: &crate::inference::PredictSeOptions,
+    ) -> Result<crate::inference::PredictionSe, crate::inference::PredictSeError> {
+        let expected = self.result.coefficients.nrows();
+        if x.ncols() != expected {
+            return Err(crate::inference::PredictSeError::DimensionMismatch {
+                expected,
+                got: x.ncols(),
+            });
+        }
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.predict_se(&super::glm_alias::select_columns(x, keep), options);
+        }
+        if self.xtwx_inverse.is_none() {
+            return Err(crate::inference::PredictSeError::MissingCovariance(
+                "fit with compute_inference(true)",
+            ));
+        }
+        let link = self.predict_with_se(x, PredictionType::Link, None, options.level);
+        crate::inference::glm_prediction(
+            link.fit,
+            link.se,
+            &|e| self.family.link_inverse(e),
+            &|e| self.family.link.link_inverse_derivative(e),
+            options,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

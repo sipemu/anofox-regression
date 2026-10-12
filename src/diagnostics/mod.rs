@@ -54,8 +54,10 @@
 pub(crate) mod augment;
 mod condition_number;
 mod glm_residuals;
+mod heteroskedasticity;
 mod influence;
 mod leverage;
+mod partial_residuals;
 mod quasi_separation;
 mod residuals;
 mod vif;
@@ -74,8 +76,12 @@ pub use glm_residuals::{
     pearson_chi_squared, pearson_residuals, response_residuals, standardized_deviance_residuals,
     standardized_pearson_residuals, working_residuals,
 };
+pub use heteroskedasticity::{breusch_pagan, white_test, HeteroskedasticityTest};
 pub use influence::{cooks_distance, dffits, influential_cooks, influential_dffits};
 pub use leverage::{compute_leverage, compute_leverage_with_aliased, high_leverage_points};
+pub use partial_residuals::{
+    added_variable, partial_residuals, partial_residuals_glm, AddedVariable, PartialResiduals,
+};
 pub use quasi_separation::{
     check_binary_separation, check_count_sparsity, SeparationCheck, SeparationType,
 };
