@@ -590,6 +590,40 @@ impl FittedLars {
     pub fn method(&self) -> LarsMethod {
         self.method
     }
+
+    /// The LARS / LassoLars path in the shape of the elastic-net paths:
+    /// `lambdas` are the path's `alphas` (decreasing), `coefficients` is
+    /// `p × n_steps` on the original predictor scale (as
+    /// [`coefs_path`](Self::coefs_path)), with the matching intercepts
+    /// `ȳ − x̄ᵀβ` (0 without an intercept) and the number of non-zero
+    /// coefficients per step. `alpha` (the elastic-net mixing) is `NaN`.
+    pub fn path(&self) -> crate::solvers::path::RegPath {
+        let rows = self.coefs_path();
+        let steps = rows.len();
+        let p = self.x_norm.len();
+        let coefficients = Mat::from_fn(p, steps, |j, l| rows[l][j]);
+        let intercepts = rows
+            .iter()
+            .map(|b| {
+                if self.fit_intercept {
+                    self.y_mean - b.iter().zip(&self.x_mean).map(|(c, m)| c * m).sum::<f64>()
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let df = rows
+            .iter()
+            .map(|b| b.iter().filter(|c| **c != 0.0 && c.is_finite()).count())
+            .collect();
+        crate::solvers::path::RegPath {
+            lambdas: self.alphas.clone(),
+            intercepts,
+            coefficients,
+            df,
+            alpha: f64::NAN,
+        }
+    }
 }
 
 impl FittedRegressor for FittedLars {

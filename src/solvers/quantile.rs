@@ -600,6 +600,7 @@ impl Regressor for QuantileRegressor {
         Ok(FittedQuantile {
             tau: self.tau,
             with_intercept: self.with_intercept,
+            weighted: self.weights.is_some(),
             result,
             check_loss: full_loss,
         })
@@ -630,8 +631,9 @@ pub struct FittedQuantile {
     /// The quantile that was estimated
     tau: f64,
     /// Whether model includes intercept
-    #[allow(dead_code)]
     with_intercept: bool,
+    /// Whether the fit used observation weights
+    weighted: bool,
     /// Regression result
     result: RegressionResult,
     /// Check function loss (quantile loss)
@@ -658,6 +660,39 @@ impl FittedQuantile {
     /// Get the pseudo R-squared (Koenker-Machado).
     pub fn pseudo_r_squared(&self) -> f64 {
         self.result.r_squared
+    }
+
+    /// Whether the model includes an intercept.
+    pub fn has_intercept(&self) -> bool {
+        self.with_intercept
+    }
+
+    /// Standard errors, t statistics, p-values and confidence intervals of
+    /// the coefficients (intercept first), as `quantreg::summary.rq`. `x` and
+    /// `y` must be the data the model was fitted on. See
+    /// [`quantile_inference`](crate::solvers::quantile_inference) for the
+    /// standard-error types. Fits with observation weights are rejected.
+    pub fn inference(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        se: crate::solvers::quantile_inference::QuantileSe,
+        level: f64,
+    ) -> Result<crate::solvers::quantile_inference::QuantileInference, RegressionError> {
+        if self.weighted {
+            return Err(RegressionError::NumericalError(
+                "quantile inference is not available for weighted fits".to_string(),
+            ));
+        }
+        crate::solvers::quantile_inference::inference_for_fit(
+            x,
+            y,
+            self.tau,
+            self.with_intercept,
+            &self.result,
+            se,
+            level,
+        )
     }
 }
 

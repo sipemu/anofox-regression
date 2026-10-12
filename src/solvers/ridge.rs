@@ -328,6 +328,35 @@ impl RidgeRegressor {
         })
     }
 
+    /// Ridge coefficient path at `lambdas` (glmnet scale, see
+    /// [`path`](crate::solvers::path)), with this regressor's intercept
+    /// setting and no standardisation. Equivalent to
+    /// `path::fit_path(x, y, lambdas, &PathOptions::ridge().with_intercept(..))`.
+    pub fn path(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        lambdas: &[f64],
+    ) -> Result<crate::solvers::path::RegPath, RegressionError> {
+        crate::solvers::path::fit_path(x, y, lambdas, &self.path_options())
+    }
+
+    /// k-fold cross-validation of the ridge path (see
+    /// [`path::cv_path`](crate::solvers::path::cv_path)).
+    pub fn cv_path(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        lambdas: &[f64],
+        fold_ids: &[usize],
+    ) -> Result<crate::solvers::path::CvPath, RegressionError> {
+        crate::solvers::path::cv_path(x, y, lambdas, fold_ids, &self.path_options())
+    }
+
+    fn path_options(&self) -> crate::solvers::path::PathOptions {
+        crate::solvers::path::PathOptions::ridge().with_intercept(self.options.with_intercept)
+    }
+
     /// Fit Ridge directly from a [`MomentAccumulator`]. Convenience wrapper
     /// around [`Self::fit_from_moments`].
     pub fn fit_from_accumulator(
