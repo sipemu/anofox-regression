@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Predictions with standard errors (#80).** New `inference::PredictWithSe` trait, `predict_se(x, &PredictSeOptions)` returning `PredictionSe { fit, se_fit, lower, upper, .. }`, with options for the scale (`link` / `response`), interval (`confidence` / `prediction`) and level. Implemented for `FittedOls`, `FittedWls`, `FittedRidge`, `FittedPoisson`, `FittedBinomial`, `FittedNegativeBinomial`, `FittedTweedie`, `FittedGamma` and `FittedPenalizedGlm` (plus `predict_se_with_offset`); `GlmResult::predict_se(x, ..)` covers the penalized-GLM family functions (offset column honoured). Linear models match `predict.lm(se.fit = TRUE, interval = ...)`; GLMs match `predict.glm(se.fit = TRUE, type = ...)`, with intervals built on the link scale (normal quantile) and mapped through the inverse link on the response scale; prediction intervals are rejected for GLMs.
+- **Partial residuals (#80).** `diagnostics::partial_residuals` (linear fits, as `residuals(type = "partial")` / `car::crPlots`), `partial_residuals_glm` (working residuals, as `residuals.glm(type = "partial")`) and `added_variable` (as `car::avPlots`, optional weights).
+- **Heteroskedasticity tests (#80).** `diagnostics::breusch_pagan` (Koenker studentized or classic, as `lmtest::bptest`) and `white_test` (squares and cross-products), returning `HeteroskedasticityTest { statistic, df, p_value, method }`.
+- **AFT survival curves (#80).** `FittedAft::survival_curve(x_row, times)` / `quantiles(x_row, probs)` and the same on `AftResult` (plus `AftResult::distribution` / `linear_predictor`), as `survival::psurvreg` / `predict(survreg, type = "quantile")`.
+- R validation in `tests/r_validation_predict_se.rs` (generator `tests/r_scripts/generate_predict_se_validation.R`).
+
 ## [0.5.25] - 2026-10-11
 
 ### Added
