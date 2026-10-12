@@ -1,6 +1,7 @@
 //! Statistical inference (standard errors, p-values, confidence intervals).
 
 mod coefficient;
+mod predict_se;
 mod prediction;
 mod robust_covariance;
 mod variance_factor;
@@ -9,6 +10,8 @@ pub(crate) use variance_factor::expand_reduced_factor;
 pub(crate) use wald::{fill_wald_inference, WaldReference};
 
 pub use coefficient::CoefficientInference;
+pub(crate) use predict_se::{glm_prediction, quadratic_se};
+pub use predict_se::{PredictSeError, PredictSeOptions, PredictWithSe, PredictionSe};
 pub use prediction::{
     compute_prediction_intervals, compute_xtwx_inverse_augmented,
     compute_xtwx_inverse_augmented_reduced, compute_xtwx_inverse_reduced, compute_xtx_inverse,

@@ -62,6 +62,7 @@ pub mod laplace;
 pub mod loglik;
 pub mod normal_eq;
 pub mod penalty;
+mod predict;
 mod regressor;
 pub mod types;
 
