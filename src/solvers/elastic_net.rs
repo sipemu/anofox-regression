@@ -306,6 +306,37 @@ impl Regressor for ElasticNetRegressor {
 }
 
 impl ElasticNetRegressor {
+    /// Elastic-net coefficient path at `lambdas` (glmnet scale and
+    /// objective, see [`path`](crate::solvers::path)) with this regressor's
+    /// `alpha` and intercept setting and no standardisation, computed by
+    /// coordinate descent with warm starts. Equivalent to
+    /// `path::fit_path(x, y, lambdas, &PathOptions::elastic_net(alpha).with_intercept(..))`.
+    pub fn path(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        lambdas: &[f64],
+    ) -> Result<crate::solvers::path::RegPath, RegressionError> {
+        crate::solvers::path::fit_path(x, y, lambdas, &self.path_options())
+    }
+
+    /// k-fold cross-validation of the elastic-net path (see
+    /// [`path::cv_path`](crate::solvers::path::cv_path)).
+    pub fn cv_path(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        lambdas: &[f64],
+        fold_ids: &[usize],
+    ) -> Result<crate::solvers::path::CvPath, RegressionError> {
+        crate::solvers::path::cv_path(x, y, lambdas, fold_ids, &self.path_options())
+    }
+
+    fn path_options(&self) -> crate::solvers::path::PathOptions {
+        crate::solvers::path::PathOptions::elastic_net(self.options.alpha)
+            .with_intercept(self.options.with_intercept)
+    }
+
     /// Solve Elastic Net using L-BFGS optimization with proximal soft thresholding.
     fn fit_lbfgs(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Col<f64>, RegressionError> {
         let n_samples = x.nrows();
