@@ -218,6 +218,25 @@ impl Regressor for LarsRegressor {
             result.adj_r_squared = f64::NAN;
         }
 
+        // Gaussian log-likelihood, information criteria and F test with the
+        // same df, as R's `logLik.lm` / `AIC` / `BIC` / `summary.lm` (equal to
+        // `lm` on the active set at the end of the LARS path). NaN for a
+        // perfect fit (RSS = 0), as for the other linear solvers.
+        let stats = super::fit_stats::linear_fit_stats(
+            y,
+            &result.residuals,
+            None,
+            self.fit_intercept,
+            df,
+            false,
+        );
+        result.f_statistic = stats.f_statistic;
+        result.f_pvalue = stats.f_pvalue;
+        result.log_likelihood = stats.log_likelihood;
+        result.aic = stats.aic;
+        result.aicc = stats.aicc;
+        result.bic = stats.bic;
+
         Ok(FittedLars {
             result,
             alphas,
