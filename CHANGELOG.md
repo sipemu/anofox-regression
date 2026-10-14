@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.27] - 2026-10-14
+
+### Fixed
+
+- **LARS / LassoLars log-likelihood, information criteria and F test (DataZooDE/anofox-statistics#196).** `LarsRegressor` left `log_likelihood`, `aic`, `aicc`, `bic`, `f_statistic` and `f_pvalue` at their `RegressionResult::empty` defaults (0, and 1 for the p-value), so a LARS fit looked like the best model by AIC/BIC. They are now computed with the shared linear fit statistics and the LARS degrees of freedom already used for `adj_r_squared` / `rmse` (active coefficients plus the intercept): the Gaussian log-likelihood at the ML variance `RSS / n`, `k = df + 1`, as R's `logLik.lm` / `AIC` / `BIC` / `summary.lm`. On the full LARS path they equal `lm` on the same predictors, with and without an intercept. NaN for a perfect fit (RSS = 0), as for the other linear solvers. Validated in `tests/issue65_lars_fit_stats.rs` against R `lm`.
+
 ## [0.5.26] - 2026-10-12
 
 ### Added
