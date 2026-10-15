@@ -518,6 +518,14 @@ impl LmDynamicRegressor {
         result.mse = mse;
         result.rmse = rmse;
         result.confidence_level = self.options.confidence_level;
+        // No single-model F test or information criteria for the combined
+        // model (NaN rather than the RegressionResult::empty zeros); the
+        // log-likelihood is set by the caller.
+        result.f_statistic = f64::NAN;
+        result.f_pvalue = f64::NAN;
+        result.aic = f64::NAN;
+        result.aicc = f64::NAN;
+        result.bic = f64::NAN;
 
         Ok(result)
     }

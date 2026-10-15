@@ -77,6 +77,7 @@ fn check(
             coef[j + 1]
         );
     }
+    assert!(r.aic.is_nan() && r.bic.is_nan() && r.f_statistic.is_nan());
     assert!(
         (r.log_likelihood - loglik).abs() <= 1e-8 * loglik.abs(),
         "log-likelihood {} vs greybox {loglik}",
