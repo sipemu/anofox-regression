@@ -1,4 +1,4 @@
-//! RANSAC validation against scikit-learn 1.5.2.
+//! RANSAC validation against scikit-learn 1.9.1.
 //!
 //! Reference values come from
 //! `validation/python/generate_ransac_validation.py`. Fixtures are

@@ -53,7 +53,7 @@ The validation system uses a three-component structure:
 | `validation/python/generate_lars_validation.py` | `Lars`, `LassoLars`, plus path truncation by `n_nonzero_coefs` |
 | `validation/python/generate_bayesian_validation.py` | `BayesianRidge` and `ARDRegression` evidence-maximisation fits |
 
-The Python environment is reproducible: `validation/python/requirements.txt` pins `scikit-learn==1.5.2` and `numpy==2.1.3`, and `validation/python/README.md` documents the exact `uv` setup commands. Re-running each script regenerates the corresponding `tests/fixtures/<name>_validation.rs` file bit-for-bit on the pinned versions.
+The Python environment is reproducible: `validation/python/requirements.txt` pins `scikit-learn==1.9.1` and `numpy==2.5.4`, and `validation/python/README.md` documents the exact `uv` setup commands. Re-running each script regenerates the corresponding `tests/fixtures/<name>_validation.rs` file bit-for-bit on the pinned versions.
 
 ### R Packages Used
 
@@ -67,7 +67,7 @@ The Python environment is reproducible: `validation/python/requirements.txt` pin
 
 ### Python Packages Used
 
-- **scikit-learn 1.5.2**: `TheilSenRegressor`, `RANSACRegressor`, `PassiveAggressiveRegressor`, `Lars`, `LassoLars`, `BayesianRidge`, `ARDRegression`
+- **scikit-learn 1.9.1**: `TheilSenRegressor`, `RANSACRegressor`, `PassiveAggressiveRegressor`, `Lars`, `LassoLars`, `BayesianRidge`, `ARDRegression`
 - **numpy 2.1.3**: deterministic `default_rng(seed)` for fixture sampling
 
 ## Validation Categories
@@ -423,7 +423,7 @@ Validates `GammaRegressor` (a sklearn-style convenience wrapper around `TweedieR
 Validates `TheilSenRegressor` against `sklearn.linear_model.TheilSenRegressor`.
 
 **Algorithm**: For each subsample of `n_features + 1` observations, solve OLS exactly; take the Vardi-Zhang modified Weiszfeld spatial median of the resulting coefficient vectors. Exhaustive enumeration when `C(n, n_subsamples) ≤ max_subpopulation` matches sklearn's deterministic branch.
-**Oracle**: scikit-learn 1.5.2.
+**Oracle**: scikit-learn 1.9.1.
 **Generator**: `validation/python/generate_theil_sen_validation.py`.
 **Test file**: `tests/r_validation_theil_sen.rs`.
 **Tolerance**: `1e-10` (univariate, exact); `5e-3` (multivariate spatial median, covers Weiszfeld termination).
@@ -438,7 +438,7 @@ Validates `TheilSenRegressor` against `sklearn.linear_model.TheilSenRegressor`.
 Validates `RansacRegressor` against `sklearn.linear_model.RANSACRegressor` with `LinearRegression` base estimator.
 
 **Algorithm**: Random subsample → OLS fit → inliers by `|residual| < threshold`; keep subset with most inliers, refit OLS on the consensus set. Uses Fischler–Bolles stop-probability bound to cap `max_trials` dynamically.
-**Oracle**: scikit-learn 1.5.2 with a deliberately clean inlier/outlier gap so the consensus set is unique. Both implementations refit OLS on identical inlier sets, so coefficients match to machine precision.
+**Oracle**: scikit-learn 1.9.1 with a deliberately clean inlier/outlier gap so the consensus set is unique. Both implementations refit OLS on identical inlier sets, so coefficients match to machine precision.
 **Generator**: `validation/python/generate_ransac_validation.py`.
 **Test file**: `tests/r_validation_ransac.rs`.
 **Tolerance**: `1e-9` for coefficients and intercept, exact match on inlier mask.
@@ -453,7 +453,7 @@ Validates `RansacRegressor` against `sklearn.linear_model.RANSACRegressor` with 
 Validates `PassiveAggressiveRegressor` (online learning, PA-I and PA-II) against `sklearn.linear_model.PassiveAggressiveRegressor`.
 
 **Algorithm**: For each sample, leave weights unchanged if epsilon-insensitive loss is zero; otherwise step `τ` such that the constraint is exactly satisfied (PA-I clamps to `C`; PA-II uses squared loss). `||x||²` is the bare feature norm (not augmented with `1` for the bias), matching sklearn's `_sgd_fast.pyx`. Multi-epoch `fit` uses sklearn's `best_loss` / `no_improvement_count` early-stopping criterion (5 epochs without `tol*n` improvement).
-**Oracle**: scikit-learn 1.5.2 with `shuffle=False` so the per-epoch traversal order is identical and the algorithm is fully deterministic.
+**Oracle**: scikit-learn 1.9.1 with `shuffle=False` so the per-epoch traversal order is identical and the algorithm is fully deterministic.
 **Generator**: `validation/python/generate_pa_validation.py`.
 **Test file**: `tests/r_validation_passive_aggressive.rs`.
 **Tolerance**: `2e-2` for coefficients and intercept.
@@ -463,13 +463,14 @@ Validates `PassiveAggressiveRegressor` (online learning, PA-I and PA-II) against
 | PA-I univariate | `n = 100`, epsilon-insensitive loss, C = 1.0, ε = 0.1 |
 | PA-I multivariate | `n = 80`, `p = 3`, epsilon-insensitive |
 | PA-II multivariate | `n = 100`, `p = 2`, squared epsilon-insensitive, C = 0.5 |
+| One online pass | `n = 60`, `p = 2`, PA-I and PA-II: `max_iter(1)` without shuffling and the per-row `partial_fit` stream both equal sklearn's `partial_fit` to `1e-10` |
 
 ### 21. LARS and LassoLars
 
 Validates `LarsRegressor` (plain LARS) and the Lasso variant against `sklearn.linear_model.Lars` and `LassoLars`.
 
 **Algorithm**: Efron–Hastie–Johnstone–Tibshirani LARS (2004). At each step adds the most-correlated predictor, walks the equiangular direction, and chooses step size by the joining condition (LARS) or by the joining/dropping condition (LassoLars). For `LassoLars` the returned coefficients are linearly interpolated between path knots so the result corresponds to exactly the requested `alpha` (matches sklearn's `lasso_path` convention).
-**Oracle**: scikit-learn 1.5.2.
+**Oracle**: scikit-learn 1.9.1.
 **Generator**: `validation/python/generate_lars_validation.py`.
 **Test file**: `tests/r_validation_lars.rs`.
 **Tolerance**: `1e-6` for plain LARS (deterministic linear algebra); `5e-3` for `LassoLars` (path-interpolation precision).
@@ -484,25 +485,28 @@ Validates `LarsRegressor` (plain LARS) and the Lasso variant against `sklearn.li
 
 Validates `BayesianRidge` against `sklearn.linear_model.BayesianRidge`.
 
-**Algorithm**: SVD-based evidence maximisation (MacKay 1992 / Tipping 2001). Jointly updates noise precision α and weight precision λ via closed-form gamma-prior updates of `γ = Σ s² / (αs² + λ)`. Convergence on `Σ_j |β_new − β_old| < tol` matches sklearn.
-**Oracle**: scikit-learn 1.5.2 with default gamma-prior shapes `α₁ = α₂ = λ₁ = λ₂ = 1e-6`.
+**Algorithm**: SVD-based evidence maximisation (MacKay 1992 / Tipping 2001). Jointly updates noise precision α and weight precision λ via closed-form gamma-prior updates of `γ = Σ s² / (αs² + λ)`, sklearn's initialisation (`α = 1 / (var(y) + eps)`), convergence test (`Σ_j |β_new − β_old| < tol` from the second iteration) and final refit with the converged α, λ. Posterior covariance `Σ = (λI + αXᵀX)⁻¹`; posterior predictive SD `sqrt((x − x̄)ᵀΣ(x − x̄) + 1/α)`.
+**Oracle**: scikit-learn 1.9.1 with default gamma-prior shapes `α₁ = α₂ = λ₁ = λ₂ = 1e-6`.
 **Generator**: `validation/python/generate_bayesian_validation.py`.
 **Test file**: `tests/r_validation_bayesian.rs`.
-**Tolerance**: `5e-3` for coefficients/intercept; `0.5` on α and `0.05` on λ.
+**Tolerance**: `1e-8` (relative) for coefficients, intercept, α, λ, `sigma_`, predictions and `predict(return_std=True)`; `n_iter_` exact; `1e-6` on the log marginal likelihood (sklearn scores it with the last loop iteration's coefficients).
 
 | Test | Description |
 |------|-------------|
 | BayesianRidge defaults | `n = 100`, `p = 4`, `α ≈ 25.3`, `λ ≈ 0.6` |
+| More features than rows | `n = 8`, `p = 12` |
+| No intercept | `n = 40`, `p = 3`, `fit_intercept = False` |
+| Intervals | Gaussian credible bounds from the predictive SD (prediction) and without `1/α` (confidence) |
 
 ### 23. ARD Regression
 
 Validates `ArdRegression` against `sklearn.linear_model.ARDRegression`.
 
-**Algorithm**: ARD prior with per-feature precisions `λ_j`. Per-iteration: Cholesky on `αX'X + diag(λ)` for the subset of un-pruned features; update γ_j and λ_j; prune features with `λ_j > threshold_lambda`.
-**Oracle**: scikit-learn 1.5.2.
+**Algorithm**: ARD prior with per-feature precisions `λ_j`. Per-iteration: Cholesky on `αX'X + diag(λ)` for the subset of un-pruned features; update γ_j and λ_j; prune features with `λ_j ≥ threshold_lambda`; final refit with the converged α, λ, as sklearn.
+**Oracle**: scikit-learn 1.9.1.
 **Generator**: `validation/python/generate_bayesian_validation.py`.
 **Test file**: `tests/r_validation_bayesian.rs`.
-**Tolerance**: `5e-2` for active coefficients; pruning verified structurally (irrelevant features either have `λ > 10` or `|β| < 0.05`).
+**Tolerance**: `1e-8` (relative) for coefficients, intercept, α, `sigma_`, predictions and `predict(return_std=True)`; `1e-6` on λ; kept features and `n_iter_` exact.
 
 | Test | Description |
 |------|-------------|
@@ -608,6 +612,42 @@ Generator `tests/r_scripts/generate_m1a_validation.R`, test `tests/r_validation_
 
 The probit comparison exposed an inaccurate normal CDF (Abramowitz-Stegun erf, 1.5e-7) and a mistyped AS 241 coefficient in the probit link; both now use `statrs` `erfc` / `erfc_inv`.
 
+### 25. LOWESS
+
+Validates `solvers::lowess::lowess` against R's `stats::lowess`.
+
+**Algorithm**: A port of R's `clowess`: local linear fits with tricube weights over the `f·n` nearest neighbours, `iter` robustifying passes with bisquare weights scaled by six times the median absolute residual, and linear interpolation between points closer than `delta` (default 1% of the range of `x`). The result is the smoothed curve at the sorted `x` values plus the sort permutation.
+**Oracle**: R `stats::lowess`.
+**Generator**: `tests/r_scripts/generate_lowess_validation.R`.
+**Test file**: `tests/r_validation_lowess.rs`.
+**Tolerance**: `1e-10` (relative) for the fitted values; sorted `x` exact.
+
+| Test | Description |
+|------|-------------|
+| Defaults | noisy sine on unsorted `x`, `f = 2/3`, `iter = 3` |
+| Small span | `f = 0.2`, `iter = 0` |
+| Outliers | linear trend with three outliers, `f = 0.5`, `iter = 4` |
+| Ties | repeated `x` values, `delta = 0` |
+| Interpolation | `delta = 5` on `x` in [0, 100] |
+| Three points | `n = 3`, `f = 1` |
+
+### 26. lmDynamic
+
+Validates `LmDynamicRegressor` (normal distribution) against `greybox::lmDynamic(data, ic, bruteforce = TRUE, lowess, f)`.
+
+**Algorithm**: All `2^p` regressor subsets (the intercept-only model first) fitted by least squares; pointwise information criteria `2k − 2·n·ℓ_t` (+ AICc correction / `ln(n)·k` for BIC) with `ℓ_t` the normal log-density of the residual at `σ̂² = RSS / (n − k)`; Akaike-type weights per observation; optional smoothing of the weights' logits over time with R's `lowess(f)` and row renormalisation; per-observation coefficients as weighted sums of the candidates' coefficients.
+**Oracle**: greybox 2.0.9 on R 4.6.1.
+**Generator**: `tests/r_scripts/generate_lm_dynamic_validation.R`.
+**Test file**: `tests/r_validation_lm_dynamic.rs`.
+**Tolerance**: `1e-8` for the (smoothed) weights, the dynamic and mean coefficients and the combined log-likelihood.
+
+| Test | Description |
+|------|-------------|
+| No smoothing | step change in one effect, `n = 30`, `p = 2`, AICc |
+| AIC, `f = 0.5` | noisier step change |
+| BIC, `f = 0.3` | `n = 50`, `p = 3` |
+| AICc, `f = 0.9` | `n = 50`, `p = 3` |
+
 ## Test Coverage
 
 | Category | Tests | Tolerance |
@@ -642,7 +682,7 @@ The probit comparison exposed an inaccurate normal CDF (Abramowitz-Stegun erf, 1
 All validation is reproducible through:
 
 1. **Fixed random seeds**: All R scripts use `set.seed(42)`; all Python scripts use `np.random.default_rng(42)` (or another small constant)
-2. **Pinned versions**: R packages from CRAN are loaded at the version installed in CI; the Python venv pins `scikit-learn==1.5.2` and `numpy==2.1.3` via `validation/python/requirements.txt`
+2. **Pinned versions**: R packages from CRAN are loaded at the version installed in CI; the Python venv pins `scikit-learn==1.9.1` and `numpy==2.5.4` via `validation/python/requirements.txt`
 3. **Version-controlled data**: Reference output stored as Rust `const` arrays in `tests/fixtures/*_validation.rs`
 4. **CI/CD verification**: Tests run automatically on every commit
 5. **Transparent documentation**: R/Python code embedded in Rust test comments

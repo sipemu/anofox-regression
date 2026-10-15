@@ -23,8 +23,8 @@ uv pip install --python .venv/bin/python -r requirements.txt
 | Package      | Version |
 |--------------|---------|
 | Python       | 3.12    |
-| scikit-learn | 1.5.2   |
-| numpy        | 2.1.3   |
+| scikit-learn | 1.9.1   |
+| numpy        | 2.5.4   |
 
 These are pinned because numerical defaults (default `tol`, default
 `max_iter`, default RNG behavior) have shifted between sklearn releases.

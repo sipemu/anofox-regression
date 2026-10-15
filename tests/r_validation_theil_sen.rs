@@ -1,4 +1,4 @@
-//! Theil-Sen validation against scikit-learn 1.5.2.
+//! Theil-Sen validation against scikit-learn 1.9.1.
 //!
 //! Reference values are produced by
 //! `validation/python/generate_theil_sen_validation.py`. Regenerate with:

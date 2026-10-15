@@ -1,4 +1,4 @@
-//! LARS / LassoLars validation against scikit-learn 1.5.2.
+//! LARS / LassoLars validation against scikit-learn 1.9.1.
 //!
 //! Reference values come from
 //! `validation/python/generate_lars_validation.py`. Tolerance settings
