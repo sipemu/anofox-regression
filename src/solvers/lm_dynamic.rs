@@ -6,12 +6,28 @@
 //!
 //! # Algorithm
 //!
-//! 1. Generate candidate models from variable subsets
-//! 2. Fit each candidate model using ALM
-//! 3. Compute pointwise information criteria for each observation
+//! 1. Generate candidate models from variable subsets (with an intercept,
+//!    the intercept-only model is the first candidate, as greybox's
+//!    `bruteforce = TRUE`)
+//! 2. Fit each candidate model: least squares for the normal distribution
+//!    (greybox's `.lm.fit` path), ALM otherwise
+//! 3. Compute pointwise information criteria for each observation,
+//!    `pIC_t = 2k − 2·n·ℓ_t` (+ the AICc correction, or `ln(n)·k` for BIC),
+//!    greybox's `pAIC` / `pAICc` / `pBIC`; for the normal distribution
+//!    `ℓ_t = log φ(e_t; 0, σ̂)` with `σ̂² = RSS / (n − k)` and `k` the number
+//!    of coefficients, as greybox's `pointLik` on an `lm` fit
 //! 4. Calculate dynamic weights for each model at each time point
-//! 5. Optionally smooth weights using LOWESS
+//! 5. Optionally smooth the weights: greybox smooths the logits of each
+//!    model's weights over time with R's `lowess(f = span)`, maps them back
+//!    and renormalises each row
 //! 6. Compute weighted parameter estimates that vary over time
+//!
+//! With the normal distribution this reproduces `greybox::lmDynamic(data,
+//! ic, bruteforce = TRUE, lowess, f)` (validated in
+//! `tests/r_validation_lm_dynamic.rs`). greybox picks `f` by optimisation
+//! when it is not given; here the span is always explicit. Fitted values use
+//! the per-observation coefficients, `x_tᵀ β_t` (greybox's `fitted()` uses
+//! the time-averaged coefficients).
 //!
 //! # Example
 //!
@@ -36,8 +52,9 @@ use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
-use crate::solvers::alm::{log_likelihood, AlmDistribution, AlmRegressor, FittedAlm};
-use crate::solvers::lowess::lowess_smooth_weights;
+use crate::solvers::alm::{log_likelihood, AlmDistribution, AlmRegressor};
+use crate::solvers::lowess::{lowess, LowessOptions};
+use crate::solvers::ols::OlsRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, StudentsT};
@@ -142,10 +159,13 @@ impl LmDynamicRegressor {
         let max = self.max_models.unwrap_or(usize::MAX);
         let mut specs = Vec::new();
 
-        // Generate all non-empty subsets of variables
-        let total_models = (1usize << p) - 1; // 2^p - 1 models
+        // All subsets of the variables in greybox's order (the first variable
+        // toggles fastest); with an intercept the empty subset is the
+        // intercept-only model.
+        let total_models = (1usize << p) - 1;
+        let first = if self.options.with_intercept { 0 } else { 1 };
 
-        for mask in 1..=total_models {
+        for mask in first..=total_models {
             if specs.len() >= max {
                 break;
             }
@@ -196,44 +216,22 @@ impl LmDynamicRegressor {
         }
 
         // Fit all candidate models and compute pointwise IC
-        let mut fitted_models: Vec<Option<FittedAlm>> = Vec::with_capacity(n_models);
+        let mut fitted_models: Vec<Option<CandidateFit>> = Vec::with_capacity(n_models);
         let mut pointwise_ic = Mat::from_fn(n, n_models, |_, _| f64::INFINITY);
+        let mut pointwise_ll = Mat::from_fn(n, n_models, |_, _| f64::NAN);
 
         for (m, spec) in model_specs.iter().enumerate() {
             let x_subset = self.extract_columns(x, &spec.included_vars);
-
-            let alm = AlmRegressor::builder()
-                .distribution(self.distribution)
-                .with_intercept(self.options.with_intercept)
-                .compute_inference(false)
-                .build();
-
-            match alm.fit(&x_subset, y) {
-                Ok(fitted) => {
-                    // Compute pointwise IC for each observation
-                    let mu = &fitted.result().fitted_values;
-                    let scale = fitted.scale();
-
-                    for i in 0..n {
-                        let yi = Col::from_fn(1, |_| y[i]);
-                        let mui = Col::from_fn(1, |_| mu[i]);
-                        let ll_i = log_likelihood(
-                            &yi,
-                            &mui,
-                            self.distribution,
-                            scale,
-                            fitted.extra_parameter(),
-                        );
-                        pointwise_ic[(i, m)] = self.ic_type.compute(ll_i, spec.n_params, n);
-                    }
-
-                    fitted_models.push(Some(fitted));
-                }
-                Err(_) => {
-                    fitted_models.push(None);
-                    // IC values remain INFINITY (worst possible)
-                }
+            let Some((fit, loglik, k)) = self.fit_candidate(&x_subset, y) else {
+                // IC values remain INFINITY (worst possible)
+                fitted_models.push(None);
+                continue;
+            };
+            for i in 0..n {
+                pointwise_ll[(i, m)] = loglik[i];
+                pointwise_ic[(i, m)] = self.ic_type.compute(n as f64 * loglik[i], k, n);
             }
+            fitted_models.push(Some(fit));
         }
 
         // Compute weights from pointwise IC
@@ -271,18 +269,31 @@ impl LmDynamicRegressor {
         // Optional LOWESS smoothing
         let smoothed_weights = self
             .lowess_span
-            .map(|span| lowess_smooth_weights(&model_weights, span));
+            .map(|span| smooth_weights(&model_weights, span));
 
         // Compute dynamic coefficients
         let weights_to_use = smoothed_weights.as_ref().unwrap_or(&model_weights);
         let dynamic_coefficients =
             self.compute_dynamic_coefficients(&model_specs, &fitted_models, weights_to_use, p);
 
+        // Combined log-likelihood: each model's log-likelihood weighted by its
+        // mean weight over time (greybox's logLik of the combined model).
+        let mut log_likelihood = 0.0;
+        for m in 0..n_models {
+            if fitted_models[m].is_none() {
+                continue;
+            }
+            let mean_w = (0..n).map(|i| weights_to_use[(i, m)]).sum::<f64>() / n as f64;
+            let ll_m: f64 = (0..n).map(|i| pointwise_ll[(i, m)]).sum();
+            log_likelihood += mean_w * ll_m;
+        }
+
         // Compute weighted average coefficients for the base result
         let avg_coefs = self.compute_average_coefficients(&dynamic_coefficients);
 
         // Build base regression result
-        let result = self.build_base_result(x, y, &avg_coefs, &dynamic_coefficients)?;
+        let mut result = self.build_base_result(x, y, &avg_coefs, &dynamic_coefficients)?;
+        result.log_likelihood = log_likelihood;
 
         Ok(FittedLmDynamic {
             options: self.options.clone(),
@@ -299,11 +310,76 @@ impl LmDynamicRegressor {
         })
     }
 
+    /// Fit one candidate model. Returns its coefficients, the pointwise
+    /// log-likelihood of every observation and the parameter count `k` the
+    /// pointwise information criteria use, or `None` if the fit fails.
+    fn fit_candidate(&self, x: &Mat<f64>, y: &Col<f64>) -> Option<(CandidateFit, Vec<f64>, usize)> {
+        let n = x.nrows();
+        if self.distribution == AlmDistribution::Normal {
+            // Least squares, sigma^2 = RSS / (n - k), as greybox's lmGreybox.
+            let (intercept, coefficients) = if x.ncols() == 0 {
+                let mean = y.iter().sum::<f64>() / n as f64;
+                (Some(mean), Vec::new())
+            } else {
+                let fitted = OlsRegressor::builder()
+                    .with_intercept(self.options.with_intercept)
+                    .compute_inference(false)
+                    .build()
+                    .fit(x, y)
+                    .ok()?;
+                let r = fitted.result();
+                (r.intercept, r.coefficients.iter().copied().collect())
+            };
+            let fit = CandidateFit {
+                intercept,
+                coefficients,
+            };
+            let k = fit.coefficients.iter().filter(|c| c.is_finite()).count()
+                + usize::from(fit.intercept.is_some());
+            if n <= k {
+                return None;
+            }
+            let resid: Vec<f64> = (0..n).map(|i| y[i] - fit.predict_row(x, i)).collect();
+            let sigma2 = resid.iter().map(|r| r * r).sum::<f64>() / (n - k) as f64;
+            let ll = resid
+                .iter()
+                .map(|r| -0.5 * (2.0 * std::f64::consts::PI * sigma2).ln() - r * r / (2.0 * sigma2))
+                .collect();
+            return Some((fit, ll, k));
+        }
+
+        let fitted = AlmRegressor::builder()
+            .distribution(self.distribution)
+            .with_intercept(self.options.with_intercept)
+            .compute_inference(false)
+            .build()
+            .fit(x, y)
+            .ok()?;
+        let mu = &fitted.result().fitted_values;
+        let ll = (0..n)
+            .map(|i| {
+                log_likelihood(
+                    &Col::from_fn(1, |_| y[i]),
+                    &Col::from_fn(1, |_| mu[i]),
+                    self.distribution,
+                    fitted.scale(),
+                    fitted.extra_parameter(),
+                )
+            })
+            .collect();
+        let k = x.ncols() + usize::from(self.options.with_intercept);
+        let fit = CandidateFit {
+            intercept: fitted.result().intercept,
+            coefficients: fitted.result().coefficients.iter().copied().collect(),
+        };
+        Some((fit, ll, k))
+    }
+
     /// Compute time-varying coefficients as weighted average of model coefficients.
     fn compute_dynamic_coefficients(
         &self,
         specs: &[ModelSpec],
-        fitted_models: &[Option<FittedAlm>],
+        fitted_models: &[Option<CandidateFit>],
         weights: &Mat<f64>,
         p: usize,
     ) -> Mat<f64> {
@@ -318,11 +394,11 @@ impl LmDynamicRegressor {
                 let weight = weights[(i, m)];
 
                 if let Some(fitted) = fitted_opt {
-                    let coefs = &fitted.result().coefficients;
+                    let coefs = &fitted.coefficients;
 
                     // Add intercept contribution
                     if self.options.with_intercept {
-                        if let Some(intercept) = fitted.result().intercept {
+                        if let Some(intercept) = fitted.intercept {
                             dynamic_coefs[(i, 0)] += weight * intercept;
                         }
                     }
@@ -335,7 +411,9 @@ impl LmDynamicRegressor {
                         } else {
                             orig_j
                         };
-                        if subset_j < coefs.nrows() {
+                        // An aliased (NaN) coefficient contributes nothing, as
+                        // greybox's zero-filled parameter matrix.
+                        if subset_j < coefs.len() && coefs[subset_j].is_finite() {
                             dynamic_coefs[(i, col_idx)] += weight * coefs[subset_j];
                         }
                     }
@@ -459,6 +537,65 @@ impl Regressor for LmDynamicRegressor {
 
         self.fit_internal(x, y)
     }
+}
+
+/// Coefficients of one fitted candidate model.
+#[derive(Debug, Clone)]
+struct CandidateFit {
+    intercept: Option<f64>,
+    coefficients: Vec<f64>,
+}
+
+impl CandidateFit {
+    fn predict_row(&self, x: &Mat<f64>, i: usize) -> f64 {
+        let mut v = self.intercept.unwrap_or(0.0);
+        for (j, c) in self.coefficients.iter().enumerate() {
+            if c.is_finite() {
+                v += c * x[(i, j)];
+            }
+        }
+        v
+    }
+}
+
+/// greybox's weight smoothing: the logit of each model's weights is smoothed
+/// over the observation index with R's `lowess(f = span)` (default `iter` and
+/// `delta`), mapped back with the logistic function and renormalised per row.
+/// Weights of exactly 0 or 1 (whose logits are infinite) are clamped just
+/// inside (0, 1).
+fn smooth_weights(weights: &Mat<f64>, span: f64) -> Mat<f64> {
+    let n = weights.nrows();
+    let m = weights.ncols();
+    let index: Vec<f64> = (1..=n).map(|i| i as f64).collect();
+    let options = LowessOptions {
+        frac: span,
+        ..LowessOptions::default()
+    };
+    let mut smoothed = Mat::zeros(n, m);
+    for col in 0..m {
+        let logits: Vec<f64> = (0..n)
+            .map(|i| {
+                let w = weights[(i, col)].clamp(f64::MIN_POSITIVE, 1.0 - f64::EPSILON);
+                (w / (1.0 - w)).ln()
+            })
+            .collect();
+        let fitted = match lowess(&index, &logits, &options) {
+            Ok(fit) => fit.fitted,
+            Err(_) => logits,
+        };
+        for i in 0..n {
+            smoothed[(i, col)] = 1.0 / (1.0 + (-fitted[i]).exp());
+        }
+    }
+    for i in 0..n {
+        let row_sum: f64 = (0..m).map(|j| smoothed[(i, j)]).sum();
+        if row_sum > 0.0 {
+            for j in 0..m {
+                smoothed[(i, j)] /= row_sum;
+            }
+        }
+    }
+    smoothed
 }
 
 /// Result from fitting lmDynamic.
@@ -1054,14 +1191,17 @@ mod tests {
 
     #[test]
     fn test_fit_zero_features() {
-        // Tests lines 195-199: no model specs generated (p = 0)
+        // With an intercept the only candidate is the intercept-only model
+        // (greybox fits it too); without one there is no candidate at all.
         let x = Mat::<f64>::zeros(10, 0); // No features
         let y = Col::from_fn(10, |i| i as f64);
 
-        let model = LmDynamicRegressor::builder().build();
-        let result = model.fit(&x, &y);
+        let fitted = LmDynamicRegressor::builder().build().fit(&x, &y).unwrap();
+        assert_eq!(fitted.model_specs().len(), 1);
+        assert!((fitted.result().intercept.unwrap() - 4.5).abs() < 1e-12);
 
-        assert!(result.is_err());
+        let model = LmDynamicRegressor::builder().with_intercept(false).build();
+        assert!(model.fit(&x, &y).is_err());
     }
 
     // === Builder Tests ===

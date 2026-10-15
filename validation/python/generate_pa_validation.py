@@ -135,11 +135,36 @@ def case_pa2_multi() -> None:
     print()
 
 
+def case_streaming() -> None:
+    print(
+        "// --------------------------------------------------------------------------\n"
+        "// Test 4: one in-order online pass (partial_fit), PA-I and PA-II\n"
+        "// --------------------------------------------------------------------------"
+    )
+    rng = np.random.default_rng(3)
+    n, p = 60, 2
+    X = rng.normal(size=(n, p))
+    y = 0.5 + X @ np.array([1.2, -0.4]) + rng.normal(0.0, 0.2, n)
+    emit_const_usize("N_PA_STREAM", n)
+    emit_const_usize("P_PA_STREAM", p)
+    emit_array_f64("X_PA_STREAM_FLAT", X.flatten())
+    emit_array_f64("Y_PA_STREAM", y)
+    for tag, loss, c in (("PA1", "epsilon_insensitive", 0.5), ("PA2", "squared_epsilon_insensitive", 0.5)):
+        model = PassiveAggressiveRegressor(
+            C=c, epsilon=0.05, fit_intercept=True, shuffle=False, loss=loss, average=False
+        )
+        model.partial_fit(X, y)
+        emit_const_f64(f"EXPECTED_INTERCEPT_STREAM_{tag}", float(model.intercept_[0]))
+        emit_array_f64(f"EXPECTED_COEFS_STREAM_{tag}", model.coef_)
+    print()
+
+
 def main() -> None:
     emit_header()
     case_pa1_univariate()
     case_pa1_multi()
     case_pa2_multi()
+    case_streaming()
 
 
 if __name__ == "__main__":

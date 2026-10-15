@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.28] - 2026-10-15
+
+### Added
+
+- **Posterior predictive intervals for `BayesianRidge` and `ArdRegression` (DataZooDE/anofox-statistics#61).** Both fits keep the posterior covariance of the coefficients (`sigma()`, sklearn's `sigma_`: `(λI + αXᵀX)⁻¹`, over the kept features for ARD) and the feature means. `predict_std(x)` returns the posterior predictive standard deviation `sqrt((x − x̄)ᵀΣ(x − x̄) + 1/α)`, as sklearn's `predict(X, return_std=True)`, and `predict_with_interval` now returns Gaussian credible bounds `ŷ ± z·sd` (`IntervalType::Prediction`) or, without the `1/α` noise term, bounds for the mean (`IntervalType::Confidence`) instead of point predictions only. New accessors: `n_iter()` on both, `log_marginal_likelihood()` on `FittedBayesianRidge` (sklearn's final `scores_` entry), `kept_features()` on `FittedArd`; `sigma_diag()` now returns a `Vec<f64>` (0 for features ARD pruned).
+- **`solvers::lowess::lowess(x, y, &LowessOptions) -> LowessFit` (DataZooDE/anofox-statistics#63).** Cleveland's robust locally weighted scatterplot smoother, a port of R's `stats::lowess` (`clowess`): `frac` (R's `f`, default 2/3), `iterations` (R's `iter`, default 3) and `delta` (default 1% of the range of `x`). Returns the sorted `x`, the smoothed values and the sort permutation. Validated against R in `tests/r_validation_lowess.rs` (generator `tests/r_scripts/generate_lowess_validation.R`).
+
+### Fixed
+
+- **`BayesianRidge` / `ArdRegression` follow scikit-learn step for step.** Initialisation `α = 1 / (var(y) + eps)`, the convergence test from the second iteration on (ARD: after zeroing pruned coefficients), and the final refit of the posterior mean with the converged hyperparameters, so coefficients, α, λ, `sigma_` and `n_iter_` now agree with scikit-learn 1.9.1 to 1e-8 (previously within 5e-3 / 5e-2). Their `RegressionResult` no longer reports the `RegressionResult::empty` zeros for `adj_r_squared`, `rmse`, `mse`, the F test, the log-likelihood and the information criteria (a 0 log-likelihood read as a perfect fit); these have no classical definition for an empirical-Bayes fit and are NaN.
+- **`LmDynamicRegressor` reproduces `greybox::lmDynamic` (normal distribution, `bruteforce = TRUE`) (DataZooDE/anofox-statistics#63).** The candidate set now includes the intercept-only model; the pointwise information criteria are greybox's `pAIC` / `pAICc` / `pBIC`, `2k − 2·n·ℓ_t` (the log-density was not multiplied by `n`); normal candidates are fitted by least squares with `σ̂² = RSS / (n − k)` as greybox's `lm` path (ALM's ML scale before); weight smoothing follows greybox (R `lowess` on the logits of each model's weights over time, mapped back and renormalised) instead of a tricube moving average of the weights; and `result().log_likelihood` is greybox's combined log-likelihood (each model's log-likelihood weighted by its mean weight) instead of 0. Weights of exactly 0 or 1 are clamped inside (0, 1) before the logit (greybox returns NaN there). Validated in `tests/r_validation_lm_dynamic.rs` (generator `tests/r_scripts/generate_lm_dynamic_validation.R`) against greybox 2.0.9. With no regressors and an intercept the intercept-only model is fitted instead of returning an error.
+
+### Changed
+
+- The Python validation environment pins scikit-learn 1.9.1 and numpy 2.5.4 (was 1.5.2 / 2.1.3); the Theil-Sen, RANSAC, Passive-Aggressive and LARS fixtures are unchanged apart from their headers. `tests/r_validation_passive_aggressive.rs` adds a single in-order online pass checked against sklearn's `partial_fit`.
+
 ## [0.5.27] - 2026-10-14
 
 ### Fixed

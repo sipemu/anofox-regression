@@ -1,9 +1,282 @@
 //! LOWESS (Locally Weighted Scatterplot Smoothing) implementation.
 //!
-//! This module provides LOWESS smoothing for time-varying weight matrices,
-//! primarily used by lmDynamic for smoothing model weights over time.
+//! [`lowess`] is Cleveland's (1979, 1981) robust locally weighted regression
+//! scatterplot smoother, a port of R's `stats::lowess` (the `clowess` routine):
+//! a local linear fit with tricube weights over the `frac · n` nearest
+//! neighbours of each point, `iterations` robustifying passes with bisquare
+//! weights on the residuals (scaled by six times their median absolute value),
+//! and linear interpolation between points closer than `delta`.
+//!
+//! [`lowess_smooth_weights`] / [`lowess_smooth`] are the simpler index-based
+//! smoothers lmDynamic uses for its model weights over time.
 
+use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
+
+/// Options for [`lowess`], with the defaults of R's `stats::lowess`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LowessOptions {
+    /// Smoother span: the fraction of points that influence each fitted
+    /// value (R's `f`, default 2/3). Larger values give more smoothness.
+    pub frac: f64,
+    /// Number of robustifying iterations (R's `iter`, default 3); 0 gives
+    /// the plain, non-robust fit.
+    pub iterations: usize,
+    /// Points within `delta` of the last fitted point are interpolated
+    /// instead of fitted (R's `delta`); `None` uses R's default
+    /// `0.01 · (max(x) − min(x))`.
+    pub delta: Option<f64>,
+}
+
+impl Default for LowessOptions {
+    fn default() -> Self {
+        Self {
+            frac: 2.0 / 3.0,
+            iterations: 3,
+            delta: None,
+        }
+    }
+}
+
+/// Result of [`lowess`]: the smoothed curve at the sorted `x` values, as the
+/// `list(x, y)` R's `stats::lowess` returns.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LowessFit {
+    /// The input `x` values in increasing order (ties keep their input order).
+    pub x: Vec<f64>,
+    /// The smoothed value at each `x`.
+    pub fitted: Vec<f64>,
+    /// `order[k]` is the input position of the `k`-th sorted point, so
+    /// `fitted[k]` is the smoothed value of input row `order[k]`.
+    pub order: Vec<usize>,
+}
+
+/// Robust locally weighted scatterplot smoothing of `y` on `x`, matching R's
+/// `stats::lowess(x, y, f = frac, iter = iterations, delta = delta)`.
+///
+/// # Errors
+/// `DimensionMismatch` when `x` and `y` differ in length,
+/// `InsufficientObservations` for empty input, and `NumericalError` for
+/// non-finite values or invalid options (`frac` must be finite and positive,
+/// `delta` finite and non-negative).
+pub fn lowess(x: &[f64], y: &[f64], options: &LowessOptions) -> Result<LowessFit, RegressionError> {
+    let n = x.len();
+    if y.len() != n {
+        return Err(RegressionError::DimensionMismatch {
+            x_rows: n,
+            y_len: y.len(),
+        });
+    }
+    if n == 0 {
+        return Err(RegressionError::InsufficientObservations { needed: 1, got: 0 });
+    }
+    if x.iter().chain(y).any(|v| !v.is_finite()) {
+        return Err(RegressionError::NumericalError(
+            "lowess: x and y must be finite".to_string(),
+        ));
+    }
+    if !(options.frac.is_finite() && options.frac > 0.0) {
+        return Err(RegressionError::NumericalError(
+            "lowess: frac must be finite and > 0".to_string(),
+        ));
+    }
+
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| x[a].total_cmp(&x[b]));
+    let xs: Vec<f64> = order.iter().map(|&i| x[i]).collect();
+    let ys: Vec<f64> = order.iter().map(|&i| y[i]).collect();
+
+    let delta = options.delta.unwrap_or_else(|| 0.01 * (xs[n - 1] - xs[0]));
+    if !(delta.is_finite() && delta >= 0.0) {
+        return Err(RegressionError::NumericalError(
+            "lowess: delta must be finite and >= 0".to_string(),
+        ));
+    }
+
+    let fitted = clowess(&xs, &ys, options.frac, options.iterations, delta);
+    Ok(LowessFit {
+        x: xs,
+        fitted,
+        order,
+    })
+}
+
+fn fcube(x: f64) -> f64 {
+    x * x * x
+}
+
+/// Fitted value at `xs` from the points `nleft..=nright` (1-based; ties to
+/// the right of `nright` are picked up), R's `lowest`. `None` when every
+/// weight is zero.
+#[allow(clippy::too_many_arguments)]
+fn lowest(
+    x: &[f64],
+    y: &[f64],
+    n: usize,
+    xs: f64,
+    nleft: usize,
+    nright: usize,
+    w: &mut [f64],
+    rw: Option<&[f64]>,
+) -> Option<f64> {
+    let range = x[n] - x[1];
+    let h = (xs - x[nleft]).max(x[nright] - xs);
+    let h9 = 0.999 * h;
+    let h1 = 0.001 * h;
+
+    // Tricube weights, picking up all ties on the right.
+    let mut a = 0.0;
+    let mut j = nleft;
+    while j <= n {
+        w[j] = 0.0;
+        let r = (x[j] - xs).abs();
+        if r <= h9 {
+            w[j] = if r <= h1 {
+                1.0
+            } else {
+                fcube(1.0 - fcube(r / h))
+            };
+            if let Some(rw) = rw {
+                w[j] *= rw[j];
+            }
+            a += w[j];
+        } else if x[j] > xs {
+            break;
+        }
+        j += 1;
+    }
+    let nrt = j - 1;
+    if a <= 0.0 {
+        return None;
+    }
+
+    // Weighted least squares: normalise the weights, then fold in the local
+    // slope when the points are spread out enough to estimate it.
+    for w_j in &mut w[nleft..=nrt] {
+        *w_j /= a;
+    }
+    if h > 0.0 {
+        let center: f64 = (nleft..=nrt).map(|j| w[j] * x[j]).sum();
+        let b = xs - center;
+        let c: f64 = (nleft..=nrt)
+            .map(|j| w[j] * (x[j] - center) * (x[j] - center))
+            .sum();
+        if c.sqrt() > 0.001 * range {
+            let b = b / c;
+            for j in nleft..=nrt {
+                w[j] *= b * (x[j] - center) + 1.0;
+            }
+        }
+    }
+    Some((nleft..=nrt).map(|j| w[j] * y[j]).sum())
+}
+
+/// R's `clowess` on `x` sorted increasingly; returns the fitted values.
+fn clowess(x0: &[f64], y0: &[f64], frac: f64, nsteps: usize, delta: f64) -> Vec<f64> {
+    let n = x0.len();
+    if n < 2 {
+        return vec![y0[0]];
+    }
+    // 1-based copies, as in the C code.
+    let mut x = vec![0.0; n + 1];
+    let mut y = vec![0.0; n + 1];
+    x[1..].copy_from_slice(x0);
+    y[1..].copy_from_slice(y0);
+    let mut ys = vec![0.0; n + 1];
+    let mut w = vec![0.0; n + 1];
+    let mut rw = vec![1.0; n + 1];
+    let mut res = vec![0.0; n];
+
+    // At least two, at most n points.
+    let ns = ((frac * n as f64 + 1e-7) as usize).clamp(2, n);
+
+    let mut iter = 1;
+    while iter <= nsteps + 1 {
+        let mut nleft = 1;
+        let mut nright = ns;
+        let mut last = 0; // index of the previously estimated point
+        let mut i = 1; // index of the current point
+        loop {
+            if nright < n {
+                // Move the window right while that shrinks its radius.
+                let d1 = x[i] - x[nleft];
+                let d2 = x[nright + 1] - x[i];
+                if d1 > d2 {
+                    nleft += 1;
+                    nright += 1;
+                    continue;
+                }
+            }
+
+            let robust = (iter > 1).then_some(rw.as_slice());
+            ys[i] = lowest(&x, &y, n, x[i], nleft, nright, &mut w, robust).unwrap_or(y[i]);
+
+            // Interpolate the points skipped since the last estimate.
+            if last + 1 < i {
+                let denom = x[i] - x[last];
+                for j in last + 1..i {
+                    let alpha = (x[j] - x[last]) / denom;
+                    ys[j] = alpha * ys[i] + (1.0 - alpha) * ys[last];
+                }
+            }
+            last = i;
+
+            // Skip ahead over points within delta; ties share the fit.
+            let cut = x[last] + delta;
+            i = last + 1;
+            while i <= n {
+                if x[i] > cut {
+                    break;
+                }
+                if x[i] == x[last] {
+                    ys[i] = ys[last];
+                    last = i;
+                }
+                i += 1;
+            }
+            i = (last + 1).max(i - 1);
+            if last >= n {
+                break;
+            }
+        }
+
+        for i in 0..n {
+            res[i] = y[i + 1] - ys[i + 1];
+        }
+        let sc = res.iter().map(|r| r.abs()).sum::<f64>() / n as f64;
+        if iter > nsteps {
+            break;
+        }
+
+        // Bisquare robustness weights from 6 · median |residual|.
+        let mut abs_res: Vec<f64> = res.iter().map(|r| r.abs()).collect();
+        abs_res.sort_by(f64::total_cmp);
+        let m1 = n / 2;
+        let cmad = if n.is_multiple_of(2) {
+            3.0 * (abs_res[m1] + abs_res[n - m1 - 1])
+        } else {
+            6.0 * abs_res[m1]
+        };
+        if cmad < 1e-7 * sc {
+            break;
+        }
+        let c9 = 0.999 * cmad;
+        let c1 = 0.001 * cmad;
+        for i in 0..n {
+            let r = res[i].abs();
+            rw[i + 1] = if r <= c1 {
+                1.0
+            } else if r <= c9 {
+                let u = r / cmad;
+                (1.0 - u * u) * (1.0 - u * u)
+            } else {
+                0.0
+            };
+        }
+        iter += 1;
+    }
+    ys[1..].to_vec()
+}
 
 /// Apply LOWESS smoothing to each column of a weight matrix.
 ///
