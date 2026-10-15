@@ -252,7 +252,10 @@ fn clowess(x0: &[f64], y0: &[f64], frac: f64, nsteps: usize, delta: f64) -> Vec<
         let mut abs_res: Vec<f64> = res.iter().map(|r| r.abs()).collect();
         abs_res.sort_by(f64::total_cmp);
         let m1 = n / 2;
-        let cmad = if n.is_multiple_of(2) {
+        // `n % 2 == 0` rather than `usize::is_multiple_of`, which needs
+        // Rust >= 1.87 (the DuckDB wasm toolchain is older). See #20.
+        #[allow(clippy::manual_is_multiple_of)]
+        let cmad = if n % 2 == 0 {
             3.0 * (abs_res[m1] + abs_res[n - m1 - 1])
         } else {
             6.0 * abs_res[m1]
