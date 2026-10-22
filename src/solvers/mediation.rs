@@ -865,6 +865,113 @@ mod tests {
     }
 
     #[test]
+    fn option_and_input_errors() {
+        let (y, m, x, c) = data();
+        let none: &[Vec<f64>] = &[];
+        for (o, field) in [
+            (
+                MediationOptions {
+                    conf_level: 1.0,
+                    ..Default::default()
+                },
+                "conf_level",
+            ),
+            (
+                MediationOptions {
+                    n_sims: 1,
+                    ..Default::default()
+                },
+                "n_sims",
+            ),
+            (
+                MediationOptions {
+                    treat_value: f64::NAN,
+                    ..Default::default()
+                },
+                "treat_value",
+            ),
+        ] {
+            assert!(matches!(
+                mediate(&y, &m, &x, none, &o),
+                Err(MediationError::InvalidValue { field: f, .. }) if f == field
+            ));
+        }
+        assert!(matches!(
+            mediate(&y, &m, &x, &[&c[1..]], &MediationOptions::default()),
+            Err(MediationError::DimensionMismatch {
+                field: "covariates",
+                ..
+            })
+        ));
+        assert!(matches!(
+            mediate(&y, &m, &x[1..], none, &MediationOptions::default()),
+            Err(MediationError::DimensionMismatch { field: "x", .. })
+        ));
+        // A mediator collinear with the treatment leaves b unidentified.
+        assert!(matches!(
+            mediate(&y, &x, &x, none, &MediationOptions::default()),
+            Err(MediationError::NotIdentified(_))
+        ));
+    }
+
+    #[test]
+    fn bootstrap_fails_when_resamples_are_degenerate() {
+        // Treatment 1 in a single row: almost every resample misses it or
+        // repeats it, so the treatment is constant and a is not identified.
+        let n = 6;
+        let x: Vec<f64> = (0..n).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect();
+        let m = [0.9, 0.1, 0.3, 0.2, 0.4, 0.0];
+        let y = [2.0, 0.2, 0.5, 0.1, 0.9, 0.3];
+        let failed = (0..20u64).any(|seed| {
+            let o = MediationOptions {
+                n_sims: 2,
+                seed,
+                ..Default::default()
+            };
+            matches!(
+                mediate(&y, &m, &x, &[] as &[Vec<f64>], &o),
+                Err(MediationError::BootstrapFailed { requested: 2, .. })
+            )
+        });
+        assert!(failed);
+    }
+
+    #[test]
+    fn quasi_bayesian_and_bca_run() {
+        let (y, m, x, c) = data();
+        for (method, boot_ci) in [
+            (MediationMethod::QuasiBayesian, BootCi::Percentile),
+            (MediationMethod::Bootstrap, BootCi::Bca),
+        ] {
+            let o = MediationOptions {
+                method,
+                boot_ci,
+                n_sims: 100,
+                ..Default::default()
+            };
+            let r = mediate(&y, &m, &x, std::slice::from_ref(&c), &o).unwrap();
+            assert_eq!(r.n_sims, 100);
+            assert_eq!(r.method, method);
+            assert!(r.acme.conf_low < r.acme.conf_high);
+            assert!(r.acme.statistic.is_nan());
+        }
+    }
+
+    #[test]
+    fn from_draws_edge_cases() {
+        let e = MediationEffect::from_draws(1.0, &[f64::NAN, 2.0], 0.95, BootCi::Percentile);
+        assert_eq!(e.estimate, 1.0);
+        assert!(e.std_error.is_nan() && e.conf_low.is_nan());
+        let e = MediationEffect::from_draws(0.0, &[-1.0, 1.0, 2.0], 0.95, BootCi::Percentile);
+        assert_eq!(e.p_value, 1.0);
+        let e = MediationEffect::from_draws(1.0, &[1.0, 2.0, 3.0, -1.0], 0.5, BootCi::Percentile);
+        assert!((e.p_value - 0.5).abs() < 1e-12);
+        assert!(median(&[f64::NAN]).is_nan());
+        assert!((median(&[3.0, 1.0, 2.0]) - 2.0).abs() < 1e-12);
+        assert!(quantile_type7(&[1.0, 2.0], f64::NAN).is_nan());
+    }
+
+    #[test]
     fn quantile_type7_matches_r() {
         // quantile(c(1, 2, 4, 8), c(0.025, 0.5, 0.975))
         let s = [1.0, 2.0, 4.0, 8.0];
