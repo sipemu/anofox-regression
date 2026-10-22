@@ -40,6 +40,18 @@
 //! The negative binomial follows R's `glm.nb` objects: `φ = 1` for the
 //! standardised residuals and Cook's distance, but the leave-one-out scale for
 //! the studentised residuals and DFFITS. Rows with `hᵢ = 1` give `NaN`.
+//!
+//! # Leave-one-out (PRESS)
+//!
+//! For the linear models the exact leave-one-out prediction error follows from
+//! the leverage without refitting: `loo_residual = (yᵢ − ŷᵢ) / (1 − hᵢ)` is
+//! `yᵢ − ŷ₍ᵢ₎`, the error of the fit without row `i`, and `loo_fitted = ŷ₍ᵢ₎`.
+//! For OLS `loo_residual` is R's `rstandard(fit, type = "predictive")`; for WLS
+//! it stays on the response scale (R's predictive residual is `√wᵢ` times it)
+//! and [`press`] weights it by `wᵢ`. A row with `hᵢ > 1 − 10ε` (R's
+//! `lm.influence` threshold: the row alone determines its fitted value) has no
+//! leave-one-out prediction and gives `NaN`. The GLMs have no closed form and
+//! give `NaN` throughout.
 
 use crate::core::{GlmFamily, RegressionResult};
 use crate::solvers::penalized_glm::{DispersionRule, GlmEngineError, GlmEngineResult, GlmResult};
@@ -92,7 +104,32 @@ pub struct Augment {
     pub cooks_d: Col<f64>,
     /// DFFITS, R's `dffits`.
     pub dffits: Col<f64>,
+    /// Leave-one-out (PRESS) residual `(yᵢ − ŷᵢ) / (1 − hᵢ)` = `yᵢ − ŷ₍ᵢ₎`,
+    /// on the response scale; `NaN` for GLMs and rows with `hᵢ = 1`.
+    pub loo_residual: Col<f64>,
+    /// Leave-one-out prediction `ŷ₍ᵢ₎ = yᵢ − loo_residual`, the fitted value of
+    /// row `i` from the fit without it; `NaN` where `loo_residual` is.
+    pub loo_fitted: Col<f64>,
 }
+
+/// Leave-one-out fit statistics returned by [`press`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Press {
+    /// Prediction sum of squares `Σ wᵢ loo_residualᵢ²` (unit weights for OLS),
+    /// `NaN` when a row has `hᵢ = 1`.
+    pub press: f64,
+    /// `√(press / n)`.
+    pub press_rmse: f64,
+    /// Predicted R² (Q²) `1 − press / SST`, with the total sum of squares of
+    /// the fit's R²: `Σ wᵢ (yᵢ − ȳ_w)²` with an intercept, `Σ wᵢ yᵢ²` without.
+    pub loo_r_squared: f64,
+    /// Number of rows with positive weight.
+    pub n: usize,
+}
+
+/// Leverage above which a row determines its own fitted value (R's
+/// `lm.influence` sets `h > 1 − 10ε` to 1).
+const LOO_HAT_MAX: f64 = 1.0 - 10.0 * f64::EPSILON;
 
 /// What [`augment`] needs to know about a fit.
 ///
@@ -233,6 +270,70 @@ pub fn augment_with<M: Augmentable + ?Sized>(
     }))
 }
 
+/// Leave-one-out fit statistics of a least-squares fit ([`FittedOls`],
+/// [`FittedWls`]) from its [`Augment::loo_residual`]s, without refitting.
+///
+/// `x`, `y` and `weights` are as for [`augment`]. With unit weights `press` is
+/// R's `sum((residuals(fit) / (1 - hatvalues(fit)))^2)`; with weights it is
+/// `sum(rstandard(fit, type = "predictive")^2)`. Rows with zero weight do not
+/// count. A row with `hᵢ = 1` (or a fit with no residual degrees of freedom)
+/// makes `press`, `press_rmse` and `loo_r_squared` `NaN`, as does a constant
+/// response (`SST = 0`) for `loo_r_squared`. GLM fits have no exact
+/// leave-one-out residuals and give `NaN` statistics.
+///
+/// # Errors
+///
+/// As [`augment`].
+pub fn press<M: Augmentable + ?Sized>(
+    fit: &M,
+    x: &Mat<f64>,
+    y: &Col<f64>,
+    weights: Option<&Col<f64>>,
+) -> Result<Press, RegressionError> {
+    let spec = fit.augment_spec();
+    let with_intercept = spec.result.intercept.is_some();
+    let weights = weights.or(spec.weights);
+    let a = augment_with(fit, x, y, weights, ResidualType::Response)?;
+    Ok(press_from(&a, y, weights, with_intercept))
+}
+
+/// [`Press`] from the leave-one-out residuals of an [`Augment`].
+fn press_from(
+    a: &Augment,
+    y: &Col<f64>,
+    weights: Option<&Col<f64>>,
+    with_intercept: bool,
+) -> Press {
+    let w = |i: usize| weights.map_or(1.0, |w| w[i]);
+    let rows: Vec<usize> = (0..y.nrows()).filter(|&i| w(i) > 0.0).collect();
+    let n = rows.len();
+    let press: f64 = rows
+        .iter()
+        .map(|&i| w(i) * a.loo_residual[i] * a.loo_residual[i])
+        .sum();
+    let center = if with_intercept {
+        let sw: f64 = rows.iter().map(|&i| w(i)).sum();
+        rows.iter().map(|&i| w(i) * y[i]).sum::<f64>() / sw
+    } else {
+        0.0
+    };
+    let sst: f64 = rows
+        .iter()
+        .map(|&i| w(i) * (y[i] - center) * (y[i] - center))
+        .sum();
+    let loo_r_squared = if sst > 0.0 {
+        1.0 - press / sst
+    } else {
+        f64::NAN
+    };
+    Press {
+        press,
+        press_rmse: (press / n as f64).sqrt(),
+        loo_r_squared,
+        n,
+    }
+}
+
 /// Everything the diagnostics are computed from, after the model-specific
 /// parts (aliased columns, offset, dropped rows) have been resolved.
 struct Core<'a> {
@@ -368,6 +469,15 @@ fn augment_core(c: &Core<'_>) -> Augment {
         nan_if_inf(pearson[i] * h.sqrt() / (scale(i) * (1.0 - h)))
     });
 
+    let loo_residual = Col::from_fn(n, |i| {
+        if family.is_some() || prior(i) <= 0.0 || leverage[i] > LOO_HAT_MAX {
+            f64::NAN
+        } else {
+            nan_if_inf((y[i] - mu[i]) / (1.0 - leverage[i]))
+        }
+    });
+    let loo_fitted = Col::from_fn(n, |i| y[i] - loo_residual[i]);
+
     Augment {
         fitted: mu.clone(),
         residual,
@@ -377,6 +487,8 @@ fn augment_core(c: &Core<'_>) -> Augment {
         leverage,
         cooks_d,
         dffits,
+        loo_residual,
+        loo_fitted,
     }
 }
 
@@ -592,5 +704,7 @@ pub(crate) fn augment_glm_impl(
         leverage: expand(&a.leverage),
         cooks_d: expand(&a.cooks_d),
         dffits: expand(&a.dffits),
+        loo_residual: expand(&a.loo_residual),
+        loo_fitted: expand(&a.loo_fitted),
     })
 }

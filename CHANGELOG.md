@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.35] - 2026-10-23
+
+### Added
+
+- **Leave-one-out (PRESS) diagnostics for the least-squares fits (#88, DataZooDE/anofox-statistics#220).** `diagnostics::Augment` has two new fields: `loo_residual = (yᵢ − ŷᵢ) / (1 − hᵢ)`, the exact error `yᵢ − ŷ₍ᵢ₎` of the fit without row `i` (R's `rstandard(fit, type = "predictive")` for OLS; on the response scale for WLS), and `loo_fitted = ŷ₍ᵢ₎`. New `diagnostics::press(fit, x, y, weights) -> Press { press, press_rmse, loo_r_squared, n }`: `press = Σ wᵢ loo_residualᵢ²` (R's `sum(rstandard(fit, type = "predictive")^2)`), `press_rmse = √(press / n)` and the predicted R² `1 − press / SST`, with the SST of the fit's R² (centred with an intercept, uncentred without). No refitting: both come from the leverage. A row with `hᵢ > 1 − 10ε` (R's `lm.influence` threshold, e.g. a dummy with one observation, or zero residual degrees of freedom) has no leave-one-out prediction and gives NaN, as do `press` and its derived statistics; the GLMs give NaN (no exact closed form). Validated against R in `tests/r_validation_loo_press.rs` (generator `tests/r_scripts/generate_loo_press_validation.R`, every residual also checked against an explicit refit). Ridge (`H = X(XᵀX + λI)⁻¹Xᵀ`) is not covered yet.
+
+### Changed
+
+- `diagnostics::Augment` has the two new public fields above; code that builds an `Augment` with a struct literal must set them.
 ## [0.5.34] - 2026-10-23
 
 ### Added
