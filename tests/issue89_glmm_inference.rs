@@ -99,6 +99,18 @@ fn check_re_se(tag: &str, got: &[Vec<f64>], ids: &[usize], want: &[f64], tol: f6
     }
 }
 
+/// BLUP intervals (`broom.mixed` ran_vals, 95%) against the reference bounds.
+fn check_re_ci(
+    tag: &str,
+    ci: (Vec<Vec<f64>>, Vec<Vec<f64>>),
+    ids: &[usize],
+    lo: &[f64],
+    hi: &[f64],
+) {
+    check_re_se(&format!("{tag} lo95"), &ci.0, ids, lo, SE_TOL);
+    check_re_se(&format!("{tag} hi95"), &ci.1, ids, hi, SE_TOL);
+}
+
 fn check_observations(
     tag: &str,
     fit: &FittedGlmm,
@@ -163,6 +175,13 @@ fn lmm_random_intercept_matches_lmertest() {
         &LMM_A_RE_SE_G,
         SE_TOL,
     );
+    check_re_ci(
+        "LMM_A",
+        fit.random_effects_conf_int(0.95),
+        &G_LMM_A,
+        &LMM_A_RANVALS_LO95_G,
+        &LMM_A_RANVALS_HI95_G,
+    );
     check_observations(
         "LMM_A",
         &fit,
@@ -221,6 +240,13 @@ fn lmm_random_slope_matches_lmertest() {
         &SLOPE_E_RE_SE_G,
         SE_TOL,
     );
+    check_re_ci(
+        "SLOPE_E",
+        fit.random_effects_conf_int(0.95),
+        &G_SLOPE_E,
+        &SLOPE_E_RANVALS_LO95_G,
+        &SLOPE_E_RANVALS_HI95_G,
+    );
     check_observations(
         "SLOPE_E",
         &fit,
@@ -264,6 +290,20 @@ fn lmm_crossed_matches_lmertest() {
         &B_CROSS_F,
         &CROSS_F_RE_SE_B,
         SE_TOL,
+    );
+    check_re_ci(
+        "CROSS_F a",
+        fit.factor_random_effects_conf_int(0, 0.95).unwrap(),
+        &A_CROSS_F,
+        &CROSS_F_RANVALS_LO95_A,
+        &CROSS_F_RANVALS_HI95_A,
+    );
+    check_re_ci(
+        "CROSS_F b",
+        fit.factor_random_effects_conf_int(1, 0.95).unwrap(),
+        &B_CROSS_F,
+        &CROSS_F_RANVALS_LO95_B,
+        &CROSS_F_RANVALS_HI95_B,
     );
     check_observations(
         "CROSS_F",
@@ -424,6 +464,13 @@ fn glmm_wald_inference_and_blup_se_match_glmer() {
         &POIS_C_RE_SE_G,
         SE_TOL,
     );
+    check_re_ci(
+        "POIS_C",
+        fit.random_effects_conf_int(0.95),
+        &G_POIS_C,
+        &POIS_C_RANVALS_LO95_G,
+        &POIS_C_RANVALS_HI95_G,
+    );
     check_observations(
         "POIS_C",
         &fit,
@@ -556,6 +603,13 @@ fn glmm_crossed_with_random_slope_matches_glmer() {
         &PO_O_RE_SE_B,
         SE_TOL,
     );
+    check_re_ci(
+        "PO_O a",
+        fit.factor_random_effects_conf_int(0, 0.95).unwrap(),
+        &A,
+        &PO_O_RANVALS_LO95_A,
+        &PO_O_RANVALS_HI95_A,
+    );
     check_observations(
         "PO_O",
         &fit,
@@ -583,6 +637,9 @@ fn wald_inference_matches_the_existing_accessors() {
     assert_eq!(w.p_values, fit.p_values());
     assert_eq!(w.conf_low, lo);
     assert_eq!(w.conf_high, hi);
+    let (lo, _) = fit.random_effects_conf_int(1.5);
+    assert!(lo.iter().flatten().all(|v| v.is_nan()));
+    assert!(fit.factor_random_effects_conf_int(0, 0.95).is_none());
     // An invalid level gives NaN bounds, not an error.
     let fit = lmm()
         .build()

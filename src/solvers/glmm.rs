@@ -1544,6 +1544,24 @@ impl FittedGlmm {
         self.factor_details.get(f).map(|d| d.se.as_slice())
     }
 
+    /// Normal intervals `b ∓ z_{(1+level)/2} · se` for the BLUPs of every group
+    /// (`n_groups × q` lower and upper bounds, layout of
+    /// [`random_effects_matrix`](Self::random_effects_matrix)), as
+    /// `broom.mixed::tidy(m, effects = "ran_vals", conf.int = TRUE)`. Bounds
+    /// are `NaN` for a `level` outside `(0, 1)`.
+    pub fn random_effects_conf_int(&self, level: f64) -> IntervalBounds {
+        normal_intervals(&self.re_matrix, &self.re_se, level)
+    }
+
+    /// [`random_effects_conf_int`](Self::random_effects_conf_int) for
+    /// grouping factor `f` of a crossed / nested fit; `None` for a
+    /// single-factor fit or an out-of-range `f`.
+    pub fn factor_random_effects_conf_int(&self, f: usize, level: f64) -> Option<IntervalBounds> {
+        self.factor_details
+            .get(f)
+            .map(|d| normal_intervals(&d.re, &d.se, level))
+    }
+
     /// Conditional fitted values of the training data on the response scale,
     /// `g⁻¹(x'β + z'b + offset)` with the BLUPs — lme4's `fitted()`.
     pub fn fitted_values(&self) -> &[f64] {
@@ -2943,6 +2961,25 @@ fn scale_matrix(m: &[Vec<f64>], s: f64) -> Vec<Vec<f64>> {
 
 fn diag_sqrt(m: &[Vec<f64>]) -> Vec<f64> {
     (0..m.len()).map(|i| m[i][i].max(0.0).sqrt()).collect()
+}
+
+/// Lower and upper interval bounds, one `q`-vector per group each.
+type IntervalBounds = (Vec<Vec<f64>>, Vec<Vec<f64>>);
+
+/// `est ∓ z_{(1+level)/2} · se`, elementwise over `n × q` matrices; NaN bounds
+/// for an invalid `level`.
+fn normal_intervals(est: &[Vec<f64>], se: &[Vec<f64>], level: f64) -> IntervalBounds {
+    let q = if level > 0.0 && level < 1.0 {
+        Normal::new(0.0, 1.0)
+            .expect("standard normal")
+            .inverse_cdf(0.5 + level / 2.0)
+    } else {
+        f64::NAN
+    };
+    est.iter()
+        .zip(se)
+        .map(|(b, s)| b.iter().zip(s).map(|(b, s)| (b - q * s, b + q * s)).unzip())
+        .unzip()
 }
 
 /// Conditional standard errors of one group's random effects: the square
