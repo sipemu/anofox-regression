@@ -61,11 +61,11 @@ pub mod prelude {
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
         FactorSummary, FittedAlm, FittedBinomial, FittedGamma, FittedGlmm, FittedHuber,
         FittedIsotonic, FittedLogistic, FittedNegativeBinomial, FittedPSpline, FittedPls,
-        FittedPoisson, FittedQuantile, FittedRegressor, FittedTweedie, GammaRegressor,
-        GlmmRegressor, GlmmRegressorBuilder, HuberRegressor, IsotonicRegressor, LinkFunction,
-        LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds, PSplineRegressor,
-        Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor, RidgeRegressor,
-        RlsRegressor, TweedieRegressor, WlsRegressor,
+        FittedPoisson, FittedQuantile, FittedRegressor, FittedTweedie, GammaRegressor, GlmmDdf,
+        GlmmInference, GlmmRegressor, GlmmRegressorBuilder, HuberRegressor, IsotonicRegressor,
+        LinkFunction, LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds,
+        PSplineRegressor, Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor,
+        RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
     };
 }
 
@@ -81,7 +81,8 @@ pub use crate::inference::{
 };
 pub use crate::solvers::{
     BinomialRegressor, FactorSummary, FittedBinomial, FittedGlmm, FittedIsotonic,
-    FittedNegativeBinomial, FittedPSpline, FittedPoisson, FittedQuantile, FittedRegressor,
-    GlmmRegressor, GlmmRegressorBuilder, IsotonicRegressor, NegativeBinomialRegressor, OutOfBounds,
-    PSplineRegressor, PoissonRegressor, QuantileRegressor, Regressor,
+    FittedNegativeBinomial, FittedPSpline, FittedPoisson, FittedQuantile, FittedRegressor, GlmmDdf,
+    GlmmInference, GlmmRegressor, GlmmRegressorBuilder, IsotonicRegressor,
+    NegativeBinomialRegressor, OutOfBounds, PSplineRegressor, PoissonRegressor, QuantileRegressor,
+    Regressor,
 };
