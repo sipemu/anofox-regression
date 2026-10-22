@@ -272,3 +272,108 @@ fn ard_matches_sklearn() {
         );
     }
 }
+
+// Posterior SDs and 90% central credible intervals (#92). The coefficient SDs
+// are sklearn's `sqrt(diag(sigma_))`; the intercept SD is checked against the
+// (0, 0) element of the inverted full posterior precision of (b0, β) with a
+// flat prior on b0, computed independently in the generator.
+
+fn check_credible(
+    ci: &anofox_regression::solvers::CredibleIntervals,
+    sd: &[f64],
+    lo: &[f64],
+    hi: &[f64],
+    intercept: Option<(f64, f64, f64)>,
+) {
+    assert_eq!(ci.level, 0.9);
+    assert_all_close("posterior sd", &ci.sd, sd, TOL);
+    assert_all_close("credible lower", &ci.lower, lo, TOL);
+    assert_all_close("credible upper", &ci.upper, hi, TOL);
+    match intercept {
+        Some((b0_sd, b0_lo, b0_hi)) => {
+            assert_close("intercept sd", ci.intercept_sd.unwrap(), b0_sd, TOL);
+            let (l, h) = ci.intercept_interval.unwrap();
+            assert_close("intercept lower", l, b0_lo, TOL);
+            assert_close("intercept upper", h, b0_hi, TOL);
+        }
+        None => {
+            assert!(ci.intercept_sd.is_none());
+            assert!(ci.intercept_interval.is_none());
+        }
+    }
+}
+
+/// (x row-major, y, n, p, fit_intercept)
+type Case<'a> = (&'a [f64], &'a [f64], usize, usize, bool);
+
+#[test]
+fn bayesian_ridge_credible_intervals_match_sklearn_posterior() {
+    let cases: [Case; 3] = [
+        (&X_BR_FLAT, &Y_BR, N_BR, P_BR, true),
+        (&X_BRW_FLAT, &Y_BRW, N_BRW, P_BRW, true),
+        (&X_BRN_FLAT, &Y_BRN, N_BRN, P_BRN, false),
+    ];
+    let expected = [
+        (
+            &EXPECTED_POST_SD_BR[..],
+            &EXPECTED_CRED_LO_BR[..],
+            &EXPECTED_CRED_HI_BR[..],
+            Some((
+                EXPECTED_INTERCEPT_SD_BR,
+                EXPECTED_INTERCEPT_CRED_LO_BR,
+                EXPECTED_INTERCEPT_CRED_HI_BR,
+            )),
+        ),
+        (
+            &EXPECTED_POST_SD_BRW[..],
+            &EXPECTED_CRED_LO_BRW[..],
+            &EXPECTED_CRED_HI_BRW[..],
+            Some((
+                EXPECTED_INTERCEPT_SD_BRW,
+                EXPECTED_INTERCEPT_CRED_LO_BRW,
+                EXPECTED_INTERCEPT_CRED_HI_BRW,
+            )),
+        ),
+        (
+            &EXPECTED_POST_SD_BRN[..],
+            &EXPECTED_CRED_LO_BRN[..],
+            &EXPECTED_CRED_HI_BRN[..],
+            None,
+        ),
+    ];
+    for ((x_flat, y, n, p, intercept), (sd, lo, hi, b0)) in cases.into_iter().zip(expected) {
+        let x = matrix(x_flat, n, p);
+        let y = Col::from_fn(n, |i| y[i]);
+        let fitted = BayesianRidge::builder()
+            .fit_intercept(intercept)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+        check_credible(&fitted.credible_intervals(0.9), sd, lo, hi, b0);
+    }
+}
+
+#[test]
+fn ard_credible_intervals_match_sklearn_posterior() {
+    let x = matrix(&X_ARD_FLAT, N_ARD, P_ARD);
+    let y = Col::from_fn(N_ARD, |i| Y_ARD[i]);
+    let fitted = ArdRegression::builder().build().fit(&x, &y).unwrap();
+    let ci = fitted.credible_intervals(0.9);
+    check_credible(
+        &ci,
+        &EXPECTED_POST_SD_ARD,
+        &EXPECTED_CRED_LO_ARD,
+        &EXPECTED_CRED_HI_ARD,
+        Some((
+            EXPECTED_INTERCEPT_SD_ARD,
+            EXPECTED_INTERCEPT_CRED_LO_ARD,
+            EXPECTED_INTERCEPT_CRED_HI_ARD,
+        )),
+    );
+    // Pruned features: SD 0 and the degenerate interval [0, 0].
+    for (j, &kept) in EXPECTED_KEPT_ARD.iter().enumerate() {
+        if kept == 0.0 {
+            assert_eq!((ci.sd[j], ci.lower[j], ci.upper[j]), (0.0, 0.0, 0.0));
+        }
+    }
+}

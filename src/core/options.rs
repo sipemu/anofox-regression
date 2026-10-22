@@ -106,6 +106,8 @@ pub enum OptionsError {
     InvalidMaxIterations(usize),
     #[error("alpha > 0 requires lambda > 0 for elastic net")]
     ElasticNetRequiresLambda,
+    #[error("{0}")]
+    Unsupported(String),
 }
 
 impl RegressionOptions {
