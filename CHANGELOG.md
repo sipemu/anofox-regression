@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.31] - 2026-10-22
+
+### Added
+
+- **`solvers::mediation::mediate(y, m, x, covariates, &MediationOptions) -> MediationResult` (#91, DataZooDE/anofox-statistics#223).** Causal mediation analysis for linear models, the no-interaction case of R's `mediation::mediate`: the mediator model `M ~ X + C` (path `a`) and the outcome model `Y ~ X + M + C` (`b`, `c'`) are fitted by OLS on the same complete rows, giving the ACME `a·b·Δ`, the ADE `c'·Δ`, the total effect and the proportion mediated for the contrast `Δ = treat_value − control_value`. Inference by a seeded nonparametric case-resampling bootstrap (default; percentile or `mediate`'s BCa interval, bootstrap SD as `std_error`, `mediate`'s p-value `2·min(#>0, #<0)/#draws`), the Sobel / delta method, or `mediate`'s quasi-Bayesian Monte Carlo. `MediationEffect::from_draws` summarises draws as `mediate` does. Validated in `tests/r_validation_mediation.rs` (generator `tests/r_scripts/generate_mediation_validation.R`): point estimates match `mediate`, `lavaan` and `lm` to 1e-10, intervals and p-values match `mediate` exactly given its own draws and within simulation error from ours, and the Sobel z matches `bda::mediation.test`.
+
 ## [0.5.30] - 2026-10-22
 
 ### Added
