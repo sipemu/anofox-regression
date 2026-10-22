@@ -9,7 +9,7 @@ mod bls;
 pub mod cv;
 pub mod eb_shrink;
 mod elastic_net;
-mod fit_stats;
+pub(crate) mod fit_stats;
 mod gamma;
 mod glm_alias;
 mod glmm;

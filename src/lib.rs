@@ -48,7 +48,10 @@ pub mod prelude {
         Augmentable, ConditionDiagnostic, ConditionSeverity, ResidualType, SeparationCheck,
         SeparationType,
     };
-    pub use crate::inference::{HcInference, HcType, PredictSeOptions, PredictWithSe};
+    pub use crate::inference::{
+        nested_f_test, nested_f_test_indices, HcInference, HcType, NestedFTest, NestedFTestError,
+        NestedFTestOptions, PredictSeOptions, PredictWithSe,
+    };
     pub use crate::solvers::aft::{AftDistribution, AftRegressor, FittedAft};
     pub use crate::solvers::eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, TauMethod};
     pub use crate::solvers::penalized_glm::{
@@ -72,7 +75,10 @@ pub use crate::core::{
     PredictionResult, PredictionType, RegressionOptions, RegressionOptionsBuilder,
     RegressionResult, SolverType, TweedieFamily,
 };
-pub use crate::inference::{HcInference, HcType};
+pub use crate::inference::{
+    nested_f_test, nested_f_test_indices, HcInference, HcType, NestedFTest, NestedFTestError,
+    NestedFTestOptions,
+};
 pub use crate::solvers::{
     BinomialRegressor, FactorSummary, FittedBinomial, FittedGlmm, FittedIsotonic,
     FittedNegativeBinomial, FittedPSpline, FittedPoisson, FittedQuantile, FittedRegressor,
