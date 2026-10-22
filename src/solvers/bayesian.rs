@@ -220,6 +220,80 @@ impl Posterior<'_> {
         let upper = Col::from_fn(n, |i| fit[i] + z * sd[i]);
         PredictionResult::with_intervals(fit, lower, upper, sd)
     }
+
+    /// Posterior SDs and central credible intervals of the coefficients and
+    /// the intercept (see [`CredibleIntervals`]).
+    fn credible_intervals(&self, result: &RegressionResult, level: f64) -> CredibleIntervals {
+        let z = Normal::new(0.0, 1.0)
+            .map(|d| d.inverse_cdf(0.5 + level / 2.0))
+            .unwrap_or(f64::NAN);
+        let p = result.coefficients.nrows();
+        let mut sd = vec![0.0; p];
+        for (a, &j) in self.columns.iter().enumerate() {
+            sd[j] = self.sigma[(a, a)].max(0.0).sqrt();
+        }
+        let coef = &result.coefficients;
+        let lower = (0..p).map(|j| coef[j] - z * sd[j]).collect();
+        let upper = (0..p).map(|j| coef[j] + z * sd[j]).collect();
+
+        // Flat prior on the intercept: with the centred design the posterior
+        // of `c = b0 + x̄ᵀβ` is N(ȳ, 1/(nα)), independent of β, so
+        // Var(b0) = 1/(nα) + x̄ᵀ Σ x̄.
+        let intercept_sd = result.intercept.map(|_| {
+            let k = self.columns.len();
+            let mut q = 0.0_f64;
+            for a in 0..k {
+                let mut s = 0.0;
+                for b in 0..k {
+                    s += self.sigma[(a, b)] * self.x_mean[self.columns[b]];
+                }
+                q += self.x_mean[self.columns[a]] * s;
+            }
+            let n = result.n_observations as f64;
+            (q.max(0.0) + 1.0 / (n * self.alpha)).sqrt()
+        });
+        let intercept_interval = result
+            .intercept
+            .zip(intercept_sd)
+            .map(|(b0, s)| (b0 - z * s, b0 + z * s));
+        CredibleIntervals {
+            level,
+            sd,
+            lower,
+            upper,
+            intercept_sd,
+            intercept_interval,
+        }
+    }
+}
+
+/// Posterior standard deviations and central credible intervals of the
+/// coefficients of a [`FittedBayesianRidge`] / [`FittedArd`].
+///
+/// Conditional on the estimated precisions (empirical Bayes), the posterior
+/// of the coefficients is Gaussian with mean `coefficients` and covariance
+/// `Σ`. The interval at `level` is `mean ± z_{(1+level)/2} · sd` with
+/// `sd = sqrt(diag(Σ))` (ARD: 0 for pruned features, whose interval is
+/// `[0, 0]`). These are Bayesian credible intervals, not frequentist
+/// confidence intervals, and there is no test statistic or p-value.
+///
+/// The intercept is not part of `Σ` (as in scikit-learn): it is given a flat
+/// prior, so its posterior SD is `sqrt(1/(n·α) + x̄ᵀ Σ x̄)`: the noise
+/// uncertainty of `ȳ` plus the propagated slope uncertainty from centring.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CredibleIntervals {
+    /// Credible level of the intervals.
+    pub level: f64,
+    /// Posterior standard deviation of each coefficient.
+    pub sd: Vec<f64>,
+    /// Lower interval bound of each coefficient.
+    pub lower: Vec<f64>,
+    /// Upper interval bound of each coefficient.
+    pub upper: Vec<f64>,
+    /// Posterior standard deviation of the intercept (`None` without one).
+    pub intercept_sd: Option<f64>,
+    /// Credible interval of the intercept (`None` without one).
+    pub intercept_interval: Option<(f64, f64)>,
 }
 
 fn linear_predict(x: &Mat<f64>, result: &RegressionResult) -> Col<f64> {
@@ -477,6 +551,18 @@ impl FittedBayesianRidge {
     pub fn predict_std(&self, x: &Mat<f64>) -> Col<f64> {
         let columns: Vec<usize> = (0..x.ncols()).collect();
         posterior_std(x, &self.x_mean, &columns, &self.sigma, 1.0 / self.alpha)
+    }
+    /// Posterior SDs and central credible intervals at `level` of the
+    /// coefficients and the intercept; see [`CredibleIntervals`].
+    pub fn credible_intervals(&self, level: f64) -> CredibleIntervals {
+        let columns: Vec<usize> = (0..self.sigma.nrows()).collect();
+        Posterior {
+            x_mean: &self.x_mean,
+            columns: &columns,
+            sigma: &self.sigma,
+            alpha: self.alpha,
+        }
+        .credible_intervals(&self.result, level)
     }
 }
 
@@ -755,6 +841,18 @@ impl FittedArd {
     /// sklearn's `predict(X, return_std=True)`.
     pub fn predict_std(&self, x: &Mat<f64>) -> Col<f64> {
         posterior_std(x, &self.x_mean, &self.kept, &self.sigma, 1.0 / self.alpha)
+    }
+    /// Posterior SDs and central credible intervals at `level` of the
+    /// coefficients (pruned features: SD 0, interval `[0, 0]`) and the
+    /// intercept; see [`CredibleIntervals`].
+    pub fn credible_intervals(&self, level: f64) -> CredibleIntervals {
+        Posterior {
+            x_mean: &self.x_mean,
+            columns: &self.kept,
+            sigma: &self.sigma,
+            alpha: self.alpha,
+        }
+        .credible_intervals(&self.result, level)
     }
 }
 

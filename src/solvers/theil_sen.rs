@@ -14,6 +14,34 @@
 //! subsample (matching sklearn's deterministic path); otherwise it draws
 //! `max_subpopulation` random subsamples using the provided seed.
 //!
+//! # Inference
+//!
+//! With [`compute_inference`](TheilSenRegressorBuilder::compute_inference)
+//! the fit also carries coefficient intervals at
+//! [`confidence_level`](TheilSenRegressorBuilder::confidence_level), from one
+//! of two methods ([`TheilSenCiMethod`]):
+//!
+//! - **Exact** (one feature with an intercept, the median-of-pairwise-slopes
+//!   path): the distribution-free interval of Sen (1968). With `N` pairwise
+//!   slopes sorted, the bounds are the slopes at ranks `round((N − C)/2)` and
+//!   `round((N + C)/2 + 1)`, `C = z_{(1+level)/2} · sqrt(Var S)`, where `S` is
+//!   Kendall's score of `(x, y)` and `Var S` its tie-corrected null variance.
+//!   The slope also gets Kendall's continuity-corrected `z = sign(S)(|S| − 1) /
+//!   sqrt(Var S)` (in `t_statistics`) and its two-sided normal p-value for
+//!   slope = 0. This matches R's `trend::sens.slope`. There is no standard
+//!   error and no interval for the intercept; a bound whose rank falls outside
+//!   `1..N` (very small `n`) is `NaN`.
+//! - **Bootstrap** (any number of features, and the intercept): the pairs
+//!   bootstrap. `n_bootstrap` resamples of the rows are refitted; each
+//!   coefficient gets the bootstrap standard deviation (`std_errors`) and the
+//!   percentile interval (R `quantile` type 7). Deterministic given
+//!   `random_state` and independent of the row order. No test statistic or
+//!   p-value.
+//!
+//! [`TheilSenCiMethod::Auto`] (the default) uses the exact interval where it
+//! applies and the bootstrap otherwise. Theil–Sen has no F-test:
+//! `f_statistic` / `f_pvalue` are `NaN`.
+//!
 //! # Rank-deficient designs
 //!
 //! Linearly dependent columns (e.g. `x2 = 2·x1`, or a constant column when an
@@ -37,11 +65,40 @@
 //!     .fit(&x, &y)?;
 //! ```
 
-use crate::core::{HasModelInfo, ModelInfo};
+use crate::core::{HasModelInfo, ModelInfo, OptionsError};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::prelude::Solve;
 use faer::{Col, Mat};
+use statrs::distribution::{ContinuousCDF, Normal};
+
+/// How [`TheilSenRegressor`] computes coefficient intervals when inference is
+/// requested.
+///
+/// - `Exact`: Sen's (1968) distribution-free interval for the single slope of
+///   a one-feature fit with an intercept, at the ranks `round((N − C)/2)` and
+///   `round((N + C)/2 + 1)` of the `N` sorted pairwise slopes,
+///   `C = z_{(1+level)/2} · sqrt(Var S)` with Kendall's tie-corrected `Var S`
+///   (R's `trend::sens.slope`). Also Kendall's continuity-corrected z
+///   (`t_statistics`) and its two-sided p-value for slope = 0. No standard
+///   error, no intercept interval.
+/// - `Bootstrap`: pairs bootstrap with `n_bootstrap` refits; bootstrap SDs
+///   (`std_errors`, `intercept_std_error`) and percentile intervals (R
+///   `quantile` type 7) for every coefficient and the intercept, deterministic
+///   given `random_state`. No test statistic.
+/// - `Auto`: `Exact` where it applies, `Bootstrap` otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TheilSenCiMethod {
+    /// `Exact` for one feature with an intercept (the median-of-pairwise-
+    /// slopes path), `Bootstrap` otherwise.
+    #[default]
+    Auto,
+    /// Sen's (1968) distribution-free interval for the single slope.
+    Exact,
+    /// Pairs bootstrap with percentile intervals, for every coefficient and
+    /// the intercept.
+    Bootstrap,
+}
 
 /// Theil–Sen estimator.
 #[derive(Debug, Clone)]
@@ -60,6 +117,10 @@ pub struct TheilSenRegressor {
     /// median of pairwise slopes. `false` selects sklearn's spatial-median
     /// algorithm for that case as well.
     univariate_pairwise: bool,
+    compute_inference: bool,
+    confidence_level: f64,
+    ci_method: TheilSenCiMethod,
+    n_bootstrap: usize,
 }
 
 impl Default for TheilSenRegressor {
@@ -72,6 +133,10 @@ impl Default for TheilSenRegressor {
             tol: 1e-3,
             random_state: 0,
             univariate_pairwise: true,
+            compute_inference: false,
+            confidence_level: 0.95,
+            ci_method: TheilSenCiMethod::Auto,
+            n_bootstrap: 999,
         }
     }
 }
@@ -87,51 +152,55 @@ impl TheilSenRegressor {
             .unwrap_or(n_features_eff)
             .max(n_features_eff)
     }
-}
 
-impl Regressor for TheilSenRegressor {
-    type Fitted = FittedTheilSen;
+    /// Whether a fit on `p` (non-aliased) features takes the classical
+    /// median-of-pairwise-slopes path.
+    fn is_pairwise(&self, p: usize) -> bool {
+        p == 1 && self.with_intercept && self.univariate_pairwise
+    }
 
-    fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
-        let n = x.nrows();
-        if n != y.nrows() {
-            return Err(RegressionError::DimensionMismatch {
-                x_rows: n,
-                y_len: y.nrows(),
-            });
+    /// The interval method used for a fit on `p` (non-aliased) features.
+    fn resolve_ci_method(&self, p: usize) -> Result<TheilSenCiMethod, RegressionError> {
+        match self.ci_method {
+            TheilSenCiMethod::Auto if self.is_pairwise(p) => Ok(TheilSenCiMethod::Exact),
+            TheilSenCiMethod::Auto => Ok(TheilSenCiMethod::Bootstrap),
+            TheilSenCiMethod::Exact if !self.is_pairwise(p) => {
+                Err(RegressionError::InvalidOptions(OptionsError::Unsupported(
+                    "the exact Theil-Sen interval needs exactly one feature and an intercept; \
+                     use the bootstrap"
+                        .to_string(),
+                )))
+            }
+            m => Ok(m),
         }
+    }
+
+    fn validate_inference_options(&self) -> Result<(), RegressionError> {
+        if !(self.confidence_level > 0.0 && self.confidence_level < 1.0) {
+            return Err(RegressionError::InvalidOptions(
+                OptionsError::InvalidConfidenceLevel(self.confidence_level),
+            ));
+        }
+        if self.n_bootstrap < 2 {
+            return Err(RegressionError::InvalidOptions(OptionsError::Unsupported(
+                format!("n_bootstrap must be at least 2, got {}", self.n_bootstrap),
+            )));
+        }
+        Ok(())
+    }
+
+    /// Fit without inference on a design with no aliased columns.
+    fn fit_point(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedTheilSen, RegressionError> {
+        let n = x.nrows();
         let p = x.ncols();
         let p_eff = if self.with_intercept { p + 1 } else { p };
-        if n < p_eff {
-            return Err(RegressionError::InsufficientObservations {
-                needed: p_eff,
-                got: n,
-            });
-        }
-
-        // Linearly dependent columns (e.g. x2 = 2·x1, or a constant column
-        // with an intercept) make every subsample system singular; partial-
-        // pivot LU then returns huge finite "solutions" that dominate the
-        // spatial median (#50). Like `OlsRegressor` / R's `lm`, the later
-        // redundant columns are aliased: Theil–Sen is fitted on the kept
-        // columns and the aliased ones get a `NaN` coefficient.
-        let aliased = aliased_columns(x, self.with_intercept, ALIAS_TOL);
-        if aliased.iter().any(|&a| a) {
-            let keep: Vec<usize> = (0..p).filter(|&j| !aliased[j]).collect();
-            if keep.is_empty() && !self.with_intercept {
-                return Err(RegressionError::SingularMatrix);
-            }
-            let xr = Mat::from_fn(n, keep.len(), |i, k| x[(i, keep[k])]);
-            let inner = self.fit(&xr, y)?;
-            return Ok(expand_aliased(inner, &keep, p));
-        }
 
         // Univariate with intercept: the classical Theil–Sen estimator —
         // slope = median of all pairwise slopes (pairs with equal x skipped),
         // intercept = median(y − slope·x). sklearn instead applies its
         // spatial-median-over-subsamples algorithm to 1-D inputs too; that
         // behaviour stays available via `univariate_pairwise(false)`.
-        if p == 1 && self.with_intercept && self.univariate_pairwise {
+        if self.is_pairwise(p) {
             let xs: Vec<f64> = (0..n).map(|i| x[(i, 0)]).collect();
             let ys: Vec<f64> = (0..n).map(|i| y[i]).collect();
             let slope = median_pairwise_slope(&xs, &ys).ok_or(RegressionError::SingularMatrix)?;
@@ -181,6 +250,155 @@ impl Regressor for TheilSenRegressor {
         let median = spatial_median(&coef_vectors, coef_dim, self.max_iter, self.tol);
 
         Ok(build_fitted_from_full(median, x, y, self.with_intercept))
+    }
+
+    /// Sen's exact interval and Kendall's test for the single slope.
+    fn exact_inference(&self, fitted: &mut FittedTheilSen, x: &Mat<f64>, y: &Col<f64>) {
+        let n = x.nrows();
+        let xs: Vec<f64> = (0..n).map(|i| x[(i, 0)]).collect();
+        let ys: Vec<f64> = (0..n).map(|i| y[i]).collect();
+        let sen = sen_interval(&xs, &ys, self.confidence_level);
+        let r = &mut fitted.result;
+        r.std_errors = None;
+        r.conf_interval_lower = Some(Col::from_fn(1, |_| sen.lower));
+        r.conf_interval_upper = Some(Col::from_fn(1, |_| sen.upper));
+        r.t_statistics = Some(Col::from_fn(1, |_| sen.z));
+        r.p_values = Some(Col::from_fn(1, |_| sen.p_value));
+        fitted.ci_method = Some(TheilSenCiMethod::Exact);
+    }
+
+    /// Pairs-bootstrap SDs and percentile intervals of every coefficient and
+    /// the intercept.
+    fn bootstrap_inference(&self, fitted: &mut FittedTheilSen, x: &Mat<f64>, y: &Col<f64>) {
+        let n = x.nrows();
+        let p = x.ncols();
+        let dim = p + usize::from(self.with_intercept);
+        let mut inner = self.clone();
+        inner.compute_inference = false;
+        let mut rng = SplitMix64::new(self.random_state ^ 0xB007_5EED_D1CE_A5E5);
+        // Resample from the rows in a canonical (sorted) order, so the result
+        // depends on the data and the seed but not on the row order (e.g. the
+        // order in which a parallel aggregate collected the rows).
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| {
+            (0..p)
+                .map(|j| x[(a, j)].total_cmp(&x[(b, j)]))
+                .find(|o| o.is_ne())
+                .unwrap_or_else(|| y[a].total_cmp(&y[b]))
+        });
+        let mut idx = vec![0usize; n];
+        // draws[k] holds the replicates of parameter k (intercept first).
+        let mut draws: Vec<Vec<f64>> = vec![Vec::with_capacity(self.n_bootstrap); dim];
+        for _ in 0..self.n_bootstrap {
+            idx.iter_mut()
+                .for_each(|i| *i = order[rng.gen_range_usize(0, n)]);
+            inner.random_state = rng.next_u64();
+            let xb = Mat::from_fn(n, p, |i, j| x[(idx[i], j)]);
+            let yb = Col::from_fn(n, |i| y[idx[i]]);
+            // A resample can be degenerate (e.g. all x equal, or a column that
+            // becomes aliased); such replicates are dropped.
+            let Ok(fb) = inner.fit(&xb, &yb) else {
+                continue;
+            };
+            let r = &fb.result;
+            let params: Vec<f64> = r
+                .intercept
+                .into_iter()
+                .chain(r.coefficients.iter().copied())
+                .collect();
+            if params.iter().all(|v| v.is_finite()) {
+                for (d, v) in draws.iter_mut().zip(params) {
+                    d.push(v);
+                }
+            }
+        }
+
+        let a = (1.0 - self.confidence_level) / 2.0;
+        let summary: Vec<(f64, f64, f64)> = draws
+            .iter_mut()
+            .map(|d| {
+                if d.len() < 2 {
+                    return (f64::NAN, f64::NAN, f64::NAN);
+                }
+                d.sort_by(|u, v| u.total_cmp(v));
+                let m = d.len() as f64;
+                let mean = d.iter().sum::<f64>() / m;
+                let sd = (d.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (m - 1.0)).sqrt();
+                (sd, quantile_type7(d, a), quantile_type7(d, 1.0 - a))
+            })
+            .collect();
+        let off = usize::from(self.with_intercept);
+        let r = &mut fitted.result;
+        if self.with_intercept {
+            let (sd, lo, hi) = summary[0];
+            r.intercept_std_error = Some(sd);
+            r.intercept_conf_interval = Some((lo, hi));
+        }
+        r.std_errors = Some(Col::from_fn(p, |j| summary[off + j].0));
+        r.conf_interval_lower = Some(Col::from_fn(p, |j| summary[off + j].1));
+        r.conf_interval_upper = Some(Col::from_fn(p, |j| summary[off + j].2));
+        r.t_statistics = None;
+        r.p_values = None;
+        fitted.ci_method = Some(TheilSenCiMethod::Bootstrap);
+        fitted.bootstrap_replicates = Some(draws.first().map_or(0, Vec::len));
+    }
+}
+
+impl Regressor for TheilSenRegressor {
+    type Fitted = FittedTheilSen;
+
+    fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        let n = x.nrows();
+        if n != y.nrows() {
+            return Err(RegressionError::DimensionMismatch {
+                x_rows: n,
+                y_len: y.nrows(),
+            });
+        }
+        let p = x.ncols();
+        let p_eff = if self.with_intercept { p + 1 } else { p };
+        if n < p_eff {
+            return Err(RegressionError::InsufficientObservations {
+                needed: p_eff,
+                got: n,
+            });
+        }
+        if self.compute_inference {
+            self.validate_inference_options()?;
+        }
+
+        // Linearly dependent columns (e.g. x2 = 2·x1, or a constant column
+        // with an intercept) make every subsample system singular; partial-
+        // pivot LU then returns huge finite "solutions" that dominate the
+        // spatial median (#50). Like `OlsRegressor` / R's `lm`, the later
+        // redundant columns are aliased: Theil–Sen is fitted on the kept
+        // columns and the aliased ones get a `NaN` coefficient.
+        let aliased = aliased_columns(x, self.with_intercept, ALIAS_TOL);
+        if aliased.iter().any(|&a| a) {
+            let keep: Vec<usize> = (0..p).filter(|&j| !aliased[j]).collect();
+            if keep.is_empty() && !self.with_intercept {
+                return Err(RegressionError::SingularMatrix);
+            }
+            let xr = Mat::from_fn(n, keep.len(), |i, k| x[(i, keep[k])]);
+            let inner = self.fit(&xr, y)?;
+            return Ok(expand_aliased(inner, &keep, p));
+        }
+
+        let method = if self.compute_inference {
+            Some(self.resolve_ci_method(p)?)
+        } else {
+            None
+        };
+        let mut fitted = self.fit_point(x, y)?;
+        match method {
+            Some(TheilSenCiMethod::Exact) => self.exact_inference(&mut fitted, x, y),
+            Some(_) => self.bootstrap_inference(&mut fitted, x, y),
+            None => {}
+        }
+        if method.is_some() {
+            fitted.result.confidence_level = self.confidence_level;
+        }
+        Ok(fitted)
     }
 }
 
@@ -237,10 +455,22 @@ fn expand_aliased(inner: FittedTheilSen, keep: &[usize], p: usize) -> FittedThei
         aliased[j] = false;
     }
     result.aliased = aliased;
-    FittedTheilSen {
-        result,
-        with_intercept: inner.with_intercept,
-    }
+    // Per-coefficient inference: aliased columns get NaN.
+    let expand = |c: Option<Col<f64>>| {
+        c.map(|c| {
+            let mut out = Col::from_fn(p, |_| f64::NAN);
+            for (k, &j) in keep.iter().enumerate() {
+                out[j] = c[k];
+            }
+            out
+        })
+    };
+    result.std_errors = expand(result.std_errors.take());
+    result.t_statistics = expand(result.t_statistics.take());
+    result.p_values = expand(result.p_values.take());
+    result.conf_interval_lower = expand(result.conf_interval_lower.take());
+    result.conf_interval_upper = expand(result.conf_interval_upper.take());
+    FittedTheilSen { result, ..inner }
 }
 
 fn ols_on_subsample(
@@ -476,65 +706,111 @@ fn median_pairwise_slope(x: &[f64], y: &[f64]) -> Option<f64> {
 }
 
 fn median_pairwise_slope_with_limit(x: &[f64], y: &[f64], explicit_limit: u64) -> Option<f64> {
-    let n = x.len();
-    // Points in (x, y) order.
-    let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_by(|&a, &b| x[a].total_cmp(&x[b]).then(y[a].total_cmp(&y[b])));
-    let xs: Vec<f64> = idx.iter().map(|&i| x[i]).collect();
-    let ys: Vec<f64> = idx.iter().map(|&i| y[i]).collect();
+    let mut slopes = PairwiseSlopes::new(x, y, explicit_limit)?;
+    let m = slopes.n_pairs;
+    Some(if m % 2 == 1 {
+        slopes.kth(m.div_ceil(2))
+    } else {
+        0.5 * (slopes.kth(m / 2) + slopes.kth(m / 2 + 1))
+    })
+}
 
-    // Pairs with equal x (excluded) and fully duplicated points.
-    let mut same_x: u64 = 0;
-    let mut dup: u64 = 0;
-    let mut i = 0;
-    while i < n {
-        let mut j = i;
-        while j + 1 < n && xs[j + 1] == xs[i] {
-            j += 1;
-        }
-        let g = (j - i + 1) as u64;
-        same_x += g * (g - 1) / 2;
-        let mut a = i;
-        while a <= j {
-            let mut b = a;
-            while b < j && ys[b + 1] == ys[a] {
-                b += 1;
+/// The pairwise slopes `(y_j − y_i)/(x_j − x_i)` of all pairs with
+/// `x_i ≠ x_j`, with order statistics either from the materialised slopes
+/// (up to `explicit_limit` pairs) or by slope counting.
+struct PairwiseSlopes {
+    /// Points in (x, y) order.
+    xs: Vec<f64>,
+    ys: Vec<f64>,
+    /// Number of pairs with distinct x.
+    n_pairs: u64,
+    /// Number of pairs of fully duplicated points.
+    dup: u64,
+    explicit: Option<Vec<f64>>,
+}
+
+impl PairwiseSlopes {
+    /// `None` when every pair has equal x.
+    fn new(x: &[f64], y: &[f64], explicit_limit: u64) -> Option<Self> {
+        let n = x.len();
+        let mut idx: Vec<usize> = (0..n).collect();
+        idx.sort_by(|&a, &b| x[a].total_cmp(&x[b]).then(y[a].total_cmp(&y[b])));
+        let xs: Vec<f64> = idx.iter().map(|&i| x[i]).collect();
+        let ys: Vec<f64> = idx.iter().map(|&i| y[i]).collect();
+
+        // Pairs with equal x (excluded) and fully duplicated points.
+        let mut same_x: u64 = 0;
+        let mut dup: u64 = 0;
+        let mut i = 0;
+        while i < n {
+            let mut j = i;
+            while j + 1 < n && xs[j + 1] == xs[i] {
+                j += 1;
             }
-            let d = (b - a + 1) as u64;
-            dup += d * (d - 1) / 2;
-            a = b + 1;
+            let g = (j - i + 1) as u64;
+            same_x += g * (g - 1) / 2;
+            let mut a = i;
+            while a <= j {
+                let mut b = a;
+                while b < j && ys[b + 1] == ys[a] {
+                    b += 1;
+                }
+                let d = (b - a + 1) as u64;
+                dup += d * (d - 1) / 2;
+                a = b + 1;
+            }
+            i = j + 1;
         }
-        i = j + 1;
-    }
-    let total = (n as u64) * (n as u64).saturating_sub(1) / 2;
-    let n_pairs = total - same_x;
-    if n_pairs == 0 {
-        return None;
-    }
+        let total = (n as u64) * (n as u64).saturating_sub(1) / 2;
+        let n_pairs = total - same_x;
+        if n_pairs == 0 {
+            return None;
+        }
 
-    if n_pairs <= explicit_limit {
-        let mut slopes = Vec::with_capacity(n_pairs as usize);
-        for a in 0..n {
-            for b in (a + 1)..n {
-                let dx = xs[b] - xs[a];
-                if dx != 0.0 {
-                    slopes.push((ys[b] - ys[a]) / dx);
+        let explicit = (n_pairs <= explicit_limit).then(|| {
+            let mut slopes = Vec::with_capacity(n_pairs as usize);
+            for a in 0..n {
+                for b in (a + 1)..n {
+                    let dx = xs[b] - xs[a];
+                    if dx != 0.0 {
+                        slopes.push((ys[b] - ys[a]) / dx);
+                    }
                 }
             }
-        }
-        return Some(median_in_place(&mut slopes));
+            slopes
+        });
+        Some(Self {
+            xs,
+            ys,
+            n_pairs,
+            dup,
+            explicit,
+        })
     }
 
-    // Counting path. G(s) = #pairs (x_a < x_b) with slope ≤ s
-    //                     = #position pairs a < b with u_b ≤ u_a, u = y − s·x,
-    // minus the duplicated points (whose u always tie).
-    let count_le = |s: f64| -> u64 {
-        let mut u: Vec<f64> = xs.iter().zip(&ys).map(|(xi, yi)| yi - s * xi).collect();
-        let mut buf = vec![0.0; n];
-        count_non_increasing_pairs(&mut u, &mut buf) - dup
-    };
-    let select = |k: u64| -> f64 {
-        // k is 1-based. Bracket with bounds on |slope|.
+    /// Number of pairs (x_a < x_b) with slope ≤ `s`
+    ///   = number of position pairs a < b with u_b ≤ u_a, u = y − s·x,
+    /// minus the duplicated points (whose u always tie).
+    fn count_le(&self, s: f64) -> u64 {
+        let mut u: Vec<f64> = self
+            .xs
+            .iter()
+            .zip(&self.ys)
+            .map(|(xi, yi)| yi - s * xi)
+            .collect();
+        let mut buf = vec![0.0; u.len()];
+        count_non_increasing_pairs(&mut u, &mut buf) - self.dup
+    }
+
+    /// The `k`-th smallest slope (1-based, `1 ≤ k ≤ n_pairs`).
+    fn kth(&mut self, k: u64) -> f64 {
+        if let Some(slopes) = self.explicit.as_mut() {
+            let (_, v, _) = slopes.select_nth_unstable_by((k - 1) as usize, |a, b| a.total_cmp(b));
+            return *v;
+        }
+        let (xs, ys) = (&self.xs, &self.ys);
+        let n = xs.len();
+        // Bracket with bounds on |slope|.
         let y_range = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max)
             - ys.iter().copied().fold(f64::INFINITY, f64::min);
         let mut min_dx = f64::INFINITY;
@@ -546,7 +822,7 @@ fn median_pairwise_slope_with_limit(x: &[f64], y: &[f64], explicit_limit: u64) -
         }
         let bound = y_range / min_dx + 1.0;
         let (mut lo, mut hi) = (-bound, bound);
-        let (mut g_lo, mut g_hi) = (0_u64, n_pairs);
+        let (mut g_lo, mut g_hi) = (0_u64, self.n_pairs);
         let cap = (4 * n as u64).max(4096);
         for _ in 0..400 {
             if g_hi - g_lo <= cap {
@@ -556,7 +832,7 @@ fn median_pairwise_slope_with_limit(x: &[f64], y: &[f64], explicit_limit: u64) -
             if mid <= lo || mid >= hi {
                 return hi; // interval exhausted: all remaining slopes ≈ hi
             }
-            let g = count_le(mid);
+            let g = self.count_le(mid);
             if g >= k {
                 hi = mid;
                 g_hi = g;
@@ -568,7 +844,7 @@ fn median_pairwise_slope_with_limit(x: &[f64], y: &[f64], explicit_limit: u64) -
         // Enumerate the pairs whose slope lies in (lo, hi]: those whose
         // u-order flips between s = lo and s = hi.
         let mut order: Vec<usize> = (0..n).collect();
-        let u_lo: Vec<f64> = xs.iter().zip(&ys).map(|(xi, yi)| yi - lo * xi).collect();
+        let u_lo: Vec<f64> = xs.iter().zip(ys).map(|(xi, yi)| yi - lo * xi).collect();
         order.sort_by(|&a, &b| u_lo[a].total_cmp(&u_lo[b]).then(xs[b].total_cmp(&xs[a])));
         let mut items: Vec<(f64, usize)> = order.iter().map(|&i| (ys[i] - hi * xs[i], i)).collect();
         let mut buf = items.clone();
@@ -584,14 +860,113 @@ fn median_pairwise_slope_with_limit(x: &[f64], y: &[f64], explicit_limit: u64) -
         cand.get(r.min(cand.len().saturating_sub(1)))
             .copied()
             .unwrap_or(hi)
-    };
+    }
+}
 
-    let m = n_pairs;
-    Some(if m % 2 == 1 {
-        select(m.div_ceil(2))
-    } else {
-        0.5 * (select(m / 2) + select(m / 2 + 1))
-    })
+/// Sen's interval and Kendall's test for the slope of a single regressor.
+#[derive(Debug, Clone, Copy)]
+struct SenInterval {
+    lower: f64,
+    upper: f64,
+    /// Kendall's continuity-corrected z for slope = 0.
+    z: f64,
+    p_value: f64,
+}
+
+/// Sen (1968) distribution-free confidence interval for the Theil–Sen slope,
+/// following R's `trend::sens.slope`: with `N` pairwise slopes, the bounds
+/// are the order statistics at ranks `round((N − C)/2)` and
+/// `round((N + C)/2 + 1)` (R rounds half to even), `C = z · sqrt(Var S)`.
+/// `Var S` is the null variance of Kendall's score with ties in x and in y.
+/// A rank outside `1..N` gives a `NaN` bound.
+fn sen_interval(x: &[f64], y: &[f64], level: f64) -> SenInterval {
+    let nan = SenInterval {
+        lower: f64::NAN,
+        upper: f64::NAN,
+        z: f64::NAN,
+        p_value: f64::NAN,
+    };
+    let Some(mut slopes) = PairwiseSlopes::new(x, y, EXPLICIT_PAIR_LIMIT) else {
+        return nan;
+    };
+    let var_s = kendall_var_s(x, y);
+    if var_s.is_nan() || var_s <= 0.0 {
+        return nan;
+    }
+    let normal = Normal::new(0.0, 1.0).expect("standard normal");
+    let c = normal.inverse_cdf(0.5 + level / 2.0) * var_s.sqrt();
+    let n_pairs = slopes.n_pairs as f64;
+    let rank_lo = ((n_pairs - c) / 2.0).round_ties_even();
+    let rank_up = ((n_pairs + c) / 2.0 + 1.0).round_ties_even();
+    let mut bound = |r: f64| {
+        if r >= 1.0 && r <= n_pairs {
+            slopes.kth(r as u64)
+        } else {
+            f64::NAN
+        }
+    };
+    let lower = bound(rank_lo);
+    let upper = bound(rank_up);
+
+    // Kendall's score S = #(slope > 0) − #(slope < 0) over the pairs with
+    // distinct x; #(slope ≥ 0) is the "≤ 0" count of the reflected data.
+    let neg_y: Vec<f64> = y.iter().map(|v| -v).collect();
+    let n_le0 = slopes.count_le(0.0);
+    let n_ge0 = PairwiseSlopes::new(x, &neg_y, 0).map_or(0, |r| r.count_le(0.0));
+    let s = n_ge0 as f64 - n_le0 as f64;
+    let z = s.signum() * (s.abs() - 1.0).max(0.0) / var_s.sqrt();
+    let z = if s == 0.0 { 0.0 } else { z };
+    let p_value = (2.0 * normal.cdf(-z.abs())).min(1.0);
+    SenInterval {
+        lower,
+        upper,
+        z,
+        p_value,
+    }
+}
+
+/// Null variance of Kendall's score `S` of `(x, y)` with tie corrections for
+/// both variables (Kendall 1970, eq. 4.3); without ties in `x` it is the
+/// Mann–Kendall variance `[n(n−1)(2n+5) − Σ u(u−1)(2u+5)] / 18` over the tie
+/// groups `u` of `y`.
+fn kendall_var_s(x: &[f64], y: &[f64]) -> f64 {
+    fn tie_sums(v: &[f64]) -> (f64, f64, f64) {
+        let mut v = v.to_vec();
+        v.sort_by(|a, b| a.total_cmp(b));
+        let (mut s1, mut s2, mut s3) = (0.0, 0.0, 0.0);
+        let mut i = 0;
+        while i < v.len() {
+            let mut j = i;
+            while j + 1 < v.len() && v[j + 1] == v[i] {
+                j += 1;
+            }
+            let t = (j - i + 1) as f64;
+            s1 += t * (t - 1.0) * (2.0 * t + 5.0);
+            s2 += t * (t - 1.0);
+            s3 += t * (t - 1.0) * (t - 2.0);
+            i = j + 1;
+        }
+        (s1, s2, s3)
+    }
+    let n = x.len() as f64;
+    let (tx1, tx2, tx3) = tie_sums(x);
+    let (ty1, ty2, ty3) = tie_sums(y);
+    let mut v = (n * (n - 1.0) * (2.0 * n + 5.0) - tx1 - ty1) / 18.0;
+    if n > 1.0 {
+        v += tx2 * ty2 / (2.0 * n * (n - 1.0));
+    }
+    if n > 2.0 {
+        v += tx3 * ty3 / (9.0 * n * (n - 1.0) * (n - 2.0));
+    }
+    v
+}
+
+/// R `quantile(type = 7)` of sorted data.
+fn quantile_type7(sorted: &[f64], q: f64) -> f64 {
+    let h = (sorted.len() - 1) as f64 * q;
+    let lo = h.floor() as usize;
+    let hi = (lo + 1).min(sorted.len() - 1);
+    sorted[lo] + (h - lo as f64) * (sorted[hi] - sorted[lo])
 }
 
 /// Number of index pairs `a < b` with `v[b] <= v[a]` (merge sort; sorts `v`).
@@ -731,6 +1106,8 @@ fn build_fitted_from_full(
     FittedTheilSen {
         result,
         with_intercept,
+        ci_method: None,
+        bootstrap_replicates: None,
     }
 }
 
@@ -739,6 +1116,8 @@ fn build_fitted_from_full(
 pub struct FittedTheilSen {
     result: RegressionResult,
     with_intercept: bool,
+    ci_method: Option<TheilSenCiMethod>,
+    bootstrap_replicates: Option<usize>,
 }
 
 impl HasModelInfo for FittedTheilSen {
@@ -751,6 +1130,16 @@ impl FittedTheilSen {
     /// Whether the model was fit with an intercept.
     pub fn with_intercept(&self) -> bool {
         self.with_intercept
+    }
+    /// The interval method used (`Exact` or `Bootstrap`), `None` without
+    /// inference.
+    pub fn ci_method(&self) -> Option<TheilSenCiMethod> {
+        self.ci_method
+    }
+    /// Number of bootstrap replicates that gave a finite fit (degenerate
+    /// resamples are dropped); `None` unless the bootstrap was used.
+    pub fn bootstrap_replicates(&self) -> Option<usize> {
+        self.bootstrap_replicates
     }
 }
 
@@ -827,6 +1216,27 @@ impl TheilSenRegressorBuilder {
         self.inner.univariate_pairwise = enabled;
         self
     }
+    /// Compute coefficient intervals (default `false`); see
+    /// [`TheilSenCiMethod`].
+    pub fn compute_inference(mut self, enabled: bool) -> Self {
+        self.inner.compute_inference = enabled;
+        self
+    }
+    /// Level of the coefficient intervals, in (0, 1) (default 0.95).
+    pub fn confidence_level(mut self, level: f64) -> Self {
+        self.inner.confidence_level = level;
+        self
+    }
+    /// Interval method (default [`TheilSenCiMethod::Auto`]).
+    pub fn ci_method(mut self, method: TheilSenCiMethod) -> Self {
+        self.inner.ci_method = method;
+        self
+    }
+    /// Number of bootstrap resamples, at least 2 (default 999).
+    pub fn n_bootstrap(mut self, value: usize) -> Self {
+        self.inner.n_bootstrap = value;
+        self
+    }
     pub fn build(self) -> TheilSenRegressor {
         self.inner
     }
@@ -866,6 +1276,40 @@ mod tests {
                 "n={n}: {exact} vs {counted}"
             );
         }
+    }
+
+    #[test]
+    fn pairwise_slope_order_statistics_counting_matches_explicit() {
+        // The counting path (used above EXPLICIT_PAIR_LIMIT pairs, e.g. for
+        // the bounds of Sen's interval) agrees with sorting every slope.
+        let mut s: u64 = 11;
+        let mut rnd = || {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((s >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        let n = 400;
+        let x: Vec<f64> = (0..n).map(|_| (rnd() * 60.0).floor()).collect();
+        let y: Vec<f64> = x.iter().map(|xi| 0.3 * xi + (rnd() - 0.5) * 8.0).collect();
+        let mut explicit = PairwiseSlopes::new(&x, &y, u64::MAX).unwrap();
+        let mut counted = PairwiseSlopes::new(&x, &y, 0).unwrap();
+        let m = explicit.n_pairs;
+        for k in [1, 2, m / 7, m / 3, m / 2, m - 1, m] {
+            let (a, b) = (explicit.kth(k), counted.kth(k));
+            assert!((a - b).abs() < 1e-12, "k={k}: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn kendall_variance_reduces_to_mann_kendall() {
+        // No ties in x: the Mann–Kendall variance with ties in y.
+        let x: Vec<f64> = (0..10).map(f64::from).collect();
+        let y = [1.0, 2.0, 2.0, 3.0, 5.0, 5.0, 5.0, 4.0, 8.0, 9.0];
+        let want = (10.0 * 9.0 * 25.0 - 2.0 * 1.0 * 9.0 - 3.0 * 2.0 * 11.0) / 18.0;
+        assert!((kendall_var_s(&x, &y) - want).abs() < 1e-12);
+        // Symmetric in its arguments.
+        assert_eq!(kendall_var_s(&x, &y), kendall_var_s(&y, &x));
     }
 
     #[test]

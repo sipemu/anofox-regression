@@ -48,8 +48,8 @@ pub use alm::{
     AlmDistribution, AlmLoss, AlmRegressor, AlmRegressorBuilder, FittedAlm, LinkFunction,
 };
 pub use bayesian::{
-    ArdRegression, ArdRegressionBuilder, BayesianRidge, BayesianRidgeBuilder, FittedArd,
-    FittedBayesianRidge,
+    ArdRegression, ArdRegressionBuilder, BayesianRidge, BayesianRidgeBuilder, CredibleIntervals,
+    FittedArd, FittedBayesianRidge,
 };
 pub use binomial::{BinomialRegressor, FittedBinomial};
 pub use bls::{BlsRegressor, FittedBls};
@@ -79,7 +79,9 @@ pub use quantile::{FittedQuantile, QuantileRegressor, QuantileRegressorBuilder};
 pub use ransac::{FittedRansac, RansacRegressor, RansacRegressorBuilder};
 pub use ridge::{FittedRidge, RidgeRegressor, RidgeRegressorBuilder};
 pub use rls::{FittedRls, RlsRegressor};
-pub use theil_sen::{FittedTheilSen, TheilSenRegressor, TheilSenRegressorBuilder};
+pub use theil_sen::{
+    FittedTheilSen, TheilSenCiMethod, TheilSenRegressor, TheilSenRegressorBuilder,
+};
 pub use traits::{FittedRegressor, RegressionError, Regressor};
 pub use tweedie::{FittedTweedie, TweedieRegressor};
 pub use wls::{FittedWls, WlsRegressor, WlsRegressorBuilder};

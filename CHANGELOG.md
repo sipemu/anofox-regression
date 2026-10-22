@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.34] - 2026-10-23
+
+### Added
+
+- **Credible intervals for `BayesianRidge` / `ArdRegression` (#92, DataZooDE/anofox-statistics#222).** `credible_intervals(level) -> CredibleIntervals` on `FittedBayesianRidge` and `FittedArd`: the posterior SD of every coefficient (`sqrt(diag(Σ))`, 0 for features ARD pruned) and the central credible interval `mean ± z_{(1+level)/2} · sd` of the Gaussian posterior (conditional on the estimated precisions). The intercept, which is not part of `Σ` (as in scikit-learn), gets a flat prior: its posterior SD is `sqrt(1/(n·α) + x̄ᵀ Σ x̄)`, the noise uncertainty of `ȳ` plus the slope uncertainty propagated through the centring. No test statistic or p-value. Validated in `tests/r_validation_bayesian.rs` against scikit-learn 1.9.1's `sigma_` and, for the intercept, the inverted full posterior precision of `(b0, β)` (generator `validation/python/generate_bayesian_validation.py`), to 1e-8.
+- **Theil–Sen coefficient intervals (#92, DataZooDE/anofox-statistics#222).** `TheilSenRegressor` previously had no inference: `std_errors`, the t / p values and the intervals of its `RegressionResult` were `None` and the F test NaN. New builder options `compute_inference` (default `false`), `confidence_level` (0.95), `ci_method` (`TheilSenCiMethod::{Auto, Exact, Bootstrap}`, default `Auto`) and `n_bootstrap` (999):
+  - **Exact** (one feature with an intercept): the distribution-free interval of Sen (1968), the pairwise slopes at ranks `round((N − C)/2)` and `round((N + C)/2 + 1)` with `C = z · sqrt(Var S)` and Kendall's tie-corrected `Var S`, plus Kendall's continuity-corrected z (in `t_statistics`) and its two-sided p-value for slope = 0. Matches R's `trend::sens.slope` (and `cor.test(method = "kendall")` with ties in x) to 1e-12 (`tests/issue92_theil_sen_inference.rs`, generator `tests/r_scripts/generate_theil_sen_ci_validation.R`). No standard error and no intercept interval; a bound whose rank falls outside `1..N` (tiny n) is NaN. The order statistics use the slope-counting path above 4M pairs.
+  - **Bootstrap** (any number of features, and the intercept): pairs bootstrap with `n_bootstrap` refits; `std_errors` / `intercept_std_error` are the bootstrap SDs and the intervals the percentile intervals (R `quantile` type 7). Deterministic given `random_state` and independent of the row order; degenerate resamples are dropped (`FittedTheilSen::bootstrap_replicates()`). No t / p values.
+  - `Auto` uses the exact interval where it applies and the bootstrap otherwise; `Exact` on any other design is an error. `FittedTheilSen::ci_method()` reports the method used. Aliased columns get NaN inference.
+- `OptionsError::Unsupported(String)` for option combinations an estimator does not support.
+
 ## [0.5.33] - 2026-10-23
 
 ### Added
