@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`inference::nested_f_test(x_reduced, x_full, y, &NestedFTestOptions) -> NestedFTest` (#90, DataZooDE/anofox-statistics#221).** The nested-model F test of R's `anova(lm(reduced), lm(full))`: both OLS fits on the same rows, `F = ((RSS_r − RSS_f) / df1) / (RSS_f / df2)` with `df1 = p_full − p_reduced`, `df2 = n − p_full` and the upper-tail p-value, plus both RSS values and both adjusted R² values (`summary.lm`'s). Parameter counts are numerical ranks, as R's `df.residual`, so aliased columns add nothing; `df1 = 0` or `df2 = 0` gives a NaN statistic (R's `NA`). An empty reduced design is the intercept-only model (the overall F test). The reduced columns must lie in the span of the full design (checked by regressing each on it; `NestedFTestError::NotNested` otherwise). `nested_f_test_indices(x_full, y, &reduced, ..)` takes the reduced design as column indices of the full one. Validated in `tests/r_validation_nested_f.rs` (generator `tests/r_scripts/generate_nested_f_validation.R`), including `df1 = 1` (F = t²), the intercept-only and no-intercept cases and a rank-deficient full design.
+
 ## [0.5.31] - 2026-10-22
 
 ### Added
