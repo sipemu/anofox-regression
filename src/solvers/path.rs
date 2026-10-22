@@ -36,7 +36,9 @@
 //! [`lambda_grid`] gives `glmnet`'s default grid, and [`cv_path`] its
 //! `cv.glmnet` aggregates (`type.measure = "mse"`, `grouped = TRUE`):
 //! `cv_mean`, `cv_se`, `lambda_min` and `lambda_1se`, with folds given as
-//! ids (deterministic) or drawn from a seed by [`kfold_ids`].
+//! ids (deterministic) or drawn from a seed by [`kfold_ids`]. Group,
+//! stratified and time-series folds, CV on explicit train / test splits and
+//! nested CV are in [`solvers::cv`](crate::solvers::cv).
 //!
 //! # Example
 //!
@@ -57,6 +59,7 @@
 //! assert!(cv.lambda_1se >= cv.lambda_min);
 //! ```
 
+use crate::solvers::cv::{cv_path_splits, splits_from_fold_ids, CvMetric};
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
 
@@ -119,7 +122,7 @@ impl PathOptions {
         self
     }
 
-    fn validate(&self) -> Result<(), RegressionError> {
+    pub(crate) fn validate(&self) -> Result<(), RegressionError> {
         if !(0.0..=1.0).contains(&self.alpha) {
             return Err(RegressionError::NumericalError(format!(
                 "alpha must be in [0, 1], got {}",
@@ -182,13 +185,15 @@ impl RegPath {
     }
 }
 
-/// k-fold cross-validation curve over a penalty grid (`cv.glmnet`).
+/// Cross-validation curve over a penalty grid (`cv.glmnet`), from
+/// [`cv_path`] or [`cv_path_splits`].
 #[derive(Debug, Clone)]
 pub struct CvPath {
     /// Penalties (same order as passed to [`cv_path`]).
     pub lambdas: Vec<f64>,
-    /// Mean cross-validated mean squared error (`cvm`): the fold MSEs
-    /// averaged with the fold sizes as weights.
+    /// Mean cross-validated error (`cvm`): the fold errors (mean squared
+    /// error unless another [`CvMetric`] was asked for) averaged with the fold
+    /// sizes as weights.
     pub cv_mean: Vec<f64>,
     /// Standard error of `cv_mean` (`cvsd`):
     /// `sqrt(weighted.mean((mse_k − cvm)², n_k) / (K − 1))`.
@@ -203,7 +208,7 @@ pub struct CvPath {
     pub index_min: usize,
     /// Index of `lambda_1se` in `lambdas`.
     pub index_1se: usize,
-    /// Number of folds.
+    /// Number of folds (splits).
     pub n_folds: usize,
     /// Full-data path at the same penalties.
     pub path: RegPath,
@@ -227,7 +232,7 @@ struct Prepared {
     y_scale: f64,
 }
 
-fn validate_xy(x: &Mat<f64>, y: &Col<f64>) -> Result<(), RegressionError> {
+pub(crate) fn validate_xy(x: &Mat<f64>, y: &Col<f64>) -> Result<(), RegressionError> {
     if x.nrows() != y.nrows() {
         return Err(RegressionError::DimensionMismatch {
             x_rows: x.nrows(),
@@ -361,7 +366,7 @@ pub fn lambda_grid(
         .collect())
 }
 
-fn validate_lambdas(lambdas: &[f64]) -> Result<(), RegressionError> {
+pub(crate) fn validate_lambdas(lambdas: &[f64]) -> Result<(), RegressionError> {
     if lambdas.is_empty() {
         return Err(RegressionError::NumericalError(
             "lambdas must not be empty".to_string(),
@@ -616,70 +621,17 @@ pub fn cv_path(
             y_len: fold_ids.len(),
         });
     }
-    let mut labels: Vec<usize> = fold_ids.to_vec();
-    labels.sort_unstable();
-    labels.dedup();
-    let k = labels.len();
+    let splits = splits_from_fold_ids(fold_ids);
+    let k = splits.len();
     if k < 3 {
         return Err(RegressionError::NumericalError(format!(
             "cross-validation needs at least 3 folds, got {k}"
         )));
     }
-    let p = x.ncols();
-    let nl = lambdas.len();
-    let full = fit_path(x, y, lambdas, opts)?;
-
-    let mut fold_mse = vec![vec![0.0; nl]; k];
-    let mut fold_n = vec![0.0; k];
-    for (f, &label) in labels.iter().enumerate() {
-        let train: Vec<usize> = (0..n).filter(|&i| fold_ids[i] != label).collect();
-        let test: Vec<usize> = (0..n).filter(|&i| fold_ids[i] == label).collect();
-        let xt = Mat::from_fn(train.len(), p, |i, j| x[(train[i], j)]);
-        let yt = Col::from_fn(train.len(), |i| y[train[i]]);
-        let fit = fit_path(&xt, &yt, lambdas, opts)?;
-        let xv = Mat::from_fn(test.len(), p, |i, j| x[(test[i], j)]);
-        let pred = fit.predict(&xv);
-        for (l, mse) in fold_mse[f].iter_mut().enumerate() {
-            let sse: f64 = test
-                .iter()
-                .enumerate()
-                .map(|(i, &row)| (y[row] - pred[(i, l)]).powi(2))
-                .sum();
-            *mse = sse / test.len() as f64;
-        }
-        fold_n[f] = test.len() as f64;
-    }
-    let n_tot: f64 = fold_n.iter().sum();
-    let mut cv_mean = vec![0.0; nl];
-    let mut cv_se = vec![0.0; nl];
-    for l in 0..nl {
-        let m: f64 = (0..k).map(|f| fold_n[f] * fold_mse[f][l]).sum::<f64>() / n_tot;
-        let var: f64 = (0..k)
-            .map(|f| fold_n[f] * (fold_mse[f][l] - m).powi(2))
-            .sum::<f64>()
-            / n_tot;
-        cv_mean[l] = m;
-        cv_se[l] = (var / (k as f64 - 1.0)).sqrt();
-    }
-    let cv_min = cv_mean.iter().copied().fold(f64::INFINITY, f64::min);
-    let index_min = largest_lambda_where(lambdas, |l| cv_mean[l] <= cv_min);
-    let bound = cv_mean[index_min] + cv_se[index_min];
-    let index_1se = largest_lambda_where(lambdas, |l| cv_mean[l] <= bound);
-    Ok(CvPath {
-        lambdas: lambdas.to_vec(),
-        cv_mean,
-        cv_se,
-        df: full.df.clone(),
-        lambda_min: lambdas[index_min],
-        lambda_1se: lambdas[index_1se],
-        index_min,
-        index_1se,
-        n_folds: k,
-        path: full,
-    })
+    cv_path_splits(x, y, lambdas, &splits, opts, CvMetric::Mse)
 }
 
-fn largest_lambda_where(lambdas: &[f64], pred: impl Fn(usize) -> bool) -> usize {
+pub(crate) fn largest_lambda_where(lambdas: &[f64], pred: impl Fn(usize) -> bool) -> usize {
     let mut best: Option<usize> = None;
     for l in 0..lambdas.len() {
         if pred(l) && best.is_none_or(|b| lambdas[l] > lambdas[b]) {

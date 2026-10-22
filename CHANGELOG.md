@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.30] - 2026-10-22
+
+### Added
+
+- **Cross-validation strategies for the regularisation paths: `solvers::cv` (#87, DataZooDE/anofox-statistics#204).**
+  - **Fold generators**, deterministic and matching scikit-learn 1.9.1 without shuffling: `group_kfold_ids(groups, k, GroupBalance, seed)` (`GroupBalance::Rows` is `GroupKFold`: largest group first into the fold with the fewest rows; `GroupBalance::Random` is `GroupKFold(shuffle=True)` with the crate's generator), `logo_ids` (`LeaveOneGroupOut`), `stratified_kfold_ids(strata, k, seed: Option<u64>)` (`StratifiedKFold`; `Some(seed)` shuffles the fold order within each stratum), `stratified_group_kfold_ids` (`StratifiedGroupKFold`), `quantile_strata(y, n_bins)` to stratify a regression CV on a continuous response, and `group_codes`. Keys only need `Ord`, so several group variables are a tuple key.
+  - **Explicit splits**: `CvSplit { train, test }`, `splits_from_fold_ids`, `time_series_splits(n, &TimeSeriesSplitOptions)` (`TimeSeriesSplit` with `n_splits`, `test_size`, `gap`, `TrainWindow::Expanding | Sliding(max_train_size)` and `min_train_size`) and `group_time_series_splits(time_keys, …)` for panels where several rows share a time point.
+  - **`cv_path_splits(x, y, lambdas, splits, opts, CvMetric)`**: the `cv.glmnet` curve on any splits, with `CvMetric::Mse` or `CvMetric::Mae` (`cv_se` over the splits). `path::cv_path` keeps its signature and results and now calls it with `splits_from_fold_ids`. A Gaussian deviance metric is not added: for the Gaussian family it is the MSE.
+  - **`nested_cv_path(x, y, lambdas: Option<_>, outer, opts, &NestedCvOptions)`**: the inner folds (`InnerFolds::{Kfold, Group, Logo, Stratified, TimeSeries}`) are built from each outer training set only, `λ` is chosen by `LambdaRule::{Min, OneSe}`, and with `lambdas = None` each outer split computes glmnet's default grid from its own training rows. Returns the per-split `λ`, test metric and inner curve plus the weighted mean and standard error. `nested_inner_splits` exposes the inner splits as row indices.
+  - Validated in `tests/cv_splits_validation.rs` against scikit-learn fixtures (generator `validation/python/generate_cv_splits_validation.py`), with property tests (no group spans two folds, stratum counts per fold differ by at most one, no outer test row in any inner split, inner selection unchanged when outer test responses change) and a hand-rolled nested loop.
+
 ## [0.5.29] - 2026-10-15
 
 ### Fixed

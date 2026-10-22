@@ -26,6 +26,9 @@ This library provides sklearn-style regression estimators with full statistical 
   - Bounded Least Squares (BLS/NNLS) with box constraints
   - Dynamic Linear Model (LmDynamic) with time-varying coefficients
   - Least Angle Regression (LARS) and LassoLars with full coefficient path
+  - Ridge / elastic-net regularisation paths and `cv.glmnet`-style CV (`solvers::path`),
+    with group, leave-one-group-out, stratified, stratified-group and time-series
+    (rolling-origin) folds, CV on explicit train / test splits and nested CV (`solvers::cv`)
   - **Streaming fits** via `MomentAccumulator` — OLS and Ridge accept
     pre-accumulated sufficient statistics `(n, Σx, Σy, XᵀX, Xᵀy)`, so
     panels with millions of rows can be fit without ever materialising
