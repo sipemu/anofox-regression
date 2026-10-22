@@ -230,8 +230,15 @@ fn check_nested(
 /// Nested-model F test of the OLS fit of `y` on `x_reduced` against the fit on
 /// `x_full` (R's `anova(lm(y ~ X_r), lm(y ~ X_f))`).
 ///
-/// `x_reduced` may have zero columns (the intercept-only model). Its columns
-/// must lie in the span of `x_full` (see the [module docs](self)). Fits that
+/// `F = ((RSS_r − RSS_f) / df1) / (RSS_f / df2)` with `df1 = p_full −
+/// p_reduced` and `df2 = n − p_full`, where the parameter counts are the
+/// numerical ranks plus the intercept (R's `df.residual`); `df1 = 0` or
+/// `df2 = 0` gives a NaN statistic and p-value, as R reports `NA`.
+///
+/// `x_reduced` may have zero columns (the intercept-only model, so the test is
+/// the overall F test). Its columns must lie in the span of `x_full`: each is
+/// regressed on `x_full`, and a residual sum of squares above
+/// `rank_tolerance · ‖x_k‖²` returns [`NestedFTestError::NotNested`]. Fits that
 /// cannot be computed (for example fewer rows than full-design columns)
 /// return [`NestedFTestError::Fit`].
 pub fn nested_f_test(
