@@ -19,6 +19,7 @@ mod lars;
 pub mod lm_dynamic;
 mod logistic;
 pub mod lowess;
+pub mod mediation;
 mod moments;
 mod negative_binomial;
 mod ols;
