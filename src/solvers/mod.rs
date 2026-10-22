@@ -13,6 +13,7 @@ pub(crate) mod fit_stats;
 mod gamma;
 mod glm_alias;
 mod glmm;
+mod glmm_satterthwaite;
 mod huber;
 mod isotonic;
 mod lars;
@@ -54,7 +55,9 @@ pub use binomial::{BinomialRegressor, FittedBinomial};
 pub use bls::{BlsRegressor, FittedBls};
 pub use elastic_net::{ElasticNetRegressor, FittedElasticNet};
 pub use gamma::{FittedGamma, GammaRegressor, GammaRegressorBuilder};
-pub use glmm::{FactorSummary, FittedGlmm, GlmmRegressor, GlmmRegressorBuilder};
+pub use glmm::{
+    FactorSummary, FittedGlmm, GlmmDdf, GlmmInference, GlmmRegressor, GlmmRegressorBuilder,
+};
 pub use huber::{FittedHuber, HuberRegressor, HuberRegressorBuilder};
 pub use isotonic::{FittedIsotonic, IsotonicRegressor, IsotonicRegressorBuilder, OutOfBounds};
 pub use lars::{FittedLars, LarsMethod, LarsRegressor, LarsRegressorBuilder};

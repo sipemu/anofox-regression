@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **GLMM inference (#89, DataZooDE/anofox-statistics#218).** `FittedGlmm` gains:
+  - `vcov()`: the full fixed-effect covariance `σ² M⁻¹` (lme4's `vcov()`).
+  - **Satterthwaite degrees of freedom** for Gaussian fits built with `GlmmRegressorBuilder::satterthwaite(true)`: `satterthwaite_df()`, and `inference(GlmmDdf, level) -> GlmmInference` with t statistics, t p-values and t intervals (`lmerTest`'s `summary(lmer(...))` / `contest1D(..., confint = TRUE)`), or the existing Wald z inference with `GlmmDdf::Wald`. The df use lmerTest's construction: Richardson-extrapolated finite-difference Hessian of the REML / ML deviance in `(θ, σ)` and Jacobian of `vcov(β)`, the Hessian inverted through its eigen decomposition.
+  - **Conditional standard errors of the BLUPs**: `random_effects_se()`, `random_effects_se_matrix()` and `factor_random_effects_se_matrix(f)`, the diagonal of `σ² Λ (ΛᵀZᵀWZΛ + I)⁻¹ Λᵀ` (`lme4::ranef(condVar = TRUE)`), for every family and the crossed / nested path.
+  - Per-observation results of the training data: `fitted_values()` (with the BLUPs), `fitted_population()` (random effects at zero), `residuals()` (response) and `pearson_residuals()` (lme4's `residuals(type = "pearson")`), and `df_residual()` (lme4's `df.residual()`).
+  - Validated against lme4 2.0.1 / lmerTest 3.2.1 in `tests/issue89_glmm_inference.rs` (generator `tests/r_scripts/generate_glmm_satterthwaite_validation.R`): vcov, BLUP SEs and fitted values to 1e-6, Satterthwaite df to 1e-5.
+
+### Changed
+
+- **More precise θ for random slopes and crossed factors.** The Nelder–Mead search over a multi-parameter θ is followed by up to 8 finite-difference Newton steps (each accepted only if it lowers the deviance). Nelder–Mead stops on the spread of the simplex values, which left θ accurate to about the square root of the tolerance; the fixed effects, SEs and variance components of such fits now agree with a tightly converged `lmer` / `glmer(nAGQ = 0)` to about 1e-7 instead of 1e-5.
 ## [0.5.32] - 2026-10-22
 
 ### Added
