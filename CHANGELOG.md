@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.37] - 2026-10-23
+
+### Added
+
+- **Exact leave-one-out diagnostics for ridge regression (DataZooDE/anofox-statistics#235).** `FittedRidge::loo(x, y) -> RidgeLoo { leverage, loo_residual, loo_fitted, press }`: the diagonal of the ridge hat matrix `H = X̃(X̃'X̃ + λP)⁻¹X̃'` (intercept unpenalised, i.e. `1/n + x̃ᵢ'(Xc'Xc + λI)⁻¹x̃ᵢ` on the centred design, from one thin SVD), the exact leave-one-out residuals `(yᵢ − ŷᵢ) / (1 − hᵢ)`, and `Press` (PRESS, its RMSE, predicted R²). `λ` is the effective penalty on the sum-of-squares scale; with `LambdaScaling::Glmnet` that is `λ·n` of the full fit, held fixed for the leave-one-out fits. λ = 0 gives the OLS values of `augment` / `press`. Checked against explicit refits without each row (`tests/ridge_loo.rs`, agreement ≤ 1e-12, with and without an intercept, p > n, glmnet scaling).
+- **One-step approximate leave-one-out for the GLMs.** `diagnostics::Augment` has two new fields, `approx_loo_fitted = g⁻¹(ηᵢ − hᵢ zᵢ / (1 − hᵢ))` (`zᵢ` the working residual, `hᵢ` the IRLS leverage) and `approx_loo_residual = yᵢ − approx_loo_fitted`: the Pregibon (1981) one-step approximation, R's `influence(fit)$coefficients` applied to the linear predictor. Named `approx_*` because it is not the refit; the exact `loo_residual` / `loo_fitted` stay `NaN` for GLMs, and the new fields are `NaN` for the linear models. Validated against R in `tests/r_validation_approx_loo_glm.rs` (Poisson, logistic, Gamma; dedicated regressors and the penalized-GLM engine), which also shows the approximation is 20–60× closer to the exact refits than the full-data fit.
+
+### Changed
+
+- `diagnostics::Augment` has the two new public fields above; code that builds an `Augment` with a struct literal must set them.
+
 ## [0.5.36] - 2026-10-23
 
 ### Added
