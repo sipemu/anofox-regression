@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`inference::anova_table(x, y, terms, &AnovaTableOptions) -> AnovaTable` (DataZooDE/anofox-statistics#231).** Per-term ANOVA tables for OLS without interactions: sequential sums of squares (`AnovaType::I`, R's `anova(lm(...))`, each term adjusted for the terms before it) and partial sums of squares (`AnovaType::II`, `car::Anova(fit, type = 2)`, each term adjusted for all other terms, i.e. the drop-one nested F test against the full model). A term is one column or a group of columns (`terms: Some(&[vec![0], vec![1, 2], ...])`, for example the dummies of a factor); `None` makes every column its own term. Each `AnovaTerm` has `df` (the rank the term adds), `sum_sq`, `mean_sq`, `f_statistic` and `p_value`, all F tests against the full model's residual mean square; the table carries `residual_df`, `residual_sum_sq`, `residual_mean_sq` and `n_observations`. A term that adds no rank (aliased) gets `df = 0`, `sum_sq = 0` and NaN F / p (R drops it from `anova()`, `car::Anova` refuses the model); no residual df gives NaN F everywhere; without an intercept the sums of squares are uncentred. Validated in `tests/r_validation_anova_table.rs` against R 4.x `anova()` and car 3.1.5 `Anova(type = 2)` to 1e-9 (generator `tests/r_scripts/generate_anova_table_validation.R`): three regressors, a different term order, no intercept, an aliased column, and `mtcars` `mpg ~ wt + factor(cyl) + hp` with a two-column factor term.
+
 ## [0.5.35] - 2026-10-23
 
 ### Added

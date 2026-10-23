@@ -49,8 +49,9 @@ pub mod prelude {
         SeparationType,
     };
     pub use crate::inference::{
-        nested_f_test, nested_f_test_indices, HcInference, HcType, NestedFTest, NestedFTestError,
-        NestedFTestOptions, PredictSeOptions, PredictWithSe,
+        anova_table, nested_f_test, nested_f_test_indices, AnovaTable, AnovaTableError,
+        AnovaTableOptions, AnovaTerm, AnovaType, HcInference, HcType, NestedFTest,
+        NestedFTestError, NestedFTestOptions, PredictSeOptions, PredictWithSe,
     };
     pub use crate::solvers::aft::{AftDistribution, AftRegressor, FittedAft};
     pub use crate::solvers::eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, TauMethod};
@@ -76,7 +77,8 @@ pub use crate::core::{
     RegressionResult, SolverType, TweedieFamily,
 };
 pub use crate::inference::{
-    nested_f_test, nested_f_test_indices, HcInference, HcType, NestedFTest, NestedFTestError,
+    anova_table, nested_f_test, nested_f_test_indices, AnovaTable, AnovaTableError,
+    AnovaTableOptions, AnovaTerm, AnovaType, HcInference, HcType, NestedFTest, NestedFTestError,
     NestedFTestOptions,
 };
 pub use crate::solvers::{

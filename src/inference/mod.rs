@@ -1,5 +1,6 @@
 //! Statistical inference (standard errors, p-values, confidence intervals).
 
+mod anova_table;
 mod coefficient;
 mod nested_f;
 mod predict_se;
@@ -10,6 +11,9 @@ mod wald;
 pub(crate) use variance_factor::expand_reduced_factor;
 pub(crate) use wald::{fill_wald_inference, WaldReference};
 
+pub use anova_table::{
+    anova_table, AnovaTable, AnovaTableError, AnovaTableOptions, AnovaTerm, AnovaType,
+};
 pub use coefficient::CoefficientInference;
 pub use nested_f::{
     nested_f_test, nested_f_test_indices, NestedFTest, NestedFTestError, NestedFTestOptions,
