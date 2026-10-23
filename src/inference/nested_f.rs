@@ -147,13 +147,13 @@ impl NestedFTest {
 }
 
 /// Summary of one OLS fit: RSS, adjusted R² and the number of parameters.
-struct FitSummary {
-    rss: f64,
-    adj_r_squared: f64,
-    n_parameters: usize,
+pub(super) struct FitSummary {
+    pub(super) rss: f64,
+    pub(super) adj_r_squared: f64,
+    pub(super) n_parameters: usize,
 }
 
-fn fit_summary(
+pub(super) fn fit_summary(
     x: &Mat<f64>,
     y: &Col<f64>,
     options: &NestedFTestOptions,
