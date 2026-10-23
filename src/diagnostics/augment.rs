@@ -51,7 +51,22 @@
 //! and [`press`] weights it by `wᵢ`. A row with `hᵢ > 1 − 10ε` (R's
 //! `lm.influence` threshold: the row alone determines its fitted value) has no
 //! leave-one-out prediction and gives `NaN`. The GLMs have no closed form and
-//! give `NaN` throughout.
+//! give `NaN` in these two fields.
+//!
+//! # Approximate leave-one-out (GLMs)
+//!
+//! For the GLMs, `approx_loo_fitted` / `approx_loo_residual` are the one-step
+//! (Pregibon 1981) approximation instead: a single IRLS step from the full fit
+//! without row `i` moves the coefficients by R's `influence(fit)$coefficients`,
+//! which moves the linear predictor to
+//! `η₍ᵢ₎ ≈ ηᵢ − hᵢ zᵢ / (1 − hᵢ)`, `zᵢ = (yᵢ − μᵢ) g'(μᵢ)` the working residual
+//! and `hᵢ` the IRLS leverage (prior weights included). So
+//! `zᵢ / (1 − hᵢ)` is the leave-one-out residual on the working scale, and
+//! `approx_loo_fitted = g⁻¹(η₍ᵢ₎)`, `approx_loo_residual = yᵢ − approx_loo_fitted`
+//! are on the response scale. They are an approximation, not the refit: the
+//! error is usually small next to the change itself, but grows for rows with
+//! high leverage or large Pearson residuals. The linear models give `NaN` in
+//! these fields (their exact values are `loo_fitted` / `loo_residual`).
 
 use crate::core::{GlmFamily, RegressionResult};
 use crate::solvers::penalized_glm::{DispersionRule, GlmEngineError, GlmEngineResult, GlmResult};
@@ -110,6 +125,13 @@ pub struct Augment {
     /// Leave-one-out prediction `ŷ₍ᵢ₎ = yᵢ − loo_residual`, the fitted value of
     /// row `i` from the fit without it; `NaN` where `loo_residual` is.
     pub loo_fitted: Col<f64>,
+    /// GLMs only: one-step approximation `g⁻¹(ηᵢ − hᵢ zᵢ / (1 − hᵢ))` of the
+    /// leave-one-out fitted mean (see the module documentation); `NaN` for the
+    /// linear models (use `loo_fitted`) and rows with `hᵢ = 1`.
+    pub approx_loo_fitted: Col<f64>,
+    /// GLMs only: `yᵢ − approx_loo_fitted`, the approximate leave-one-out
+    /// residual on the response scale; `NaN` where `approx_loo_fitted` is.
+    pub approx_loo_residual: Col<f64>,
 }
 
 /// Leave-one-out fit statistics returned by [`press`].
@@ -294,12 +316,12 @@ pub fn press<M: Augmentable + ?Sized>(
     let with_intercept = spec.result.intercept.is_some();
     let weights = weights.or(spec.weights);
     let a = augment_with(fit, x, y, weights, ResidualType::Response)?;
-    Ok(press_from(&a, y, weights, with_intercept))
+    Ok(press_from(&a.loo_residual, y, weights, with_intercept))
 }
 
-/// [`Press`] from the leave-one-out residuals of an [`Augment`].
-fn press_from(
-    a: &Augment,
+/// [`Press`] from leave-one-out residuals on the response scale.
+pub(crate) fn press_from(
+    loo_residual: &Col<f64>,
     y: &Col<f64>,
     weights: Option<&Col<f64>>,
     with_intercept: bool,
@@ -309,7 +331,7 @@ fn press_from(
     let n = rows.len();
     let press: f64 = rows
         .iter()
-        .map(|&i| w(i) * a.loo_residual[i] * a.loo_residual[i])
+        .map(|&i| w(i) * loo_residual[i] * loo_residual[i])
         .sum();
     let center = if with_intercept {
         let sw: f64 = rows.iter().map(|&i| w(i)).sum();
@@ -478,6 +500,18 @@ fn augment_core(c: &Core<'_>) -> Augment {
     });
     let loo_fitted = Col::from_fn(n, |i| y[i] - loo_residual[i]);
 
+    // One-step (Pregibon) approximation for the GLMs: the linear predictor
+    // moves by `hᵢ zᵢ / (1 − hᵢ)`, `zᵢ` the working residual.
+    let approx_loo_fitted = Col::from_fn(n, |i| match family {
+        Some(f) if prior(i) > 0.0 && leverage[i] <= LOO_HAT_MAX => {
+            let h = leverage[i];
+            let z = (y[i] - mu[i]) * f.link_derivative(mu[i]);
+            nan_if_inf(f.link_inverse(f.link(mu[i]) - h * z / (1.0 - h)))
+        }
+        _ => f64::NAN,
+    });
+    let approx_loo_residual = Col::from_fn(n, |i| y[i] - approx_loo_fitted[i]);
+
     Augment {
         fitted: mu.clone(),
         residual,
@@ -489,6 +523,8 @@ fn augment_core(c: &Core<'_>) -> Augment {
         dffits,
         loo_residual,
         loo_fitted,
+        approx_loo_fitted,
+        approx_loo_residual,
     }
 }
 
@@ -706,5 +742,7 @@ pub(crate) fn augment_glm_impl(
         dffits: expand(&a.dffits),
         loo_residual: expand(&a.loo_residual),
         loo_fitted: expand(&a.loo_fitted),
+        approx_loo_fitted: expand(&a.approx_loo_fitted),
+        approx_loo_residual: expand(&a.approx_loo_residual),
     })
 }

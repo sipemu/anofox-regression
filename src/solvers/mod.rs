@@ -77,7 +77,7 @@ pub use poisson::{FittedPoisson, PoissonRegressor};
 pub use pspline::{FittedPSpline, PSplineRegressor};
 pub use quantile::{FittedQuantile, QuantileRegressor, QuantileRegressorBuilder};
 pub use ransac::{FittedRansac, RansacRegressor, RansacRegressorBuilder};
-pub use ridge::{FittedRidge, RidgeRegressor, RidgeRegressorBuilder};
+pub use ridge::{FittedRidge, RidgeLoo, RidgeRegressor, RidgeRegressorBuilder};
 pub use rls::{FittedRls, RlsRegressor};
 pub use theil_sen::{
     FittedTheilSen, TheilSenCiMethod, TheilSenRegressor, TheilSenRegressorBuilder,
