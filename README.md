@@ -46,6 +46,9 @@ This library provides sklearn-style regression estimators with full statistical 
   - **Nonparametric survival** (`survival`): Kaplan–Meier with Greenwood CIs,
     Nelson–Aalen / Fleming–Harrington hazards, median and restricted mean,
     strata, weights, left truncation, and log-rank / G-ρ tests (`survfit`, `survdiff`)
+  - **Cox proportional hazards** (`survival::cox`): Efron / Breslow ties, weights,
+    offsets, strata, time-dependent covariates, ridge, robust variance and predicted
+    survival curves (`coxph`, `survfit.coxph`, `cph`)
   - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
     serializable (versioned bytes) state of weighted means and centred
     co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`

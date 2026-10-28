@@ -81,6 +81,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - left-truncated data;
     - the median midpoint rule;
     - two- and four-group log-rank, Peto–Peto and stratified log-rank.
+- **Cox proportional hazards regression: `survival::cox` (#114, RMS Ch 20).** `coxph(x, &CoxInput, &CoxOptions)` maximises the partial likelihood by Newton–Raphson with step halving, as `survival::coxph`.
+  - **Tie handling:** Efron (default) or Breslow.
+  - **Inputs:** case weights, offsets, strata, and counting-process `(entry, stop]` data for left truncation and time-dependent covariates. Risk sets are kept in one descending sweep that adds rows at their stop time and removes them at their entry time.
+  - **Options:** an optional ridge penalty `λ/2 Σβ²` (`ridge(..., theta = λ, scale = FALSE)`), and R's `timefix`.
+  - **`CoxFit` returns:** coefficients, covariance, SEs, z and p-values; the log partial likelihoods at 0 and at the estimate; the LR, Wald and score tests; `concordance()` (Harrell's C within strata), `dxy()` and `r2()` (as `rms::cph`); and `linear_predictors()`.
+  - **Residuals and robust variance:** `score_residuals()` (Efron-corrected, `residuals(type = "score")`) and `robust_vcov(clusters)` (`coxph(..., cluster = id)`, via `inference::cluster_sandwich`).
+  - **Prediction:** `predict_survival(x0, stratum)` is `survfit(fit, newdata)` — the Efron / Breslow cumulative hazard for the covariates, its standard error including the uncertainty of β̂, and log-scale confidence limits.
+  - Validated in `tests/r_validation_cox.rs` (generator `tests/r_scripts/generate_cox_validation.R`) against coxph on `lung`:
+    - Efron, Breslow, weights with an offset, strata and ridge;
+    - score residuals and the robust variance (Efron, Breslow, weighted);
+    - predicted survival with SEs and CIs (Efron, Breslow);
+    - `cph`'s LR, R² and Dxy;
+    - counting-process data with a time-dependent covariate (`heart`), with Efron, Breslow and the robust variance.
 
 ### Fixed
 

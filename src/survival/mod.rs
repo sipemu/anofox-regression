@@ -26,6 +26,8 @@
 //! assert_eq!(km.median().estimate, 15.0);
 //! ```
 
+pub mod cox;
+
 use faer::linalg::solvers::Solve;
 use faer::{Col, Mat};
 use statrs::distribution::{ChiSquared, ContinuousCDF, Normal};
