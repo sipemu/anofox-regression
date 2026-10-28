@@ -5,9 +5,7 @@ Oracle: scikit-learn's `BayesianRidge` and `ARDRegression`.
 
 Besides the coefficients and hyperparameters, each case emits the posterior
 covariance `sigma_`, `n_iter_` and the posterior predictive standard deviation
-of a few query rows from `predict(X, return_std=True)`, and the posterior
-SDs / 90% central credible intervals of the coefficients and the intercept
-(see `emit_credible`). scikit-learn >= 1.8 is
+of a few query rows from `predict(X, return_std=True)`. scikit-learn >= 1.8 is
 required: earlier releases did not center `x` in `return_std` and, with more
 features than rows, dropped the null-space part of `sigma_`.
 """
@@ -16,10 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import numpy as np
 import sklearn
-from scipy.stats import norm
 from sklearn.linear_model import ARDRegression, BayesianRidge
-
-CREDIBLE_LEVEL = 0.9
 
 
 def emit_header() -> None:
@@ -57,32 +52,6 @@ def emit_posterior(suffix: str, model, X_query: np.ndarray) -> None:
     emit_array_f64(f"EXPECTED_STD_{suffix}", std)
 
 
-def emit_credible(suffix: str, model, X: np.ndarray, kept: np.ndarray) -> None:
-    """Posterior SDs and 90% credible intervals of coefficients and intercept.
-
-    The coefficient SDs are `sqrt(diag(sigma_))` (0 for features ARD pruned).
-    The intercept SD is computed independently of the closed form used in
-    Rust (`1/(n alpha) + x̄' Σ x̄`): invert the full posterior precision of
-    `(b0, β_kept)` under a flat prior on `b0`, `alpha [1 X]'[1 X] + diag(0,
-    lambda)`, and take its `(0, 0)` element.
-    """
-    z = norm.ppf(0.5 + CREDIBLE_LEVEL / 2.0)
-    p = X.shape[1]
-    sd = np.zeros(p)
-    sd[kept] = np.sqrt(np.diag(model.sigma_))
-    emit_array_f64(f"EXPECTED_POST_SD_{suffix}", sd)
-    emit_array_f64(f"EXPECTED_CRED_LO_{suffix}", model.coef_ - z * sd)
-    emit_array_f64(f"EXPECTED_CRED_HI_{suffix}", model.coef_ + z * sd)
-    if model.fit_intercept:
-        lam = np.broadcast_to(np.asarray(model.lambda_, dtype=float), (p,))[kept]
-        design = np.column_stack([np.ones(X.shape[0]), X[:, kept]])
-        precision = model.alpha_ * design.T @ design + np.diag(np.concatenate([[0.0], lam]))
-        b0_sd = float(np.sqrt(np.linalg.inv(precision)[0, 0]))
-        emit_const_f64(f"EXPECTED_INTERCEPT_SD_{suffix}", b0_sd)
-        emit_const_f64(f"EXPECTED_INTERCEPT_CRED_LO_{suffix}", float(model.intercept_ - z * b0_sd))
-        emit_const_f64(f"EXPECTED_INTERCEPT_CRED_HI_{suffix}", float(model.intercept_ + z * b0_sd))
-
-
 def case_bayesian_ridge() -> None:
     print(
         "// --------------------------------------------------------------------------\n"
@@ -116,7 +85,6 @@ def case_bayesian_ridge() -> None:
     emit_const_f64("EXPECTED_LAMBDA_BR", float(model.lambda_))
     emit_const_f64("EXPECTED_SCORE_BR", float(model.scores_[-1]))
     emit_posterior("BR", model, rng.normal(size=(5, p)) * 2.0)
-    emit_credible("BR", model, X, np.ones(p, dtype=bool))
     print()
 
 
@@ -143,7 +111,6 @@ def case_bayesian_ridge_wide() -> None:
     emit_const_f64("EXPECTED_LAMBDA_BRW", float(model.lambda_))
     emit_const_f64("EXPECTED_SCORE_BRW", float(model.scores_[-1]))
     emit_posterior("BRW", model, rng.normal(size=(3, p)))
-    emit_credible("BRW", model, X, np.ones(p, dtype=bool))
     print()
 
 
@@ -169,7 +136,6 @@ def case_bayesian_ridge_no_intercept() -> None:
     emit_const_f64("EXPECTED_LAMBDA_BRN", float(model.lambda_))
     emit_const_f64("EXPECTED_SCORE_BRN", float(model.scores_[-1]))
     emit_posterior("BRN", model, rng.normal(size=(3, p)))
-    emit_credible("BRN", model, X, np.ones(p, dtype=bool))
     print()
 
 
@@ -207,7 +173,6 @@ def case_ard() -> None:
     kept = model.lambda_ < model.threshold_lambda
     emit_array_f64("EXPECTED_KEPT_ARD", kept.astype(float))
     emit_posterior("ARD", model, rng.normal(size=(5, p)))
-    emit_credible("ARD", model, X, kept)
     print()
 
 

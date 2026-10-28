@@ -5,7 +5,6 @@ use crate::core::{
     IntervalType, LambdaScaling, PredictionResult, RegressionOptions, RegressionOptionsBuilder,
     RegressionResult, SolverType,
 };
-use crate::diagnostics::{augment_with, AugmentSpec, Augmentable, Press, ResidualType};
 use crate::inference::{compute_variance_factor, intervals_from_variance_factor, leverage_new};
 use crate::solvers::moments::MomentAccumulator;
 use crate::solvers::ols::OlsRegressor;
@@ -367,6 +366,40 @@ impl RidgeRegressor {
         self.fit_from_moments(acc.xtx(), acc.xty(), acc.sum_x(), acc.sum_y(), acc.n())
     }
 
+    /// Fit ridge from a mergeable [`crate::solvers::SufficientStats`] state.
+    ///
+    /// λ (with the configured [`LambdaScaling`], `n` = rows in the state) is
+    /// applied here, so one state serves any λ grid. Gives the same result
+    /// as [`Regressor::fit`] on the rows the state was built from, up to
+    /// floating-point summation order, including the sandwich standard
+    /// errors and the variance factor for intervals. Weights recorded in the
+    /// state are honoured (weighted ridge). `residuals` and `fitted_values`
+    /// are empty.
+    pub fn fit_from_state(
+        &self,
+        state: &crate::solvers::SufficientStats,
+    ) -> Result<FittedRidge, RegressionError> {
+        let lambda = if self.options.lambda == 0.0 {
+            0.0
+        } else {
+            self.effective_lambda(state.n_observations())
+        };
+        let fit = crate::solvers::suff_stats::fit_state(
+            state,
+            &self.options,
+            crate::utils::LM_ALIAS_TOLERANCE,
+            lambda,
+        )?;
+        let variance_factor = fit.reduced_factor.map(|m| {
+            crate::inference::expand_reduced_factor(&m, &fit.aliased, self.options.with_intercept)
+        });
+        Ok(FittedRidge {
+            options: self.options.clone(),
+            result: fit.result,
+            variance_factor,
+        })
+    }
+
     /// Ridge sandwich variance factor `A X'X A`, `A = (X'X + λP)⁻¹` (augmented
     /// with an unpenalised intercept when one is fitted).
     fn ridge_variance_factor(&self, x: &Mat<f64>) -> Option<Mat<f64>> {
@@ -383,7 +416,10 @@ impl RidgeRegressor {
 
     /// Get the effective lambda after applying scaling convention.
     fn effective_lambda(&self, n_samples: usize) -> f64 {
-        effective_lambda(&self.options, n_samples)
+        match self.options.lambda_scaling {
+            LambdaScaling::Raw => self.options.lambda,
+            LambdaScaling::Glmnet => self.options.lambda * n_samples as f64,
+        }
     }
 
     /// Solve Ridge regression using QR: β = (X'X + λI)^(-1) X'y
@@ -596,47 +632,6 @@ impl RidgeRegressor {
     }
 }
 
-/// Penalty `λ` on the sum-of-squares scale: the configured lambda, times `n`
-/// for [`LambdaScaling::Glmnet`].
-fn effective_lambda(options: &RegressionOptions, n_samples: usize) -> f64 {
-    match options.lambda_scaling {
-        LambdaScaling::Raw => options.lambda,
-        LambdaScaling::Glmnet => options.lambda * n_samples as f64,
-    }
-}
-
-/// Leverage above which a row determines its own fitted value (as in
-/// [`crate::diagnostics::augment`], R's `lm.influence` threshold).
-const LOO_HAT_MAX: f64 = 1.0 - 10.0 * f64::EPSILON;
-
-/// Exact leave-one-out diagnostics of a ridge fit, from [`FittedRidge::loo`].
-#[derive(Debug, Clone)]
-pub struct RidgeLoo {
-    /// Diagonal `hᵢ` of the ridge hat matrix `H = X̃(X̃'X̃ + λP)⁻¹X̃'`, `X̃` the
-    /// design with the intercept column and `P` the identity with a zero for
-    /// the (unpenalised) intercept. Equivalently `1/n + x̃ᵢ'(Xc'Xc + λI)⁻¹x̃ᵢ`
-    /// with the centred design `Xc` (no `1/n` term without an intercept).
-    pub leverage: Col<f64>,
-    /// `(yᵢ − ŷᵢ) / (1 − hᵢ)` = `yᵢ − ŷ₍ᵢ₎`, the error of the ridge fit
-    /// without row `i` (same `λ`); `NaN` for rows with `hᵢ = 1`.
-    pub loo_residual: Col<f64>,
-    /// `ŷ₍ᵢ₎ = yᵢ − loo_residual`; `NaN` where `loo_residual` is.
-    pub loo_fitted: Col<f64>,
-    /// PRESS, its RMSE and the predicted R² `1 − press / SST` (SST centred
-    /// with an intercept, uncentred without, as the fit's R²).
-    pub press: Press,
-}
-
-/// A fit's result as a plain linear model, for the λ = 0 (OLS) case of
-/// [`FittedRidge::loo`].
-struct AsLinear<'a>(&'a RegressionResult);
-
-impl Augmentable for AsLinear<'_> {
-    fn augment_spec(&self) -> AugmentSpec<'_> {
-        AugmentSpec::linear(self.0, None)
-    }
-}
-
 /// A fitted Ridge regression model.
 #[derive(Debug, Clone)]
 pub struct FittedRidge {
@@ -672,96 +667,6 @@ impl FittedRidge {
     /// for fits from moments or when the matrix is singular.
     pub fn variance_factor(&self) -> Option<&Mat<f64>> {
         self.variance_factor.as_ref()
-    }
-
-    /// Exact leave-one-out diagnostics, without refitting.
-    ///
-    /// The ridge fit is a linear smoother `ŷ = Hy` of a quadratic objective
-    /// with a fixed penalty, so the fit without row `i` predicts it with error
-    /// `(yᵢ − ŷᵢ) / (1 − hᵢ)` exactly. `H` and the penalty follow the fit: the
-    /// intercept is unpenalised (the centring of [`RidgeRegressor::fit`]) and
-    /// `λ` is the effective penalty on the sum-of-squares scale. With
-    /// [`LambdaScaling::Glmnet`] that is `λ·n` of the full fit, held fixed for
-    /// the leave-one-out fits (a refit on `n − 1` rows through the builder
-    /// would use `λ·(n − 1)`). For λ = 0 these are the OLS values of
-    /// [`crate::diagnostics::augment`] / [`crate::diagnostics::press`].
-    ///
-    /// `x` and `y` must be the data the model was fitted on. `press` is `NaN`
-    /// when a row has `hᵢ = 1` (e.g. no residual degrees of freedom at λ = 0).
-    ///
-    /// # Errors
-    ///
-    /// [`RegressionError::DimensionMismatch`] when `x` / `y` do not match the
-    /// fit (including fits from moments, which keep no rows), and
-    /// [`RegressionError::SingularMatrix`] if the SVD of the design fails.
-    pub fn loo(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<RidgeLoo, RegressionError> {
-        let n = x.nrows();
-        let result = &self.result;
-        for len in [y.nrows(), result.fitted_values.nrows()] {
-            if len != n {
-                return Err(RegressionError::DimensionMismatch {
-                    x_rows: n,
-                    y_len: len,
-                });
-            }
-        }
-        if x.ncols() != result.coefficients.nrows() {
-            return Err(RegressionError::DimensionMismatch {
-                x_rows: x.ncols(),
-                y_len: result.coefficients.nrows(),
-            });
-        }
-        let with_intercept = result.intercept.is_some();
-        let lambda = effective_lambda(&self.options, n);
-
-        let (leverage, loo_residual, loo_fitted) = if lambda == 0.0 {
-            let a = augment_with(&AsLinear(result), x, y, None, ResidualType::Response)?;
-            (a.leverage, a.loo_residual, a.loo_fitted)
-        } else {
-            // Thin SVD of the (centred) design: h = [1/n] + Σₖ Uᵢₖ² sₖ² / (sₖ² + λ).
-            let design = if with_intercept {
-                center_columns(x).0
-            } else {
-                x.clone()
-            };
-            let base = if with_intercept { 1.0 / n as f64 } else { 0.0 };
-            let leverage = if design.ncols() == 0 {
-                Col::from_fn(n, |_| base)
-            } else {
-                let svd = design
-                    .thin_svd()
-                    .map_err(|_| RegressionError::SingularMatrix)?;
-                let (u, s) = (svd.U(), svd.S().column_vector());
-                let shrink: Vec<f64> = (0..s.nrows())
-                    .map(|k| s[k] * s[k] / (s[k] * s[k] + lambda))
-                    .collect();
-                Col::from_fn(n, |i| {
-                    let h: f64 = shrink
-                        .iter()
-                        .enumerate()
-                        .map(|(k, &d)| u[(i, k)] * u[(i, k)] * d)
-                        .sum();
-                    (base + h).min(1.0)
-                })
-            };
-            let loo_residual = Col::from_fn(n, |i| {
-                let v = result.residuals[i] / (1.0 - leverage[i]);
-                if leverage[i] > LOO_HAT_MAX || !v.is_finite() {
-                    f64::NAN
-                } else {
-                    v
-                }
-            });
-            let loo_fitted = Col::from_fn(n, |i| y[i] - loo_residual[i]);
-            (leverage, loo_residual, loo_fitted)
-        };
-        let press = crate::diagnostics::augment::press_from(&loo_residual, y, None, with_intercept);
-        Ok(RidgeLoo {
-            leverage,
-            loo_residual,
-            loo_fitted,
-            press,
-        })
     }
 
     /// Leverage `x₀' M x₀` of new rows (NaN if no variance factor is available).

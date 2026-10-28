@@ -48,11 +48,7 @@ pub mod prelude {
         Augmentable, ConditionDiagnostic, ConditionSeverity, ResidualType, SeparationCheck,
         SeparationType,
     };
-    pub use crate::inference::{
-        anova_table, nested_f_test, nested_f_test_indices, AnovaTable, AnovaTableError,
-        AnovaTableOptions, AnovaTerm, AnovaType, HcInference, HcType, NestedFTest,
-        NestedFTestError, NestedFTestOptions, PredictSeOptions, PredictWithSe,
-    };
+    pub use crate::inference::{HcInference, HcType, PredictSeOptions, PredictWithSe};
     pub use crate::solvers::aft::{AftDistribution, AftRegressor, FittedAft};
     pub use crate::solvers::eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, TauMethod};
     pub use crate::solvers::penalized_glm::{
@@ -62,11 +58,11 @@ pub mod prelude {
         AlmDistribution, AlmRegressor, BinomialRegressor, BlsRegressor, ElasticNetRegressor,
         FactorSummary, FittedAlm, FittedBinomial, FittedGamma, FittedGlmm, FittedHuber,
         FittedIsotonic, FittedLogistic, FittedNegativeBinomial, FittedPSpline, FittedPls,
-        FittedPoisson, FittedQuantile, FittedRegressor, FittedTweedie, GammaRegressor, GlmmDdf,
-        GlmmInference, GlmmRegressor, GlmmRegressorBuilder, HuberRegressor, IsotonicRegressor,
-        LinkFunction, LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds,
-        PSplineRegressor, Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor,
-        RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
+        FittedPoisson, FittedQuantile, FittedRegressor, FittedTweedie, GammaRegressor,
+        GlmmRegressor, GlmmRegressorBuilder, HuberRegressor, IsotonicRegressor, LinkFunction,
+        LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds, PSplineRegressor,
+        Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor, RidgeRegressor,
+        RlsRegressor, TweedieRegressor, WlsRegressor,
     };
 }
 
@@ -76,15 +72,10 @@ pub use crate::core::{
     PredictionResult, PredictionType, RegressionOptions, RegressionOptionsBuilder,
     RegressionResult, SolverType, TweedieFamily,
 };
-pub use crate::inference::{
-    anova_table, nested_f_test, nested_f_test_indices, AnovaTable, AnovaTableError,
-    AnovaTableOptions, AnovaTerm, AnovaType, HcInference, HcType, NestedFTest, NestedFTestError,
-    NestedFTestOptions,
-};
+pub use crate::inference::{HcInference, HcType};
 pub use crate::solvers::{
     BinomialRegressor, FactorSummary, FittedBinomial, FittedGlmm, FittedIsotonic,
-    FittedNegativeBinomial, FittedPSpline, FittedPoisson, FittedQuantile, FittedRegressor, GlmmDdf,
-    GlmmInference, GlmmRegressor, GlmmRegressorBuilder, IsotonicRegressor,
-    NegativeBinomialRegressor, OutOfBounds, PSplineRegressor, PoissonRegressor, QuantileRegressor,
-    Regressor,
+    FittedNegativeBinomial, FittedPSpline, FittedPoisson, FittedQuantile, FittedRegressor,
+    GlmmRegressor, GlmmRegressorBuilder, IsotonicRegressor, NegativeBinomialRegressor, OutOfBounds,
+    PSplineRegressor, PoissonRegressor, QuantileRegressor, Regressor,
 };

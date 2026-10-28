@@ -40,8 +40,7 @@
 //!
 //! * **Random intercept (`q = 1`).** `θ = σ_b/σ` is a single scale-free ratio,
 //!   profiled by golden-section search.
-//! * **Random slopes (`q > 1`).** `θ` is profiled by Nelder–Mead (then polished
-//!   by a few finite-difference Newton steps), matching
+//! * **Random slopes (`q > 1`).** `θ` is profiled by Nelder–Mead, matching
 //!   `lme4`'s derivative-free optimisation over the Cholesky factor.
 //!
 //! For each candidate `θ`:
@@ -84,7 +83,6 @@
 //! let (lo, hi) = fitted.conf_int(0.95);
 //! ```
 
-use super::glmm_satterthwaite::{newton_polish, satterthwaite_df, LmmPieces};
 use crate::core::{
     BinomialFamily, BinomialLink, GlmFamily, NegativeBinomialFamily, PoissonFamily, PoissonLink,
     TweedieFamily,
@@ -93,7 +91,7 @@ use crate::core::{HasModelInfo, ModelInfo};
 use crate::solvers::penalized_glm::loglik::{log_likelihood as family_log_likelihood, LogLikKind};
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{ContinuousCDF, Normal};
 
 /// A GLMM with a random intercept (and optional random slopes) over one
 /// grouping factor, or several crossed / nested grouping factors.
@@ -119,8 +117,6 @@ pub struct GlmmRegressor {
     nb_theta: Option<f64>,
     /// Per-observation offset added to the linear predictor.
     offset: Option<Col<f64>>,
-    /// Compute Satterthwaite degrees of freedom for a Gaussian fit.
-    satterthwaite: bool,
 }
 
 impl GlmmRegressor {
@@ -246,25 +242,17 @@ impl GlmmRegressor {
         let design = build_design(x, self.with_intercept);
         let z = build_random_design(x, self.random_intercept, slopes);
 
-        let fitted = if let ResponseKind::Gaussian = self.kind {
+        if let ResponseKind::Gaussian = self.kind {
             let y_adj = Col::from_fn(n, |i| y[i] - offset[i]);
-            self.fit_lmm(&design, &z, &y_adj, &group_idx, n_groups, p, q)?
-        } else {
-            let y_vec: Vec<f64> = y.iter().copied().collect();
-            self.with_family(|family, nb_theta| {
-                self.fit_glmm(
-                    family, nb_theta, &design, &z, &y_vec, &offset, &group_idx, n_groups, p, q,
-                )
-            })
-            .map(|f| self.with_saturated_term(f, y))?
-        };
-        let eta_re: Vec<f64> = (0..n)
-            .map(|i| {
-                let b = &fitted.re_matrix[group_idx[i]];
-                (0..q).map(|a| z[(i, a)] * b[a]).sum()
-            })
-            .collect();
-        Ok(self.with_observations(fitted, &design, &eta_re, y, &offset))
+            return self.fit_lmm(&design, &z, &y_adj, &group_idx, n_groups, p, q);
+        }
+        let y_vec: Vec<f64> = y.iter().copied().collect();
+        self.with_family(|family, nb_theta| {
+            self.fit_glmm(
+                family, nb_theta, &design, &z, &y_vec, &offset, &group_idx, n_groups, p, q,
+            )
+        })
+        .map(|f| self.with_saturated_term(f, y))
     }
 
     /// Fit with **multiple crossed or nested grouping factors**, each carrying a
@@ -383,89 +371,18 @@ impl GlmmRegressor {
         }
         let design = build_design(x, self.with_intercept);
 
-        let fitted = if let ResponseKind::Gaussian = self.kind {
+        if let ResponseKind::Gaussian = self.kind {
             let y_adj: Vec<f64> = (0..n).map(|i| y[i] - offset[i]).collect();
-            self.fit_lmm_multi(&design, &y_adj, &spec, p)?
-        } else {
-            let y_vec: Vec<f64> = y.iter().copied().collect();
-            self.with_family(|family, nb_theta| {
-                self.fit_glmm_multi(family, nb_theta, &design, &y_vec, &offset, &spec, p)
-            })
-            .map(|f| self.with_saturated_term(f, y))?
-        };
-        let eta_re: Vec<f64> = (0..n)
-            .map(|i| {
-                fitted
-                    .factor_details
-                    .iter()
-                    .enumerate()
-                    .map(|(f, d)| {
-                        let b = &d.re[spec.levels[f][i]];
-                        (0..spec.q[f])
-                            .map(|a| spec.z[f][(i, a)] * b[a])
-                            .sum::<f64>()
-                    })
-                    .sum()
-            })
-            .collect();
-        Ok(self
-            .with_observations(fitted, &design, &eta_re, y, &offset)
-            .with_n_observations(n))
-    }
-
-    /// Attach the training data's conditional and population-level fitted
-    /// values and Pearson residuals. `eta_re[i]` is the random-effects part
-    /// of observation `i`'s linear predictor.
-    fn with_observations(
-        &self,
-        mut fitted: FittedGlmm,
-        design: &Mat<f64>,
-        eta_re: &[f64],
-        y: &Col<f64>,
-        offset: &[f64],
-    ) -> FittedGlmm {
-        let family = self.observation_family(fitted.nb_theta);
-        let n = design.nrows();
-        let mut obs = Observations {
-            y: y.iter().copied().collect(),
-            fitted: Vec::with_capacity(n),
-            fitted_population: Vec::with_capacity(n),
-            pearson: Vec::with_capacity(n),
-        };
-        for i in 0..n {
-            let eta_fixed = offset[i]
-                + (0..design.ncols())
-                    .map(|k| design[(i, k)] * fitted.fixed_effects[k])
-                    .sum::<f64>();
-            let eta = eta_fixed + eta_re[i];
-            let (mu, mu_fixed, var) = match &family {
-                None => (eta, eta_fixed, 1.0),
-                Some(f) => {
-                    let mu = f.clamp_mu(f.link_inverse(eta));
-                    (mu, f.clamp_mu(f.link_inverse(eta_fixed)), f.variance(mu))
-                }
-            };
-            obs.fitted.push(mu);
-            obs.fitted_population.push(mu_fixed);
-            obs.pearson.push((y[i] - mu) / var.sqrt());
+            return self
+                .fit_lmm_multi(&design, &y_adj, &spec, p)
+                .map(|f| f.with_n_observations(n));
         }
-        fitted.observations = obs;
-        fitted
-    }
-
-    /// The family behind the response-scale fitted values and Pearson
-    /// residuals; `None` for the Gaussian LMM (identity link, unit variance).
-    fn observation_family(&self, nb_theta: Option<f64>) -> Option<Box<dyn GlmFamily>> {
-        match self.kind {
-            ResponseKind::Gaussian => None,
-            ResponseKind::Poisson => Some(Box::new(PoissonFamily::new(PoissonLink::Log))),
-            ResponseKind::Binomial => Some(Box::new(BinomialFamily::new(BinomialLink::Logit))),
-            ResponseKind::NegativeBinomial => Some(Box::new(NegativeBinomialFamily::new(
-                nb_theta.unwrap_or(f64::NAN),
-            ))),
-            ResponseKind::Gamma => Some(Box::new(TweedieFamily::new(2.0, 0.0))),
-            ResponseKind::Tweedie(power) => Some(Box::new(TweedieFamily::new(power, 0.0))),
-        }
+        let y_vec: Vec<f64> = y.iter().copied().collect();
+        self.with_family(|family, nb_theta| {
+            self.fit_glmm_multi(family, nb_theta, &design, &y_vec, &offset, &spec, p)
+        })
+        .map(|f| self.with_saturated_term(f, y))
+        .map(|f| f.with_n_observations(n))
     }
 
     /// The offset as a dense vector (zeros when none was set).
@@ -602,14 +519,12 @@ impl GlmmRegressor {
         } else {
             sol.ml_deviance(n)
         };
-        let re_se = group_conditional_se(&t, &stats.ztz, sigma);
 
-        let mut fitted = FittedGlmm::new(
+        Ok(FittedGlmm::new(
             self.with_intercept,
             sol.beta,
-            cov_beta,
+            diag_sqrt(&cov_beta),
             sol.b,
-            re_se,
             n_groups,
             q,
             t[0][0],
@@ -619,21 +534,7 @@ impl GlmmRegressor {
             self.reml,
             true,
             1,
-        );
-        if self.satterthwaite {
-            let pieces = |th: &[f64]| {
-                solve_lmm_theta(&build_t(th, q), design, z, &y_vec, group_idx, &stats, p, q).map(
-                    |s| LmmPieces {
-                        prss: s.prss,
-                        logdet_l2: s.logdet_l2,
-                        logdet_rx2: s.logdet_rx2,
-                        m_inv: s.m_inv,
-                    },
-                )
-            };
-            fitted.satterthwaite_df = satterthwaite_df(&theta, sigma, n, p, self.reml, &pieces);
-        }
-        Ok(fitted)
+        ))
     }
 
     // ---------------------------------------------------------------- GLMM ---
@@ -761,15 +662,13 @@ impl GlmmRegressor {
         // Σ = T Tᵀ (lme4 reports the GLMM random-effect covariance unscaled);
         // Var(β) = σ² M⁻¹ with σ = 1 except for Gamma / Tweedie.
         let cov = mm(&t, &transpose(&t));
-        let vcov = scale_matrix(&sol.m_inv, sigma * sigma);
-        let re_se = group_conditional_se(&t, &sol.ztz, sigma);
+        let std_errors = diag_sqrt(&sol.m_inv).iter().map(|s| s * sigma).collect();
 
         let mut fitted = FittedGlmm::new(
             self.with_intercept,
             sol.beta,
-            vcov,
+            std_errors,
             sol.b,
-            re_se,
             n_groups,
             q,
             t[0][0],
@@ -820,19 +719,15 @@ impl GlmmRegressor {
         let dof = if self.reml { n - p } else { n };
         let sigma2 = prss / dof as f64;
         let sigma = sigma2.sqrt();
-        let vcov = scale_matrix(&sol.m_inv, sigma2);
+        let std_errors = diag_sqrt(&scale_matrix(&sol.m_inv, sigma2));
         let deviance = deviance_from_pieces(prss, sol.logdet_l2, sol.logdet_rx2, n, p, self.reml);
 
         let ts = spec.ts(&theta);
-        let st = MultiStats::new(design, y, &spec.zl(&ts), m_dim, p, None);
-        let a_inv = cholesky(&st.a)
-            .map(|l| cholesky_inverse(&l))
-            .ok_or(RegressionError::SingularMatrix)?;
-        let (factors, details) = spec.summaries(&ts, &sol.u, sigma, &a_inv, sigma);
-        let mut fitted = FittedGlmm::new_multi(
+        let (factors, details) = spec.summaries(&ts, &sol.u, sigma);
+        Ok(FittedGlmm::new_multi(
             self.with_intercept,
             sol.beta,
-            vcov,
+            std_errors,
             sigma,
             factors,
             details,
@@ -840,19 +735,7 @@ impl GlmmRegressor {
             self.reml,
             true,
             1,
-        );
-        if self.satterthwaite {
-            let pieces = |th: &[f64]| {
-                solve(th).map(|(s, rss)| LmmPieces {
-                    prss: rss + s.u_sq,
-                    logdet_l2: s.logdet_l2,
-                    logdet_rx2: s.logdet_rx2,
-                    m_inv: s.m_inv,
-                })
-            };
-            fitted.satterthwaite_df = satterthwaite_df(&theta, sigma, n, p, self.reml, &pieces);
-        }
-        Ok(fitted)
+        ))
     }
 
     /// Fit a non-Gaussian GLMM with several crossed / nested random-effect
@@ -895,17 +778,15 @@ impl GlmmRegressor {
         let deviance =
             self.laplace_criterion(family, nb_theta, y, &sol.mu, sol.u_sq, sol.logdet_l2);
         let sigma = self.glmm_scale(family, y, &sol.mu, sol.u_sq);
-        let vcov = scale_matrix(&sol.m_inv, sigma * sigma);
+        let std_errors = diag_sqrt(&sol.m_inv).iter().map(|s| s * sigma).collect();
 
         let ts = spec.ts(&theta);
-        // GLMM random-effect covariances are unscaled (lme4 convention); the
-        // conditional variances are scaled by σ² as lme4's condVar.
-        let a_inv = cholesky_inverse(&sol.chol_a);
-        let (factors, details) = spec.summaries(&ts, &sol.u, 1.0, &a_inv, sigma);
+        // GLMM random-effect covariances are unscaled (lme4 convention).
+        let (factors, details) = spec.summaries(&ts, &sol.u, 1.0);
         let mut fitted = FittedGlmm::new_multi(
             self.with_intercept,
             sol.beta,
-            vcov,
+            std_errors,
             sigma,
             factors,
             details,
@@ -918,21 +799,6 @@ impl GlmmRegressor {
         fitted.kind = self.kind;
         Ok(fitted)
     }
-}
-
-/// Conditional standard errors of every group's random effects in the
-/// single-factor case, from the per-group `Zⱼᵀ W Zⱼ` (see [`conditional_se`]).
-fn group_conditional_se(t: &[Vec<f64>], ztz: &[Vec<Vec<f64>>], scale: f64) -> Vec<Vec<f64>> {
-    let tt = transpose(t);
-    ztz.iter()
-        .map(|block| {
-            let a = add_identity(&mm(&tt, &mm(block, t)));
-            match cholesky(&a) {
-                Some(l) => conditional_se(t, &cholesky_inverse(&l), scale),
-                None => vec![f64::NAN; t.len()],
-            }
-        })
-        .collect()
 }
 
 /// Check that every random-slope column indexes into `x`.
@@ -952,15 +818,8 @@ pub struct FittedGlmm {
     with_intercept: bool,
     fixed_effects: Vec<f64>,
     std_errors: Vec<f64>,
-    /// Covariance of the fixed effects `σ² M⁻¹` (`p × p`).
-    vcov: Vec<Vec<f64>>,
-    /// Satterthwaite degrees of freedom of the fixed effects (Gaussian fits
-    /// built with [`satterthwaite`](GlmmRegressorBuilder::satterthwaite)).
-    satterthwaite_df: Option<Vec<f64>>,
     /// Random-effects BLUPs, `n_groups × q` (row-major per group).
     re_matrix: Vec<Vec<f64>>,
-    /// Conditional standard errors of the BLUPs, `n_groups × q`.
-    re_se: Vec<Vec<f64>>,
     /// Random intercept BLUP per group (component 0), for the scalar accessor.
     re_intercept: Vec<f64>,
     n_groups: usize,
@@ -987,18 +846,6 @@ pub struct FittedGlmm {
     kind: ResponseKind,
     /// Number of observations the model was fitted on.
     n_observations: usize,
-    /// Per-observation response, conditional and population-level fitted
-    /// values and Pearson residuals of the training data.
-    observations: Observations,
-}
-
-/// Per-observation quantities of the training data (response scale).
-#[derive(Debug, Clone, Default)]
-struct Observations {
-    y: Vec<f64>,
-    fitted: Vec<f64>,
-    fitted_population: Vec<f64>,
-    pearson: Vec<f64>,
 }
 
 impl HasModelInfo for FittedGlmm {
@@ -1025,36 +872,6 @@ impl HasModelInfo for FittedGlmm {
     }
 }
 
-/// Degrees-of-freedom method for the fixed-effect tests of a GLMM
-/// ([`FittedGlmm::inference`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GlmmDdf {
-    /// Asymptotic z tests and Wald intervals (lme4 `summary(glmer)`,
-    /// `confint(method = "Wald")`).
-    Wald,
-    /// t tests with Satterthwaite degrees of freedom (`lmerTest`); Gaussian
-    /// fits only.
-    Satterthwaite,
-}
-
-/// Fixed-effect inference from [`FittedGlmm::inference`], every vector in
-/// design order (intercept first when present).
-#[derive(Debug, Clone)]
-pub struct GlmmInference {
-    /// Standard errors `sqrt(diag(vcov))`.
-    pub std_errors: Vec<f64>,
-    /// `β̂ / SE` — a z statistic for Wald, a t statistic for Satterthwaite.
-    pub statistics: Vec<f64>,
-    /// Satterthwaite degrees of freedom; `None` for Wald.
-    pub df: Option<Vec<f64>>,
-    /// Two-sided p-values.
-    pub p_values: Vec<f64>,
-    /// Lower confidence bounds.
-    pub conf_low: Vec<f64>,
-    /// Upper confidence bounds.
-    pub conf_high: Vec<f64>,
-}
-
 /// Per-factor summary for a crossed / nested fit: one random intercept per
 /// factor, each with its own variance component.
 #[derive(Debug, Clone)]
@@ -1072,9 +889,8 @@ impl FittedGlmm {
     fn new(
         with_intercept: bool,
         fixed_effects: Vec<f64>,
-        vcov: Vec<Vec<f64>>,
+        std_errors: Vec<f64>,
         re_matrix: Vec<Vec<f64>>,
-        re_se: Vec<Vec<f64>>,
         n_groups: usize,
         q: usize,
         theta0: f64,
@@ -1089,11 +905,8 @@ impl FittedGlmm {
         Self {
             with_intercept,
             fixed_effects,
-            std_errors: diag_sqrt(&vcov),
-            vcov,
-            satterthwaite_df: None,
+            std_errors,
             re_matrix,
-            re_se,
             re_intercept,
             n_groups,
             q,
@@ -1110,7 +923,6 @@ impl FittedGlmm {
             nb_theta: None,
             kind: ResponseKind::Gaussian,
             n_observations: 0,
-            observations: Observations::default(),
         }
     }
 
@@ -1121,7 +933,7 @@ impl FittedGlmm {
     fn new_multi(
         with_intercept: bool,
         fixed_effects: Vec<f64>,
-        vcov: Vec<Vec<f64>>,
+        std_errors: Vec<f64>,
         sigma: f64,
         factors: Vec<FactorSummary>,
         factor_details: Vec<FactorDetail>,
@@ -1133,7 +945,6 @@ impl FittedGlmm {
         let f0 = &factors[0];
         let d0 = &factor_details[0];
         let re_matrix = d0.re.clone();
-        let re_se = d0.se.clone();
         let re_intercept = f0.blups.clone();
         let cov = d0.cov.clone();
         let q = cov.len();
@@ -1141,11 +952,8 @@ impl FittedGlmm {
         Self {
             with_intercept,
             fixed_effects,
-            std_errors: diag_sqrt(&vcov),
-            vcov,
-            satterthwaite_df: None,
+            std_errors,
             re_matrix,
-            re_se,
             re_intercept,
             n_groups: f0.n_levels,
             q,
@@ -1162,7 +970,6 @@ impl FittedGlmm {
             nb_theta: None,
             kind: ResponseKind::Gaussian,
             n_observations: 0,
-            observations: Observations::default(),
         }
     }
 
@@ -1197,8 +1004,7 @@ impl FittedGlmm {
     /// Two-sided asymptotic normal p-values `2·(1 − Φ(|z|))` of the fixed
     /// effects — `Pr(>|z|)` of `summary(glmer(...))`. For a Gaussian LMM this
     /// is the large-sample normal approximation (lme4 prints no p-value for
-    /// `lmer`); for `lmerTest`'s Satterthwaite t-tests see
-    /// [`inference`](Self::inference).
+    /// `lmer`; Satterthwaite/Kenward–Roger degrees of freedom are not used).
     pub fn p_values(&self) -> Vec<f64> {
         let normal = Normal::new(0.0, 1.0).expect("standard normal");
         self.z_values()
@@ -1239,90 +1045,6 @@ impl FittedGlmm {
             .unzip()
     }
 
-    /// Covariance matrix of the fixed effects `σ² M⁻¹` (`p × p`, intercept
-    /// first when present) — lme4's `vcov()`.
-    pub fn vcov(&self) -> &[Vec<f64>] {
-        &self.vcov
-    }
-
-    /// Satterthwaite degrees of freedom of the fixed effects (element 0 is
-    /// the intercept when present), as `lmerTest`'s
-    /// `summary(lmer(...), ddf = "Satterthwaite")`. `None` unless this is a
-    /// Gaussian fit built with
-    /// [`satterthwaite(true)`](GlmmRegressorBuilder::satterthwaite). An entry
-    /// is `NaN` where the variance parameters' Hessian gives no information
-    /// about it (e.g. a singular fit).
-    pub fn satterthwaite_df(&self) -> Option<&[f64]> {
-        self.satterthwaite_df.as_deref()
-    }
-
-    /// Fixed-effect inference at confidence `level` (e.g. `0.95`), every
-    /// vector in design order (intercept first when present).
-    ///
-    /// * [`GlmmDdf::Wald`]: z statistics, normal p-values and Wald intervals —
-    ///   [`z_values`](Self::z_values), [`p_values`](Self::p_values),
-    ///   [`conf_int`](Self::conf_int); `df` is `None`.
-    /// * [`GlmmDdf::Satterthwaite`]: t statistics with Satterthwaite degrees of
-    ///   freedom, t p-values and t intervals `β̂ ∓ t_{df, (1+level)/2}·SE`
-    ///   (`lmerTest::contest1D(..., confint = TRUE)`). Needs a Gaussian fit
-    ///   built with [`satterthwaite(true)`](GlmmRegressorBuilder::satterthwaite);
-    ///   an error otherwise.
-    pub fn inference(&self, ddf: GlmmDdf, level: f64) -> Result<GlmmInference, RegressionError> {
-        let statistics = self.z_values();
-        match ddf {
-            GlmmDdf::Wald => {
-                let (conf_low, conf_high) = self.conf_int(level);
-                Ok(GlmmInference {
-                    std_errors: self.std_errors.clone(),
-                    statistics,
-                    df: None,
-                    p_values: self.p_values(),
-                    conf_low,
-                    conf_high,
-                })
-            }
-            GlmmDdf::Satterthwaite => {
-                let df = self.satterthwaite_df.clone().ok_or_else(|| {
-                    RegressionError::NumericalError(
-                        "Satterthwaite degrees of freedom need a Gaussian GLMM built with \
-                         satterthwaite(true)"
-                            .to_string(),
-                    )
-                })?;
-                let valid_level = level > 0.0 && level < 1.0;
-                let mut p_values = Vec::with_capacity(df.len());
-                let mut conf_low = Vec::with_capacity(df.len());
-                let mut conf_high = Vec::with_capacity(df.len());
-                for j in 0..df.len() {
-                    let (b, se, t) = (self.fixed_effects[j], self.std_errors[j], statistics[j]);
-                    let dist = (df[j] > 0.0)
-                        .then(|| StudentsT::new(0.0, 1.0, df[j]).ok())
-                        .flatten();
-                    p_values.push(match &dist {
-                        Some(d) if t.is_finite() => 2.0 * d.sf(t.abs()),
-                        _ => f64::NAN,
-                    });
-                    let q = match &dist {
-                        Some(d) if valid_level && se.is_finite() => {
-                            d.inverse_cdf(0.5 + level / 2.0)
-                        }
-                        _ => f64::NAN,
-                    };
-                    conf_low.push(b - q * se);
-                    conf_high.push(b + q * se);
-                }
-                Ok(GlmmInference {
-                    std_errors: self.std_errors.clone(),
-                    statistics,
-                    df: Some(df),
-                    p_values,
-                    conf_low,
-                    conf_high,
-                })
-            }
-        }
-    }
-
     /// The intercept, if the model was fit with one.
     pub fn intercept(&self) -> Option<f64> {
         if self.with_intercept {
@@ -1354,25 +1076,6 @@ impl FittedGlmm {
     /// [`random_slopes`](GlmmRegressorBuilder::random_slopes).
     pub fn random_effects_matrix(&self) -> &[Vec<f64>] {
         &self.re_matrix
-    }
-
-    /// Conditional standard error of the random **intercept** BLUP of each
-    /// group — component 0 of [`random_effects_se_matrix`](Self::random_effects_se_matrix).
-    pub fn random_effects_se(&self) -> Vec<f64> {
-        self.re_se.iter().map(|s| s[0]).collect()
-    }
-
-    /// Conditional standard errors of the BLUPs, one `q`-vector per group
-    /// (`n_groups × q`, same layout as
-    /// [`random_effects_matrix`](Self::random_effects_matrix)): the square
-    /// roots of the diagonal of `σ² Λ (ΛᵀZᵀWZΛ + I)⁻¹ Λᵀ`, i.e.
-    /// `lme4::ranef(condVar = TRUE)` / `arm::se.ranef`. They are conditional
-    /// on the estimated fixed effects and variance parameters; `W` is the
-    /// GLMM working weight at the conditional mode. For a crossed / nested
-    /// fit these describe the first factor (see
-    /// [`factor_random_effects_se_matrix`](Self::factor_random_effects_se_matrix)).
-    pub fn random_effects_se_matrix(&self) -> &[Vec<f64>] {
-        &self.re_se
     }
 
     /// Number of random effects per group `q` (1 for a plain random intercept).
@@ -1536,68 +1239,6 @@ impl FittedGlmm {
         self.factor_details.get(f).map(|d| d.re.as_slice())
     }
 
-    /// Conditional standard errors of the BLUPs of grouping factor `f` in a
-    /// crossed / nested fit (`n_levels × q_f`, see
-    /// [`random_effects_se_matrix`](Self::random_effects_se_matrix)); `None`
-    /// for a single-factor fit or an out-of-range `f`.
-    pub fn factor_random_effects_se_matrix(&self, f: usize) -> Option<&[Vec<f64>]> {
-        self.factor_details.get(f).map(|d| d.se.as_slice())
-    }
-
-    /// Normal intervals `b ∓ z_{(1+level)/2} · se` for the BLUPs of every group
-    /// (`n_groups × q` lower and upper bounds, layout of
-    /// [`random_effects_matrix`](Self::random_effects_matrix)), as
-    /// `broom.mixed::tidy(m, effects = "ran_vals", conf.int = TRUE)`. Bounds
-    /// are `NaN` for a `level` outside `(0, 1)`.
-    pub fn random_effects_conf_int(&self, level: f64) -> IntervalBounds {
-        normal_intervals(&self.re_matrix, &self.re_se, level)
-    }
-
-    /// [`random_effects_conf_int`](Self::random_effects_conf_int) for
-    /// grouping factor `f` of a crossed / nested fit; `None` for a
-    /// single-factor fit or an out-of-range `f`.
-    pub fn factor_random_effects_conf_int(&self, f: usize, level: f64) -> Option<IntervalBounds> {
-        self.factor_details
-            .get(f)
-            .map(|d| normal_intervals(&d.re, &d.se, level))
-    }
-
-    /// Conditional fitted values of the training data on the response scale,
-    /// `g⁻¹(x'β + z'b + offset)` with the BLUPs — lme4's `fitted()`.
-    pub fn fitted_values(&self) -> &[f64] {
-        &self.observations.fitted
-    }
-
-    /// Population-level fitted values of the training data on the response
-    /// scale, `g⁻¹(x'β + offset)` (random effects at zero).
-    pub fn fitted_population(&self) -> &[f64] {
-        &self.observations.fitted_population
-    }
-
-    /// Response residuals `y − fitted` of the training data — lme4's
-    /// `residuals(type = "response")`.
-    pub fn residuals(&self) -> Vec<f64> {
-        self.observations
-            .y
-            .iter()
-            .zip(&self.observations.fitted)
-            .map(|(y, mu)| y - mu)
-            .collect()
-    }
-
-    /// Pearson residuals `(y − μ)/sqrt(V(μ))` of the training data — lme4's
-    /// `residuals(type = "pearson")` (not divided by σ; equal to the response
-    /// residuals for the Gaussian LMM).
-    pub fn pearson_residuals(&self) -> &[f64] {
-        &self.observations.pearson
-    }
-
-    /// Residual degrees of freedom `n − k` with `k` the
-    /// [`n_parameters`](Self::n_parameters) — lme4's `df.residual()`.
-    pub fn df_residual(&self) -> f64 {
-        self.n_observations as f64 - self.n_parameters() as f64
-    }
-
     /// The negative-binomial size θ (`Var = μ + μ²/θ`) — estimated, or as
     /// fixed via [`nb_theta`](GlmmRegressorBuilder::nb_theta). `None` for the
     /// other families.
@@ -1665,7 +1306,6 @@ pub struct GlmmRegressorBuilder {
     theta_max: f64,
     nb_theta: Option<f64>,
     offset: Option<Col<f64>>,
-    satterthwaite: bool,
 }
 
 impl GlmmRegressorBuilder {
@@ -1682,7 +1322,6 @@ impl GlmmRegressorBuilder {
             theta_max: 1000.0,
             nb_theta: None,
             offset: None,
-            satterthwaite: false,
         }
     }
 
@@ -1759,17 +1398,6 @@ impl GlmmRegressorBuilder {
         self
     }
 
-    /// Compute Satterthwaite degrees of freedom for the fixed effects of a
-    /// Gaussian fit (default `false`), as `lmerTest`'s
-    /// `summary(lmer(...), ddf = "Satterthwaite")`; see
-    /// [`FittedGlmm::satterthwaite_df`] and [`FittedGlmm::inference`]. It
-    /// costs a few dozen extra deviance evaluations. Ignored by the
-    /// non-Gaussian families, which use Wald inference.
-    pub fn satterthwaite(mut self, compute: bool) -> Self {
-        self.satterthwaite = compute;
-        self
-    }
-
     /// Build the [`GlmmRegressor`].
     pub fn build(self) -> GlmmRegressor {
         GlmmRegressor {
@@ -1784,7 +1412,6 @@ impl GlmmRegressorBuilder {
             theta_max: self.theta_max,
             nb_theta: self.nb_theta,
             offset: self.offset,
-            satterthwaite: self.satterthwaite,
         }
     }
 }
@@ -1996,8 +1623,6 @@ struct PirlsSolution {
     /// log|L_θ|² at the converged weights.
     logdet_l2: f64,
     m_inv: Vec<Vec<f64>>,
-    /// Per-group `Zⱼᵀ W Zⱼ` at the converged weights.
-    ztz: Vec<Vec<Vec<f64>>>,
     converged: bool,
     iterations: usize,
 }
@@ -2137,7 +1762,6 @@ fn pirls(
         u_sq,
         logdet_l2,
         m_inv: last_m_inv,
-        ztz: stats.ztz,
         converged,
         iterations,
     })
@@ -2219,8 +1843,6 @@ struct MultiSpec {
 struct FactorDetail {
     cov: Vec<Vec<f64>>,
     re: Vec<Vec<f64>>,
-    /// Conditional standard errors of `re`.
-    se: Vec<Vec<f64>>,
 }
 
 impl MultiSpec {
@@ -2281,16 +1903,12 @@ impl MultiSpec {
     }
 
     /// Per-factor summaries from the spherical modes `u` (`b = Λ_θ u`);
-    /// covariances are `scale² · T_f T_fᵀ`. The conditional standard errors
-    /// of the BLUPs are the diagonal of `se_scale² · Λ A⁻¹ Λᵀ` (lme4's
-    /// `ranef(condVar = TRUE)`), with `a_inv = A⁻¹` and `A = ΛᵀZᵀWZΛ + I`.
+    /// covariances are `scale² · T_f T_fᵀ`.
     fn summaries(
         &self,
         ts: &[Vec<Vec<f64>>],
         u: &[f64],
         scale: f64,
-        a_inv: &[Vec<f64>],
-        se_scale: f64,
     ) -> (Vec<FactorSummary>, Vec<FactorDetail>) {
         let mut summaries = Vec::with_capacity(self.q.len());
         let mut details = Vec::with_capacity(self.q.len());
@@ -2302,23 +1920,13 @@ impl MultiSpec {
                     matvec(t, &u[start..start + qf])
                 })
                 .collect();
-            let se: Vec<Vec<f64>> = (0..self.n_levels[f])
-                .map(|l| {
-                    let start = self.col_offset[f] + l * qf;
-                    let block: Vec<Vec<f64>> = a_inv[start..start + qf]
-                        .iter()
-                        .map(|row| row[start..start + qf].to_vec())
-                        .collect();
-                    conditional_se(t, &block, se_scale)
-                })
-                .collect();
             let cov = scale_matrix(&mm(t, &transpose(t)), scale * scale);
             summaries.push(FactorSummary {
                 n_levels: self.n_levels[f],
                 sd: cov[0][0].max(0.0).sqrt(),
                 blups: re.iter().map(|b| b[0]).collect(),
             });
-            details.push(FactorDetail { cov, re, se });
+            details.push(FactorDetail { cov, re });
         }
         (summaries, details)
     }
@@ -2483,8 +2091,6 @@ struct PirlsMultiSolution {
     u_sq: f64,
     logdet_l2: f64,
     m_inv: Vec<Vec<f64>>,
-    /// Cholesky factor of `A = ΛᵀZᵀWZΛ + I` at the converged weights.
-    chol_a: Vec<Vec<f64>>,
     converged: bool,
     iterations: usize,
 }
@@ -2562,7 +2168,6 @@ fn pirls_multi(
         u_sq,
         logdet_l2,
         m_inv: last_m_inv,
-        chol_a,
         converged,
         iterations,
     })
@@ -2585,7 +2190,7 @@ fn optimize_theta(
     } else {
         let x0 = initial_theta(q);
         let cost = |th: &[f64]| f(th).unwrap_or(f64::INFINITY);
-        let best = newton_polish(&cost, &nelder_mead(&x0, &cost, tol.max(1e-9), 4000), 8);
+        let best = nelder_mead(&x0, &cost, tol.max(1e-9), 4000);
         if best.iter().all(|v| v.is_finite()) {
             Ok(best)
         } else {
@@ -2604,7 +2209,7 @@ fn optimize_theta_vec(
     f: &dyn Fn(&[f64]) -> Option<f64>,
 ) -> Result<Vec<f64>, RegressionError> {
     let cost = |th: &[f64]| f(th).unwrap_or(f64::INFINITY);
-    let best = newton_polish(&cost, &nelder_mead(x0, &cost, tol.max(1e-9), 4000), 8);
+    let best = nelder_mead(x0, &cost, tol.max(1e-9), 4000);
     if best.iter().all(|v| v.is_finite()) {
         Ok(best)
     } else {
@@ -2961,35 +2566,6 @@ fn scale_matrix(m: &[Vec<f64>], s: f64) -> Vec<Vec<f64>> {
 
 fn diag_sqrt(m: &[Vec<f64>]) -> Vec<f64> {
     (0..m.len()).map(|i| m[i][i].max(0.0).sqrt()).collect()
-}
-
-/// Lower and upper interval bounds, one `q`-vector per group each.
-type IntervalBounds = (Vec<Vec<f64>>, Vec<Vec<f64>>);
-
-/// `est ∓ z_{(1+level)/2} · se`, elementwise over `n × q` matrices; NaN bounds
-/// for an invalid `level`.
-fn normal_intervals(est: &[Vec<f64>], se: &[Vec<f64>], level: f64) -> IntervalBounds {
-    let q = if level > 0.0 && level < 1.0 {
-        Normal::new(0.0, 1.0)
-            .expect("standard normal")
-            .inverse_cdf(0.5 + level / 2.0)
-    } else {
-        f64::NAN
-    };
-    est.iter()
-        .zip(se)
-        .map(|(b, s)| b.iter().zip(s).map(|(b, s)| (b - q * s, b + q * s)).unzip())
-        .unzip()
-}
-
-/// Conditional standard errors of one group's random effects: the square
-/// root of the diagonal of `scale² · T A⁻¹ Tᵀ`, with `a_inv` the group's
-/// block of `A⁻¹`.
-fn conditional_se(t: &[Vec<f64>], a_inv: &[Vec<f64>], scale: f64) -> Vec<f64> {
-    diag_sqrt(&scale_matrix(
-        &mm(t, &mm(a_inv, &transpose(t))),
-        scale * scale,
-    ))
 }
 
 #[cfg(test)]

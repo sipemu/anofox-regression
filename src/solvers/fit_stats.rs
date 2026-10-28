@@ -88,7 +88,31 @@ pub(crate) fn linear_fit_stats(
         (0..n_rows).map(|i| w(i) * y[i] * y[i]).sum::<f64>()
     };
     let rss: f64 = (0..n_rows).map(|i| w(i) * residuals[i].powi(2)).sum();
+    let sum_log_w: f64 = (0..n_rows).filter(|&i| w(i) > 0.0).map(|i| w(i).ln()).sum();
 
+    linear_fit_stats_from_sums(
+        n,
+        tss,
+        rss,
+        sum_log_w,
+        has_intercept,
+        n_params,
+        clamp_r_squared,
+    )
+}
+
+/// [`linear_fit_stats`] from the sums it needs: `n` rows with positive
+/// weight, the (centred or uncentred) `tss`, the `rss` and `Σ ln wᵢ` over
+/// the rows with positive weight.
+pub(crate) fn linear_fit_stats_from_sums(
+    n: usize,
+    tss: f64,
+    rss: f64,
+    sum_log_w: f64,
+    has_intercept: bool,
+    n_params: usize,
+    clamp_r_squared: bool,
+) -> LinearFitStats {
     let r_squared = if tss > 0.0 {
         let r2 = 1.0 - rss / tss;
         if clamp_r_squared {
@@ -138,7 +162,6 @@ pub(crate) fn linear_fit_stats(
 
     let nf = n as f64;
     let log_likelihood = if rss > 0.0 && n > 0 {
-        let sum_log_w: f64 = (0..n_rows).filter(|&i| w(i) > 0.0).map(|i| w(i).ln()).sum();
         0.5 * (sum_log_w - nf * ((2.0 * std::f64::consts::PI).ln() + 1.0 - nf.ln() + rss.ln()))
     } else {
         f64::NAN

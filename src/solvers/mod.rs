@@ -9,18 +9,16 @@ mod bls;
 pub mod cv;
 pub mod eb_shrink;
 mod elastic_net;
-pub(crate) mod fit_stats;
+mod fit_stats;
 mod gamma;
 mod glm_alias;
 mod glmm;
-mod glmm_satterthwaite;
 mod huber;
 mod isotonic;
 mod lars;
 pub mod lm_dynamic;
 mod logistic;
 pub mod lowess;
-pub mod mediation;
 mod moments;
 mod negative_binomial;
 mod ols;
@@ -35,6 +33,7 @@ pub mod quantile_inference;
 mod ransac;
 mod ridge;
 mod rls;
+pub mod suff_stats;
 mod theil_sen;
 mod traits;
 mod tweedie;
@@ -48,16 +47,14 @@ pub use alm::{
     AlmDistribution, AlmLoss, AlmRegressor, AlmRegressorBuilder, FittedAlm, LinkFunction,
 };
 pub use bayesian::{
-    ArdRegression, ArdRegressionBuilder, BayesianRidge, BayesianRidgeBuilder, CredibleIntervals,
-    FittedArd, FittedBayesianRidge,
+    ArdRegression, ArdRegressionBuilder, BayesianRidge, BayesianRidgeBuilder, FittedArd,
+    FittedBayesianRidge,
 };
 pub use binomial::{BinomialRegressor, FittedBinomial};
 pub use bls::{BlsRegressor, FittedBls};
 pub use elastic_net::{ElasticNetRegressor, FittedElasticNet};
 pub use gamma::{FittedGamma, GammaRegressor, GammaRegressorBuilder};
-pub use glmm::{
-    FactorSummary, FittedGlmm, GlmmDdf, GlmmInference, GlmmRegressor, GlmmRegressorBuilder,
-};
+pub use glmm::{FactorSummary, FittedGlmm, GlmmRegressor, GlmmRegressorBuilder};
 pub use huber::{FittedHuber, HuberRegressor, HuberRegressorBuilder};
 pub use isotonic::{FittedIsotonic, IsotonicRegressor, IsotonicRegressorBuilder, OutOfBounds};
 pub use lars::{FittedLars, LarsMethod, LarsRegressor, LarsRegressorBuilder};
@@ -77,11 +74,10 @@ pub use poisson::{FittedPoisson, PoissonRegressor};
 pub use pspline::{FittedPSpline, PSplineRegressor};
 pub use quantile::{FittedQuantile, QuantileRegressor, QuantileRegressorBuilder};
 pub use ransac::{FittedRansac, RansacRegressor, RansacRegressorBuilder};
-pub use ridge::{FittedRidge, RidgeLoo, RidgeRegressor, RidgeRegressorBuilder};
+pub use ridge::{FittedRidge, RidgeRegressor, RidgeRegressorBuilder};
 pub use rls::{FittedRls, RlsRegressor};
-pub use theil_sen::{
-    FittedTheilSen, TheilSenCiMethod, TheilSenRegressor, TheilSenRegressorBuilder,
-};
+pub use suff_stats::SufficientStats;
+pub use theil_sen::{FittedTheilSen, TheilSenRegressor, TheilSenRegressorBuilder};
 pub use traits::{FittedRegressor, RegressionError, Regressor};
 pub use tweedie::{FittedTweedie, TweedieRegressor};
 pub use wls::{FittedWls, WlsRegressor, WlsRegressorBuilder};

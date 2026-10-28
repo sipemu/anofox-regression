@@ -5,69 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.37] - 2026-10-23
+## [0.6.0] - 2026-10-28
 
 ### Added
 
-- **Exact leave-one-out diagnostics for ridge regression (DataZooDE/anofox-statistics#235).** `FittedRidge::loo(x, y) -> RidgeLoo { leverage, loo_residual, loo_fitted, press }`: the diagonal of the ridge hat matrix `H = X̃(X̃'X̃ + λP)⁻¹X̃'` (intercept unpenalised, i.e. `1/n + x̃ᵢ'(Xc'Xc + λI)⁻¹x̃ᵢ` on the centred design, from one thin SVD), the exact leave-one-out residuals `(yᵢ − ŷᵢ) / (1 − hᵢ)`, and `Press` (PRESS, its RMSE, predicted R²). `λ` is the effective penalty on the sum-of-squares scale; with `LambdaScaling::Glmnet` that is `λ·n` of the full fit, held fixed for the leave-one-out fits. λ = 0 gives the OLS values of `augment` / `press`. Checked against explicit refits without each row (`tests/ridge_loo.rs`, agreement ≤ 1e-12, with and without an intercept, p > n, glmnet scaling).
-- **One-step approximate leave-one-out for the GLMs.** `diagnostics::Augment` has two new fields, `approx_loo_fitted = g⁻¹(ηᵢ − hᵢ zᵢ / (1 − hᵢ))` (`zᵢ` the working residual, `hᵢ` the IRLS leverage) and `approx_loo_residual = yᵢ − approx_loo_fitted`: the Pregibon (1981) one-step approximation, R's `influence(fit)$coefficients` applied to the linear predictor. Named `approx_*` because it is not the refit; the exact `loo_residual` / `loo_fitted` stay `NaN` for GLMs, and the new fields are `NaN` for the linear models. Validated against R in `tests/r_validation_approx_loo_glm.rs` (Poisson, logistic, Gamma; dedicated regressors and the penalized-GLM engine), which also shows the approximation is 20–60× closer to the exact refits than the full-data fit.
+- **Mergeable sufficient-statistic states for OLS / WLS / ridge: `solvers::SufficientStats` (#122, DataZooDE/anofox-statistics#266).** The state holds the row counts (all rows and rows with positive weight), `Σw`, `Σ ln w`, the weighted means and the centred co-moments `Cxx`, `Cxy`, `Cyy`. Rows go in with a weighted Welford update (`push`, `push_weighted`) or a two-pass block constructor (`from_data`). States combine with the Chan–Golub–LeVeque pairwise formula (`merge`, `merged`) in any order and grouping, and an empty state is the identity. The means are stored relative to a per-state shift (the first row), so data with a large offset (`x ≈ 1e9 + noise`) keeps the precision of the batch fit. `to_bytes` / `from_bytes` give a stable, versioned little-endian encoding that rejects a wrong magic or version, a length that does not match the feature count, and inconsistent contents.
+  - **`OlsRegressor::fit_from_state`, `WlsRegressor::fit_from_state`, `RidgeRegressor::fit_from_state`** return what `fit()` returns on the concatenated rows (to 1e-12 relative). That covers coefficients, R-`lm`-style aliasing in column order (from the pivots of a sequential Cholesky factorisation of the Gram matrix, same tolerance), classical standard errors, t, p and confidence intervals, R², adjusted R², F, MSE, log-likelihood, AIC / AICc / BIC, the variance factor, and confidence / prediction intervals for new rows. For ridge the λ (with its `LambdaScaling`) is applied at finalize, so one state serves a λ grid; the sandwich SEs are included. Weights recorded in the state are honoured: OLS on a weighted state is the WLS fit.
+  - Row-level quantities are not available from a state: residuals, fitted values, leverage, LOO, Cook's distance and the HC0–HC3 sandwich (`Σ eᵢ² xᵢxᵢᵀ` needs the residuals, so it is not mergeable in one pass). `residuals` / `fitted_values` are empty, and `hc_standard_errors` / `hc_inference` return an error. GLMs have no exact single-pass state; the module docs show how a state with working responses and weights makes each IRLS step distributable.
+  - Validated in `tests/issue122_sufficient_stats.rs`: random splits into 1–7 parts with random merge orders and byte round trips against `fit()` (OLS and WLS with and without intercept, zero weights, ridge over λ ∈ {0, 1e-3, 0.5, 10} with both scalings, aliased duplicate / constant / linear-combination columns, intervals); large offsets against a fit on the shifted data; and R `lm(weights =)`.
 
-### Changed
+### Fixed
 
-- `diagnostics::Augment` has the two new public fields above; code that builds an `Augment` with a struct literal must set them.
-
-## [0.5.36] - 2026-10-23
-
-### Added
-
-- **`inference::anova_table(x, y, terms, &AnovaTableOptions) -> AnovaTable` (DataZooDE/anofox-statistics#231).** Per-term ANOVA tables for OLS without interactions: sequential sums of squares (`AnovaType::I`, R's `anova(lm(...))`, each term adjusted for the terms before it) and partial sums of squares (`AnovaType::II`, `car::Anova(fit, type = 2)`, each term adjusted for all other terms, i.e. the drop-one nested F test against the full model). A term is one column or a group of columns (`terms: Some(&[vec![0], vec![1, 2], ...])`, for example the dummies of a factor); `None` makes every column its own term. Each `AnovaTerm` has `df` (the rank the term adds), `sum_sq`, `mean_sq`, `f_statistic` and `p_value`, all F tests against the full model's residual mean square; the table carries `residual_df`, `residual_sum_sq`, `residual_mean_sq` and `n_observations`. A term that adds no rank (aliased) gets `df = 0`, `sum_sq = 0` and NaN F / p (R drops it from `anova()`, `car::Anova` refuses the model); no residual df gives NaN F everywhere; without an intercept the sums of squares are uncentred. Validated in `tests/r_validation_anova_table.rs` against R 4.x `anova()` and car 3.1.5 `Anova(type = 2)` to 1e-9 (generator `tests/r_scripts/generate_anova_table_validation.R`): three regressors, a different term order, no intercept, an aliased column, and `mtcars` `mpg ~ wt + factor(cyl) + hp` with a two-column factor term.
-
-## [0.5.35] - 2026-10-23
-
-### Added
-
-- **Leave-one-out (PRESS) diagnostics for the least-squares fits (#88, DataZooDE/anofox-statistics#220).** `diagnostics::Augment` has two new fields: `loo_residual = (yᵢ − ŷᵢ) / (1 − hᵢ)`, the exact error `yᵢ − ŷ₍ᵢ₎` of the fit without row `i` (R's `rstandard(fit, type = "predictive")` for OLS; on the response scale for WLS), and `loo_fitted = ŷ₍ᵢ₎`. New `diagnostics::press(fit, x, y, weights) -> Press { press, press_rmse, loo_r_squared, n }`: `press = Σ wᵢ loo_residualᵢ²` (R's `sum(rstandard(fit, type = "predictive")^2)`), `press_rmse = √(press / n)` and the predicted R² `1 − press / SST`, with the SST of the fit's R² (centred with an intercept, uncentred without). No refitting: both come from the leverage. A row with `hᵢ > 1 − 10ε` (R's `lm.influence` threshold, e.g. a dummy with one observation, or zero residual degrees of freedom) has no leave-one-out prediction and gives NaN, as do `press` and its derived statistics; the GLMs give NaN (no exact closed form). Validated against R in `tests/r_validation_loo_press.rs` (generator `tests/r_scripts/generate_loo_press_validation.R`, every residual also checked against an explicit refit). Ridge (`H = X(XᵀX + λI)⁻¹Xᵀ`) is not covered yet.
-
-### Changed
-
-- `diagnostics::Augment` has the two new public fields above; code that builds an `Augment` with a struct literal must set them.
-## [0.5.34] - 2026-10-23
-
-### Added
-
-- **Credible intervals for `BayesianRidge` / `ArdRegression` (#92, DataZooDE/anofox-statistics#222).** `credible_intervals(level) -> CredibleIntervals` on `FittedBayesianRidge` and `FittedArd`: the posterior SD of every coefficient (`sqrt(diag(Σ))`, 0 for features ARD pruned) and the central credible interval `mean ± z_{(1+level)/2} · sd` of the Gaussian posterior (conditional on the estimated precisions). The intercept, which is not part of `Σ` (as in scikit-learn), gets a flat prior: its posterior SD is `sqrt(1/(n·α) + x̄ᵀ Σ x̄)`, the noise uncertainty of `ȳ` plus the slope uncertainty propagated through the centring. No test statistic or p-value. Validated in `tests/r_validation_bayesian.rs` against scikit-learn 1.9.1's `sigma_` and, for the intercept, the inverted full posterior precision of `(b0, β)` (generator `validation/python/generate_bayesian_validation.py`), to 1e-8.
-- **Theil–Sen coefficient intervals (#92, DataZooDE/anofox-statistics#222).** `TheilSenRegressor` previously had no inference: `std_errors`, the t / p values and the intervals of its `RegressionResult` were `None` and the F test NaN. New builder options `compute_inference` (default `false`), `confidence_level` (0.95), `ci_method` (`TheilSenCiMethod::{Auto, Exact, Bootstrap}`, default `Auto`) and `n_bootstrap` (999):
-  - **Exact** (one feature with an intercept): the distribution-free interval of Sen (1968), the pairwise slopes at ranks `round((N − C)/2)` and `round((N + C)/2 + 1)` with `C = z · sqrt(Var S)` and Kendall's tie-corrected `Var S`, plus Kendall's continuity-corrected z (in `t_statistics`) and its two-sided p-value for slope = 0. Matches R's `trend::sens.slope` (and `cor.test(method = "kendall")` with ties in x) to 1e-12 (`tests/issue92_theil_sen_inference.rs`, generator `tests/r_scripts/generate_theil_sen_ci_validation.R`). No standard error and no intercept interval; a bound whose rank falls outside `1..N` (tiny n) is NaN. The order statistics use the slope-counting path above 4M pairs.
-  - **Bootstrap** (any number of features, and the intercept): pairs bootstrap with `n_bootstrap` refits; `std_errors` / `intercept_std_error` are the bootstrap SDs and the intervals the percentile intervals (R `quantile` type 7). Deterministic given `random_state` and independent of the row order; degenerate resamples are dropped (`FittedTheilSen::bootstrap_replicates()`). No t / p values.
-  - `Auto` uses the exact interval where it applies and the bootstrap otherwise; `Exact` on any other design is an error. `FittedTheilSen::ci_method()` reports the method used. Aliased columns get NaN inference.
-- `OptionsError::Unsupported(String)` for option combinations an estimator does not support.
-
-## [0.5.33] - 2026-10-23
-
-### Added
-
-- **GLMM inference (#89, DataZooDE/anofox-statistics#218).** `FittedGlmm` gains:
-  - `vcov()`: the full fixed-effect covariance `σ² M⁻¹` (lme4's `vcov()`).
-  - **Satterthwaite degrees of freedom** for Gaussian fits built with `GlmmRegressorBuilder::satterthwaite(true)`: `satterthwaite_df()`, and `inference(GlmmDdf, level) -> GlmmInference` with t statistics, t p-values and t intervals (`lmerTest`'s `summary(lmer(...))` / `contest1D(..., confint = TRUE)`), or the existing Wald z inference with `GlmmDdf::Wald`. The df use lmerTest's construction: Richardson-extrapolated finite-difference Hessian of the REML / ML deviance in `(θ, σ)` and Jacobian of `vcov(β)`, the Hessian inverted through its eigen decomposition.
-  - **Conditional standard errors of the BLUPs**: `random_effects_se()`, `random_effects_se_matrix()` and `factor_random_effects_se_matrix(f)`, the diagonal of `σ² Λ (ΛᵀZᵀWZΛ + I)⁻¹ Λᵀ` (`lme4::ranef(condVar = TRUE)`), for every family and the crossed / nested path.
-  - `random_effects_conf_int(level)` / `factor_random_effects_conf_int(f, level)`: normal intervals `b ∓ z·se` for the BLUPs, as `broom.mixed::tidy(effects = "ran_vals", conf.int = TRUE)`.
-  - Per-observation results of the training data: `fitted_values()` (with the BLUPs), `fitted_population()` (random effects at zero), `residuals()` (response) and `pearson_residuals()` (lme4's `residuals(type = "pearson")`), and `df_residual()` (lme4's `df.residual()`).
-  - Validated against lme4 2.0.1 / lmerTest 3.2.1 in `tests/issue89_glmm_inference.rs` (generator `tests/r_scripts/generate_glmm_satterthwaite_validation.R`): vcov, BLUP SEs and fitted values to 1e-6, Satterthwaite df to 1e-5.
-
-### Changed
-
-- **More precise θ for random slopes and crossed factors.** The Nelder–Mead search over a multi-parameter θ is followed by up to 8 finite-difference Newton steps (each accepted only if it lowers the deviance). Nelder–Mead stops on the spread of the simplex values, which left θ accurate to about the square root of the tolerance; the fixed effects, SEs and variance components of such fits now agree with a tightly converged `lmer` / `glmer(nAGQ = 0)` to about 1e-7 instead of 1e-5.
-## [0.5.32] - 2026-10-22
-
-### Added
-
-- **`inference::nested_f_test(x_reduced, x_full, y, &NestedFTestOptions) -> NestedFTest` (#90, DataZooDE/anofox-statistics#221).** The nested-model F test of R's `anova(lm(reduced), lm(full))`: both OLS fits on the same rows, `F = ((RSS_r − RSS_f) / df1) / (RSS_f / df2)` with `df1 = p_full − p_reduced`, `df2 = n − p_full` and the upper-tail p-value, plus both RSS values and both adjusted R² values (`summary.lm`'s). Parameter counts are numerical ranks, as R's `df.residual`, so aliased columns add nothing; `df1 = 0` or `df2 = 0` gives a NaN statistic (R's `NA`). An empty reduced design is the intercept-only model (the overall F test). The reduced columns must lie in the span of the full design (checked by regressing each on it; `NestedFTestError::NotNested` otherwise). `nested_f_test_indices(x_full, y, &reduced, ..)` takes the reduced design as column indices of the full one. Validated in `tests/r_validation_nested_f.rs` (generator `tests/r_scripts/generate_nested_f_validation.R`), including `df1 = 1` (F = t²), the intercept-only and no-intercept cases and a rank-deficient full design.
-
-## [0.5.31] - 2026-10-22
-
-### Added
-
-- **`solvers::mediation::mediate(y, m, x, covariates, &MediationOptions) -> MediationResult` (#91, DataZooDE/anofox-statistics#223).** Causal mediation analysis for linear models, the no-interaction case of R's `mediation::mediate`: the mediator model `M ~ X + C` (path `a`) and the outcome model `Y ~ X + M + C` (`b`, `c'`) are fitted by OLS on the same complete rows, giving the ACME `a·b·Δ`, the ADE `c'·Δ`, the total effect and the proportion mediated for the contrast `Δ = treat_value − control_value`. Inference by a seeded nonparametric case-resampling bootstrap (default; percentile or `mediate`'s BCa interval, bootstrap SD as `std_error`, `mediate`'s p-value `2·min(#>0, #<0)/#draws`), the Sobel / delta method, or `mediate`'s quasi-Bayesian Monte Carlo. `MediationEffect::from_draws` summarises draws as `mediate` does. Validated in `tests/r_validation_mediation.rs` (generator `tests/r_scripts/generate_mediation_validation.R`): point estimates match `mediate`, `lavaan` and `lm` to 1e-10, intervals and p-values match `mediate` exactly given its own draws and within simulation error from ours, and the Sobel z matches `bda::mediation.test`.
+- `compute_hc_standard_errors` (and the `hc_*` methods built on it) returns an error instead of panicking when the residuals do not have one entry per row of `x`.
 
 ## [0.5.30] - 2026-10-22
 

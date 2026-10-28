@@ -64,8 +64,8 @@ mod vif;
 
 // Re-export main functions
 pub use augment::{
-    augment, augment_glm, augment_glm_with, augment_with, press, Augment, AugmentSpec, Augmentable,
-    Press, ResidualType,
+    augment, augment_glm, augment_glm_with, augment_with, Augment, AugmentSpec, Augmentable,
+    ResidualType,
 };
 pub use condition_number::{
     classify_condition_number, condition_diagnostic, condition_number,

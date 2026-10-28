@@ -42,7 +42,6 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_logistic_validation.R` | Validates `LogisticRegression` against `glm(family = binomial)` |
 | `tests/r_scripts/generate_pls_validation.R` | Validates PLS regression |
 | `tests/r_scripts/generate_glmm_validation.R` | Validates `GlmmRegressor` (random intercept, slopes, crossed/nested) against `lme4::lmer` / `glmer(nAGQ=0)` |
-| `tests/r_scripts/generate_glmm_satterthwaite_validation.R` | Validates GLMM `vcov`, Satterthwaite df (`lmerTest`), BLUP conditional SEs and fitted values / residuals |
 
 #### scikit-learn-based oracles (Python, `validation/python/`)
 
@@ -612,38 +611,6 @@ Generator `tests/r_scripts/generate_m1a_validation.R`, test `tests/r_validation_
 | `diagnostics::augment` on OLS, WLS, binomial, Poisson, Gamma, NB | fitted, residual (response / deviance / Pearson), `rstandard` (deviance and Pearson), `rstudent`, `hatvalues`, `cooks.distance`, `dffits` | stats 4.6 (cross-checked with `influence.measures`, `broom::augment`) | 1e-8 / 1e-6 |
 
 The probit comparison exposed an inaccurate normal CDF (Abramowitz-Stegun erf, 1.5e-7) and a mistyped AS 241 coefficient in the probit link; both now use `statrs` `erfc` / `erfc_inv`.
-
-#### 24d. GLMM inference: vcov, Satterthwaite df, BLUP SEs, fitted values (#89)
-
-**Oracle**: `lme4` 2.0.1, `lmerTest` 3.2.1 and `broom.mixed` 0.2.9.7. The references are fitted with tight
-tolerances (`nloptwrap` with `xtol_abs = 1e-12`, `ftol_abs = 1e-14`; glmer
-`tolPwrss = 1e-12`): with glmer's default `tolPwrss = 1e-7` the `nAGQ = 0`
-deviance is noisy enough to move θ, and with it the SEs, by about 1%.
-**Generator**: `tests/r_scripts/generate_glmm_satterthwaite_validation.R`
-(reads the data of `glmm_validation.rs` and `glmm_families_validation.rs`).
-**Test file**: `tests/issue89_glmm_inference.rs`.
-
-| Quantity | Oracle | Tolerance (relative) |
-|----------|--------|----------------------|
-| `vcov()` | `vcov(m)` | `1e-6` (NB with θ estimated: `1e-4`) |
-| `satterthwaite_df()`, `inference(Satterthwaite)` p and 95% interval | `lmerTest::contest1D(as_lmerModLmerTest(m), e_j, confint = TRUE)` | df `1e-5` (agree to ~1e-6), p `1e-6`, bounds `1e-7` |
-| `random_effects_se_matrix()`, `factor_random_effects_se_matrix(f)` | `sqrt(diag(attr(ranef(m, condVar = TRUE)[[f]], "postVar")))` | `1e-6` (NB: `1e-4`) |
-| `random_effects_conf_int(0.95)`, `factor_random_effects_conf_int(f, 0.95)` | `broom.mixed::tidy(m, effects = "ran_vals", conf.int = TRUE)` | `1e-6` |
-| `fitted_values()`, `fitted_population()`, `pearson_residuals()`, `residuals()` | `fitted(m)`, `predict(m, re.form = NA, type = "response")`, `residuals(m, type = "pearson")` | `1e-6` (Gamma `1e-5`, NB `1e-3`) |
-| `df_residual()` | `df.residual(m)` | exact |
-
-Scenarios: Gaussian `(1|g)` REML and ML, two covariates, unbalanced, no
-intercept, with an offset, `(x|g)`, `(1|a) + (1|b)`, `(x|a) + (1|b)`; Poisson,
-binomial, negative binomial (θ estimated), Gamma, Poisson with an offset, and
-Poisson `(x|a) + (1|b)`, all `nAGQ = 0`.
-
-The Satterthwaite df follow lmerTest: the Hessian of the REML / ML deviance in
-`(θ, σ)` and the Jacobian of `vcov(β)` in `θ` by Richardson-extrapolated
-central differences (as `numDeriv`), the Hessian inverted through its eigen
-decomposition (eigenvalues ≤ 1e-8 dropped). Multi-parameter θ (random slopes,
-crossed factors) is now polished by finite-difference Newton steps after
-Nelder–Mead, so it reaches the optimum to the precision of the deviance
-rather than the square root of the simplex tolerance.
 
 ### 25. LOWESS
 

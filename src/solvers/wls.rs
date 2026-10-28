@@ -100,6 +100,29 @@ impl WlsRegressor {
     pub fn builder() -> WlsRegressorBuilder {
         WlsRegressorBuilder::default()
     }
+
+    /// Fit WLS from a mergeable [`crate::solvers::SufficientStats`] state.
+    ///
+    /// The weights are the ones recorded in the state (the regressor's own
+    /// weights, which are per row, are not used). Gives the same result as
+    /// [`Regressor::fit`] on the rows the state was built from, up to
+    /// floating-point summation order; see
+    /// [`crate::solvers::OlsRegressor::fit_from_state`] for what is and is
+    /// not available. [`FittedWls::weights`] is empty.
+    pub fn fit_from_state(
+        &self,
+        state: &crate::solvers::SufficientStats,
+    ) -> Result<FittedWls, RegressionError> {
+        let fit =
+            crate::solvers::suff_stats::fit_state(state, &self.options, self.alias_tolerance, 0.0)?;
+        Ok(FittedWls {
+            options: self.options.clone(),
+            weights: Col::zeros(0),
+            result: fit.result,
+            xtwx_inverse: fit.reduced_factor,
+            aliased: fit.aliased,
+        })
+    }
 }
 
 impl Regressor for WlsRegressor {
