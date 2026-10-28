@@ -203,6 +203,22 @@ impl FittedAft {
         crate::inference::cluster_sandwich(bread, &scores, clusters, options)
     }
 
+    /// Standardized residuals `zᵢ = (log tᵢ − ηᵢ)/σ` (RMS §18.3); for a
+    /// correct model their censored distribution is the error
+    /// distribution, which a Kaplan–Meier curve of `(z, event)` checks.
+    pub fn standardized_residuals(&self, x: &Mat<f64>, time: &Col<f64>) -> Col<f64> {
+        let eta = self.predict_linear(x);
+        let sigma = self.scale();
+        Col::from_fn(time.nrows(), |i| (time[i].ln() - eta[i]) / sigma)
+    }
+
+    /// Cox–Snell residuals `−log S(tᵢ | xᵢ)`: unit exponential (censored)
+    /// for a correct model.
+    pub fn cox_snell_residuals(&self, x: &Mat<f64>, time: &Col<f64>) -> Col<f64> {
+        let z = self.standardized_residuals(x, time);
+        Col::from_fn(z.nrows(), |i| -self.distribution.log_survival(z[i]))
+    }
+
     /// Intercept, if fitted.
     pub fn intercept(&self) -> Option<f64> {
         self.result.core.intercept
