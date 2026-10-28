@@ -29,6 +29,10 @@ This library provides sklearn-style regression estimators with full statistical 
   - Ridge / elastic-net regularisation paths and `cv.glmnet`-style CV (`solvers::path`),
     with group, leave-one-group-out, stratified, stratified-group and time-series
     (rolling-origin) folds, CV on explicit train / test splits and nested CV (`solvers::cv`)
+  - **Regression splines** (`splines`): restricted cubic splines with Harrell's
+    default knots (`rms::rcs`), linear splines (`rms::lsp`), restricted
+    interactions (`%ia%`) and the algebraic form of a fitted spline
+    (`rcspline.restate`), as design-matrix columns for any model
   - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
     serializable (versioned bytes) state of weighted means and centred
     co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`
