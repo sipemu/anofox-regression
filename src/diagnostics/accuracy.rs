@@ -498,7 +498,7 @@ pub struct LrmStats {
     pub gp: f64,
 }
 
-fn plogis(v: f64) -> f64 {
+pub(crate) fn plogis(v: f64) -> f64 {
     if v >= 0.0 {
         1.0 / (1.0 + (-v).exp())
     } else {
@@ -517,7 +517,7 @@ fn log1pexp(v: f64) -> f64 {
 }
 
 /// Binomial deviance `−2 Σ wᵢ [yᵢ ηᵢ − log(1 + e^ηᵢ)]` at linear predictor `η`.
-fn binomial_deviance(y: &[f64], eta: &[f64], w: &dyn Fn(usize) -> f64) -> f64 {
+pub(crate) fn binomial_deviance(y: &[f64], eta: &[f64], w: &dyn Fn(usize) -> f64) -> f64 {
     -2.0 * (0..y.len())
         .map(|i| w(i) * (y[i] * eta[i] - log1pexp(eta[i])))
         .sum::<f64>()
@@ -761,7 +761,7 @@ fn spiegelhalter(p: &[f64], y: &[f64]) -> (f64, f64) {
 
 /// Maximum-likelihood fit of `logit P(y = 1) = a + b·x`; returns `(a, b,
 /// deviance)`.
-fn logistic_recalibration(x: &[f64], y: &[f64]) -> (f64, f64, f64) {
+pub(crate) fn logistic_recalibration(x: &[f64], y: &[f64]) -> (f64, f64, f64) {
     let n = y.len() as f64;
     let ybar = y.iter().sum::<f64>() / n;
     let (mut a, mut b) = ((ybar / (1.0 - ybar)).ln(), 0.0);
@@ -807,7 +807,7 @@ fn logistic_recalibration(x: &[f64], y: &[f64]) -> (f64, f64, f64) {
 
 /// `approx(x, y, xout, ties = mean)` for sorted `x` and `xout` within its
 /// range.
-fn approx_ties_mean(x: &[f64], y: &[f64], xout: &[f64]) -> Vec<f64> {
+pub(crate) fn approx_ties_mean(x: &[f64], y: &[f64], xout: &[f64]) -> Vec<f64> {
     let (mut ux, mut uy): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
     let mut i = 0;
     while i < x.len() {
@@ -837,7 +837,7 @@ fn approx_ties_mean(x: &[f64], y: &[f64], xout: &[f64]) -> Vec<f64> {
 }
 
 /// R's default (type 7) quantile of sorted values.
-fn quantile7(sorted: &[f64], p: f64) -> f64 {
+pub(crate) fn quantile7(sorted: &[f64], p: f64) -> f64 {
     let n = sorted.len();
     let h = (n - 1) as f64 * p;
     let fuzz = 4.0 * f64::EPSILON;

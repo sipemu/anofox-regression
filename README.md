@@ -49,6 +49,9 @@ This library provides sklearn-style regression estimators with full statistical 
   - **Cox proportional hazards** (`survival::cox`): Efron / Breslow ties, weights,
     offsets, strata, time-dependent covariates, ridge, robust variance and predicted
     survival curves (`coxph`, `survfit.coxph`, `cph`)
+  - **Model validation** (`validation`): optimism bootstrap, cross-validation and
+    .632 validation of any modelling process, and overfitting-corrected calibration
+    curves (`rms::validate`, `rms::calibrate`)
   - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
     serializable (versioned bytes) state of weighted means and centred
     co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`
