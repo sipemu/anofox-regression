@@ -63,6 +63,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - for Poisson, logit, probit and Gamma(log) GLMs, plus two-way and prior-weighted Poisson;
     - against `survreg(..., cluster = id)` for a Weibull AFT.
 - `compute_hc_standard_errors` already refuses fits without residuals; `lm_cluster_vcov` does the same (e.g. fits from `SufficientStats`).
+- **Nonparametric survival analysis: `survival` (#113, RMS Ch 17).**
+  - **`survfit(&SurvInput, strata, &SurvfitOptions)`** is `survival::survfit`. Per stratum and at every distinct time it returns n.risk, n.event, n.censor, the Kaplan–Meier survival, the Greenwood `std.err` of `−log S`, confidence limits (`ConfType::{Log, LogLog, Plain}`, any level), and the cumulative hazard with its standard error (`HazardType::NelsonAalen`, or the tie-corrected `FlemingHarrington` of `ctype = 2`).
+    - `SurvInput` takes case weights and left truncation (counting-process `(entry, stop]` data).
+    - `timefix` (on by default) merges times that differ by floating-point noise, as `Surv(..., timefix = TRUE)` / `aeqSurv` does.
+    - `kaplan_meier(time, event, opts)` is the one-curve shortcut.
+  - **`SurvCurve` methods:**
+    - `median()` — the median with its confidence limits, including the midpoint rule when S = 0.5 over an interval;
+    - `restricted_mean(τ)` — the restricted mean and its standard error;
+    - `summary(τ)` — the `summary(survfit)$table` row;
+    - `survival_at(t)`.
+  - **`survdiff(time, event, group, strata, rho)`** is `survival::survdiff`: the k-sample log-rank test (`ρ = 0`) and the G-ρ family (`ρ = 1`, Peto–Peto), optionally stratified, with observed, expected, variance matrix, χ², d.f. and p.
+  - Validated in `tests/r_validation_survival.rs` (generator `tests/r_scripts/generate_survival_validation.R`) on `survival::lung`:
+    - KM with every CI type and Fleming–Harrington;
+    - sex strata and the summary tables (RMST, median and its limits);
+    - case weights (with `robust = FALSE`; for non-integer weights R defaults to a robust variance that this does not implement);
+    - left-truncated data;
+    - the median midpoint rule;
+    - two- and four-group log-rank, Peto–Peto and stratified log-rank.
 
 ### Fixed
 

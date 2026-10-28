@@ -43,6 +43,9 @@ This library provides sklearn-style regression estimators with full statistical 
   - **Cluster-robust covariance** (`inference::cluster`): one- and multi-way
     clustered sandwich (CR0 / CR1 / CR2 / CR3 as `sandwich::vcovCL`, `rms::robcov`)
     for OLS / WLS, any GLM family and AFT
+  - **Nonparametric survival** (`survival`): Kaplan–Meier with Greenwood CIs,
+    Nelson–Aalen / Fleming–Harrington hazards, median and restricted mean,
+    strata, weights, left truncation, and log-rank / G-ρ tests (`survfit`, `survdiff`)
   - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
     serializable (versioned bytes) state of weighted means and centred
     co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`
