@@ -42,12 +42,98 @@ use faer::{Col, Mat};
 #[derive(Debug, Clone)]
 pub struct RidgeRegressor {
     options: RegressionOptions,
+    conditioning: Option<ConditioningLambda>,
+}
+
+/// Default `κ(XᵀX)` threshold for [`ConditioningLambda`]: at or below it the
+/// design counts as well-conditioned (the `cond > 1000` heuristic of the
+/// anofox-orchestration DIAG-03 ridge sweep).
+pub const DEFAULT_CONDITION_THRESHOLD: f64 = 1000.0;
+/// Default small λ for [`ConditioningLambda`] on a well-conditioned design.
+pub const DEFAULT_LAMBDA_SMALL: f64 = 0.1;
+
+/// Conditioning-aware λ selection (DataZooDE/anofox-forecast#258).
+///
+/// A fixed λ over-shrinks coefficients on a well-conditioned design (e.g.
+/// the seasonal amplitude of a seasonal-dummy fit on a fold that sees every
+/// season often enough), where regularisation buys no stability. With this
+/// set, [`RidgeRegressor::fit`] measures the condition number `κ(XᵀX)` of
+/// the design it penalises (`X` centered when an intercept is fitted) and
+/// uses `lambda_small` when `κ ≤ cond_threshold`, the configured λ
+/// otherwise. The λ actually used is reported by [`FittedRidge::lambda`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConditioningLambda {
+    /// λ used on a well-conditioned design.
+    pub lambda_small: f64,
+    /// `κ(XᵀX)` at or below which the design counts as well-conditioned.
+    pub cond_threshold: f64,
+}
+
+impl Default for ConditioningLambda {
+    fn default() -> Self {
+        Self {
+            lambda_small: DEFAULT_LAMBDA_SMALL,
+            cond_threshold: DEFAULT_CONDITION_THRESHOLD,
+        }
+    }
+}
+
+/// Condition number `κ(XᵀX) = (σ_max / σ_min)²` of the design a ridge fit
+/// penalises: `X` with each column centered when `with_intercept`, `X`
+/// itself otherwise. `INFINITY` for a rank-deficient (or empty) design.
+pub fn gram_condition_number(x: &Mat<f64>, with_intercept: bool) -> f64 {
+    if x.nrows() == 0 || x.ncols() == 0 {
+        return f64::INFINITY;
+    }
+    let design = if with_intercept {
+        center_columns(x).0
+    } else {
+        x.clone()
+    };
+    let svd = match design.thin_svd() {
+        Ok(svd) => svd,
+        Err(_) => return f64::INFINITY,
+    };
+    let s = svd.S().column_vector();
+    let (mut s_max, mut s_min) = (0.0_f64, f64::INFINITY);
+    for i in 0..s.nrows() {
+        s_max = s_max.max(s[i]);
+        s_min = s_min.min(s[i]);
+    }
+    let tolerance = s_max * f64::EPSILON * (x.nrows().max(x.ncols()) as f64);
+    if s_min.is_nan() || s_min <= tolerance {
+        return f64::INFINITY;
+    }
+    (s_max / s_min).powi(2)
 }
 
 impl RidgeRegressor {
     /// Create a new Ridge regressor with the given options.
     pub fn new(options: RegressionOptions) -> Self {
-        Self { options }
+        Self {
+            options,
+            conditioning: None,
+        }
+    }
+
+    /// Enable conditioning-aware λ selection (see [`ConditioningLambda`]).
+    pub fn with_conditioning(mut self, conditioning: ConditioningLambda) -> Self {
+        self.conditioning = Some(conditioning);
+        self
+    }
+
+    /// The λ [`Self::fit`] uses on `x`: the configured λ, or, with
+    /// [`ConditioningLambda`] set, `lambda_small` when the design is
+    /// well-conditioned.
+    pub fn select_lambda(&self, x: &Mat<f64>) -> f64 {
+        match self.conditioning {
+            Some(c)
+                if gram_condition_number(x, self.options.with_intercept) <= c.cond_threshold =>
+            {
+                c.lambda_small
+            }
+            _ => self.options.lambda,
+        }
     }
 
     /// Create a builder for configuring the regressor.
@@ -60,6 +146,15 @@ impl Regressor for RidgeRegressor {
     type Fitted = FittedRidge;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        // Conditioning-aware λ (#258): resolve λ for this design, then fit
+        // with that fixed λ.
+        if self.conditioning.is_some() {
+            let mut fixed = self.clone();
+            fixed.options.lambda = self.select_lambda(x);
+            fixed.conditioning = None;
+            return fixed.fit(x, y);
+        }
+
         // When lambda = 0, delegate to OLS
         if self.options.lambda == 0.0 {
             let ols = OlsRegressor::new(self.options.clone());
@@ -843,6 +938,7 @@ impl FittedRegressor for FittedRidge {
 #[derive(Debug, Clone, Default)]
 pub struct RidgeRegressorBuilder {
     builder: RegressionOptionsBuilder,
+    conditioning: Option<ConditioningLambda>,
 }
 
 impl RidgeRegressorBuilder {
@@ -889,9 +985,23 @@ impl RidgeRegressorBuilder {
         self
     }
 
+    /// Choose λ by the design's conditioning (see [`ConditioningLambda`]):
+    /// `lambda_small` when `κ(XᵀX) ≤ cond_threshold`, the configured
+    /// [`Self::lambda`] otherwise. Applies to [`RidgeRegressor::fit`].
+    pub fn conditioning_aware(mut self, lambda_small: f64, cond_threshold: f64) -> Self {
+        self.conditioning = Some(ConditioningLambda {
+            lambda_small,
+            cond_threshold,
+        });
+        self
+    }
+
     /// Build the Ridge regressor.
     pub fn build(self) -> RidgeRegressor {
-        RidgeRegressor::new(self.builder.build_unchecked())
+        RidgeRegressor {
+            options: self.builder.build_unchecked(),
+            conditioning: self.conditioning,
+        }
     }
 }
 
@@ -912,5 +1022,109 @@ mod tests {
         let fitted = model.fit(&x, &y).expect("model should fit");
 
         assert!(fitted.r_squared() > 0.99);
+    }
+
+    // ------------------------------------------------------------------
+    // Conditioning-aware λ (DataZooDE/anofox-forecast#258)
+    // ------------------------------------------------------------------
+
+    /// One fold window of a seasonal-dummy design: `cycles` x 12 monthly
+    /// rows, 11 month dummies (January is the baseline), y = base level with
+    /// a 3x spike in December plus small deterministic noise.
+    fn seasonal_dummy_fold(cycles: usize) -> (Mat<f64>, Col<f64>) {
+        let n = cycles * 12;
+        let x = Mat::from_fn(n, 11, |i, j| if i % 12 == j + 1 { 1.0 } else { 0.0 });
+        let y = Col::from_fn(n, |i| {
+            let noise = ((i * 37 % 11) as f64 - 5.0) * 0.05;
+            if i % 12 == 11 {
+                30.0 + noise
+            } else {
+                10.0 + noise
+            }
+        });
+        (x, y)
+    }
+
+    #[test]
+    fn conditioning_aware_uses_small_lambda_on_well_conditioned_seasonal_dummies() {
+        // Four cycles (48 rows): every month is seen 4 times.
+        let (x, y) = seasonal_dummy_fold(4);
+        let kappa = gram_condition_number(&x, true);
+        assert!(kappa < DEFAULT_CONDITION_THRESHOLD, "kappa = {kappa}");
+
+        let aware = RidgeRegressor::builder()
+            .lambda(1.0)
+            .conditioning_aware(DEFAULT_LAMBDA_SMALL, DEFAULT_CONDITION_THRESHOLD)
+            .build();
+        assert_eq!(aware.select_lambda(&x), DEFAULT_LAMBDA_SMALL);
+        let fitted_aware = aware.fit(&x, &y).unwrap();
+        assert_eq!(fitted_aware.lambda(), DEFAULT_LAMBDA_SMALL);
+
+        let fixed = RidgeRegressor::builder().lambda(1.0).build();
+        let fitted_fixed = fixed.fit(&x, &y).unwrap();
+        let ols = RidgeRegressor::builder()
+            .lambda(0.0)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+
+        // December dummy = the seasonal spike amplitude.
+        let dec = |f: &FittedRidge| f.coefficients()[10];
+        let (a_ols, a_fixed, a_aware) = (dec(&ols), dec(&fitted_fixed), dec(&fitted_aware));
+        // lambda = 1 damps the spike noticeably on this well-conditioned fold ...
+        assert!(a_fixed < 0.85 * a_ols, "fixed {a_fixed} vs ols {a_ols}");
+        // ... the conditioning-aware fit keeps it within 5% of the unpenalised fit.
+        assert!(a_aware > 0.95 * a_ols, "aware {a_aware} vs ols {a_ols}");
+    }
+
+    #[test]
+    fn conditioning_aware_keeps_configured_lambda_on_ill_conditioned_design() {
+        // Two nearly collinear regressors.
+        let n = 24;
+        let x = Mat::from_fn(n, 2, |i, j| {
+            let t = i as f64;
+            if j == 0 {
+                t
+            } else {
+                t + 1e-3 * ((i * 7 % 5) as f64 - 2.0)
+            }
+        });
+        let y = Col::from_fn(n, |i| 2.0 * i as f64 + 1.0);
+        let kappa = gram_condition_number(&x, true);
+        assert!(kappa > DEFAULT_CONDITION_THRESHOLD, "kappa = {kappa}");
+
+        let aware = RidgeRegressor::builder()
+            .lambda(1.0)
+            .conditioning_aware(DEFAULT_LAMBDA_SMALL, DEFAULT_CONDITION_THRESHOLD)
+            .build();
+        assert_eq!(aware.select_lambda(&x), 1.0);
+        assert_eq!(aware.fit(&x, &y).unwrap().lambda(), 1.0);
+    }
+
+    #[test]
+    fn ridge_without_conditioning_is_unchanged() {
+        let (x, y) = seasonal_dummy_fold(2);
+        let plain = RidgeRegressor::builder().lambda(1.0).build();
+        assert_eq!(plain.select_lambda(&x), 1.0);
+        let a = plain.fit(&x, &y).unwrap();
+        let b = RidgeRegressor::new(
+            RegressionOptionsBuilder::default()
+                .lambda(1.0)
+                .build_unchecked(),
+        )
+        .fit(&x, &y)
+        .unwrap();
+        assert_eq!(a.lambda(), 1.0);
+        for j in 0..11 {
+            assert_eq!(a.coefficients()[j], b.coefficients()[j]);
+        }
+    }
+
+    #[test]
+    fn gram_condition_number_flags_rank_deficiency() {
+        // A full set of 12 dummies plus an intercept is rank-deficient.
+        let x = Mat::from_fn(24, 12, |i, j| if i % 12 == j { 1.0 } else { 0.0 });
+        assert!(gram_condition_number(&x, true).is_infinite());
+        assert!(gram_condition_number(&Mat::<f64>::zeros(0, 0), false).is_infinite());
     }
 }

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Conditioning-aware λ for ridge (DataZooDE/anofox-forecast#258).** Opt-in
+  `RidgeRegressorBuilder::conditioning_aware(lambda_small, cond_threshold)` (or
+  `RidgeRegressor::with_conditioning(ConditioningLambda { .. })`): `fit` measures the
+  condition number `κ(XᵀX)` of the design it penalises (`X` centered when an intercept is
+  fitted) via `gram_condition_number`, and uses `lambda_small` when `κ ≤ cond_threshold`,
+  the configured λ otherwise. A fixed λ = 1.0 shrinks a seasonal-dummy spike amplitude by
+  ~20% on a well-conditioned 4-cycle fold; with `DEFAULT_LAMBDA_SMALL` (0.1) and
+  `DEFAULT_CONDITION_THRESHOLD` (1000) the amplitude stays within 3% of the unpenalised fit,
+  while an ill-conditioned design keeps λ = 1.0. `RidgeRegressor::select_lambda(x)` returns
+  the λ a fit would use and `FittedRidge::lambda()` the λ it used. Without the option nothing
+  changes. Applies to `fit`; `fit_from_moments` / `fit_from_accumulator` are unchanged.
+
 ## [0.5.37] - 2026-10-23
 
 ### Added
