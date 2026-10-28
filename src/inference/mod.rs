@@ -4,6 +4,7 @@ pub mod anova;
 mod anova_table;
 pub mod cluster;
 mod coefficient;
+pub mod likelihood;
 mod nested_f;
 mod predict_se;
 mod prediction;
@@ -24,6 +25,10 @@ pub use cluster::{
     cluster_sandwich, glm_cluster_vcov, lm_cluster_vcov, ClusterError, ClusterOptions, ClusterType,
 };
 pub use coefficient::CoefficientInference;
+pub use likelihood::{
+    fit_glm, glm_score_test, lr_test, model_lr_test, profile_confint, ChiSqTest, Dispersion,
+    GlmData, GlmFit, LikelihoodError, LikelihoodFit, ScoreTest,
+};
 pub use nested_f::{
     nested_f_test, nested_f_test_indices, NestedFTest, NestedFTestError, NestedFTestOptions,
 };
