@@ -401,6 +401,47 @@ fn quad(v: &[f64], m: &Mat<f64>) -> f64 {
         .sum()
 }
 
+/// Time transformation of the proportional-hazards test ([`CoxFit::cox_zph`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ZphTransform {
+    /// `1 − S(t−)` of the pooled Kaplan–Meier curve (`cox.zph`'s default).
+    #[default]
+    Km,
+    /// Rank of the time.
+    Rank,
+    /// The time itself.
+    Identity,
+    /// Log of the time.
+    Log,
+}
+
+/// One row of the proportional-hazards test.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ZphTest {
+    /// Score χ².
+    pub chisq: f64,
+    /// Degrees of freedom.
+    pub df: usize,
+    /// p-value.
+    pub p_value: f64,
+}
+
+/// Result of [`CoxFit::cox_zph`] (`survival::cox.zph`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CoxZph {
+    /// One test per term (column group).
+    pub terms: Vec<ZphTest>,
+    /// The global test.
+    pub global: ZphTest,
+    /// Transformed time of each event row (order of
+    /// [`CoxFit::schoenfeld_residuals`]).
+    pub x: Vec<f64>,
+    /// Untransformed time of each event row.
+    pub time: Vec<f64>,
+    /// Scaled Schoenfeld residuals (`events × p`), for plotting β(t).
+    pub y: Mat<f64>,
+}
+
 /// A fitted Cox model.
 #[derive(Debug, Clone)]
 pub struct CoxFit {
@@ -433,6 +474,7 @@ pub struct CoxFit {
     /// Whether the iteration converged.
     pub converged: bool,
     ties: Ties,
+    ridge: f64,
     conf_level: f64,
     data: Data,
 }
@@ -510,6 +552,7 @@ pub fn coxph(
         iterations,
         converged,
         ties: options.ties,
+        ridge: options.ridge,
         conf_level: options.conf_level,
         data,
     })
@@ -582,6 +625,73 @@ impl CoxFit {
 
     /// Score residuals (`residuals(fit, type = "score")`), `n × p`.
     pub fn score_residuals(&self) -> Mat<f64> {
+        self.residual_parts().1
+    }
+
+    /// Martingale residuals `δᵢ − Ĥᵢ` (`residuals(fit, type = "martingale")`),
+    /// with the Efron-adjusted cumulative hazard of each row.
+    pub fn martingale_residuals(&self) -> Vec<f64> {
+        self.residual_parts().0
+    }
+
+    /// Deviance residuals `sign(M)·√(−2(M + δ log(δ − M)))`.
+    pub fn deviance_residuals(&self) -> Vec<f64> {
+        self.martingale_residuals()
+            .iter()
+            .zip(&self.data.event)
+            .map(|(&m, &e)| {
+                let d = f64::from(u8::from(e));
+                let inner = if e { m + d * (d - m).ln() } else { m };
+                m.signum() * (-2.0 * inner).max(0.0).sqrt()
+            })
+            .collect()
+    }
+
+    /// `dfbeta` residuals: the approximate change in β̂ when row `i` is left
+    /// out, `wᵢ · score residualᵢ · V` (weighted, as `residuals(fit, type =
+    /// "dfbeta")` in survival ≥ 3).
+    pub fn dfbeta(&self) -> Mat<f64> {
+        let r = self.score_residuals();
+        let w = &self.data.w;
+        Mat::from_fn(r.nrows(), r.ncols(), |i, j| w[i] * r[(i, j)]) * &self.var
+    }
+
+    /// `dfbetas`: [`Self::dfbeta`] divided by the standard errors.
+    pub fn dfbetas(&self) -> Mat<f64> {
+        let d = self.dfbeta();
+        Mat::from_fn(d.nrows(), d.ncols(), |i, j| d[(i, j)] / self.std_errors[j])
+    }
+
+    /// Schoenfeld residuals `xᵢ − x̄(tᵢ)` of the event rows (Efron-averaged
+    /// over tied deaths), ordered by stratum and time; returns the row
+    /// indices, their times and the `events × p` residuals. With `scaled`
+    /// they are `β̂ + n_d V rᵢ` (`type = "scaledsch"`), `n_d` the number of
+    /// events.
+    pub fn schoenfeld_residuals(&self, scaled: bool) -> (Vec<usize>, Vec<f64>, Mat<f64>) {
+        let d = &self.data;
+        let p = self.df;
+        let g = self.residual_parts().2;
+        let mut rows: Vec<usize> = (0..d.x.nrows()).filter(|&i| d.event[i]).collect();
+        rows.sort_by(|&a, &b| {
+            d.strata[a]
+                .cmp(&d.strata[b])
+                .then(d.stop[a].total_cmp(&d.stop[b]))
+        });
+        let raw = Mat::from_fn(rows.len(), p, |k, j| d.x[(rows[k], j)] - g[(rows[k], j)]);
+        let out = if scaled {
+            let nd = rows.len() as f64;
+            let rv = &raw * &self.var;
+            Mat::from_fn(rows.len(), p, |k, j| self.coefficients[j] + nd * rv[(k, j)])
+        } else {
+            raw
+        };
+        let times = rows.iter().map(|&i| d.stop[i]).collect();
+        (rows, times, out)
+    }
+
+    /// Martingale residuals, score residuals and, for every event row, the
+    /// Efron-averaged risk-set mean `(1/m) Σ_k x̄_k` at its time.
+    fn residual_parts(&self) -> (Vec<f64>, Mat<f64>, Mat<f64>) {
         let d = &self.data;
         let (n, p) = (d.x.nrows(), d.x.ncols());
         let eta = d.eta(&self.coefficients);
@@ -629,6 +739,8 @@ impl CoxFit {
             })
             .collect();
         let mut out = Mat::<f64>::zeros(n, p);
+        let mut mart = vec![0.0; n];
+        let mut xbar = Mat::<f64>::zeros(n, p);
         for (sidx, (_, rows, _)) in d.groups.iter().enumerate() {
             let _ = sidx;
             let stratum = d.strata[rows[0]];
@@ -655,6 +767,7 @@ impl CoxFit {
                     .as_ref()
                     .map_or(0, |e| ts.partition_point(|&t| t <= e[i]));
                 let a = pa[hi] - pa[lo];
+                mart[i] = -r[i] * a;
                 for j in 0..p {
                     let b = pb[hi][j] - pb[lo][j];
                     out[(i, j)] = -r[i] * (d.x[(i, j)] * a - b);
@@ -662,6 +775,10 @@ impl CoxFit {
                 if d.event[i] {
                     let q = ts.partition_point(|&t| t < d.stop[i]);
                     let st = &steps[idx[q]];
+                    mart[i] += 1.0 + r[i] * st.c;
+                    for j in 0..p {
+                        xbar[(i, j)] = st.g[j];
+                    }
                     for j in 0..p {
                         out[(i, j)] +=
                             d.x[(i, j)] - st.g[j] + r[i] * (d.x[(i, j)] * st.c - st.e[j]);
@@ -669,7 +786,7 @@ impl CoxFit {
                 }
             }
         }
-        out
+        (mart, out, xbar)
     }
 
     /// Cluster-robust covariance (`coxph(..., cluster = id)`): the sandwich
@@ -680,6 +797,134 @@ impl CoxFit {
         let w = &self.data.w;
         let scores = Mat::from_fn(res.nrows(), res.ncols(), |i, j| w[i] * res[(i, j)]);
         cluster_sandwich(&self.var, &scores, &[clusters], &ClusterOptions::robcov())
+    }
+
+    /// Grambsch–Therneau test of proportional hazards, as `cox.zph` of
+    /// survival ≥ 3: the score test, at `(β̂, 0)`, for adding the
+    /// time-varying covariates `g(t)·x` with `g` the transformed event time
+    /// centred at its mean over the event rows. One test per term of
+    /// `terms` (column groups; one per column when `None`) plus the global
+    /// test.
+    pub fn cox_zph(
+        &self,
+        transform: ZphTransform,
+        terms: Option<&[Vec<usize>]>,
+    ) -> Result<CoxZph, SurvivalError> {
+        let d = &self.data;
+        let (n, p) = (d.x.nrows(), self.df);
+        let ttimes: Vec<f64> = match transform {
+            ZphTransform::Identity => d.stop.clone(),
+            ZphTransform::Log => d.stop.iter().map(|t| t.ln()).collect(),
+            ZphTransform::Rank => {
+                let mut idx: Vec<usize> = (0..n).collect();
+                idx.sort_by(|&a, &b| d.stop[a].total_cmp(&d.stop[b]));
+                let mut rank = vec![0.0; n];
+                let mut a = 0;
+                while a < n {
+                    let mut b = a;
+                    while b < n && d.stop[idx[b]] == d.stop[idx[a]] {
+                        b += 1;
+                    }
+                    let avg = (a + b + 1) as f64 / 2.0;
+                    for &i in &idx[a..b] {
+                        rank[i] = avg;
+                    }
+                    a = b;
+                }
+                rank
+            }
+            ZphTransform::Km => {
+                let input = super::SurvInput {
+                    time: &d.stop,
+                    event: &d.event,
+                    entry: d.entry.as_deref(),
+                    weights: None,
+                };
+                let opts = super::SurvfitOptions {
+                    timefix: false,
+                    ..Default::default()
+                };
+                let km = super::survfit(&input, None, &opts)?.remove(0);
+                d.stop
+                    .iter()
+                    .map(|&t| {
+                        let k = km.time.partition_point(|&s| s < t);
+                        1.0 - if k == 0 { 1.0 } else { km.surv[k - 1] }
+                    })
+                    .collect()
+            }
+        };
+        let n_ev = d.event.iter().filter(|&&e| e).count() as f64;
+        let mean = (0..n)
+            .filter(|&i| d.event[i])
+            .map(|i| ttimes[i])
+            .sum::<f64>()
+            / n_ev;
+        let mut by_time: Vec<(f64, f64)> = (0..n).map(|i| (d.stop[i], ttimes[i] - mean)).collect();
+        by_time.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let gfun = |t: f64| by_time[by_time.partition_point(|v| v.0 < t)].1;
+
+        let mut imat = Mat::<f64>::zeros(2 * p, 2 * p);
+        let mut u2 = vec![0.0; p];
+        d.sweep(&self.coefficients, true, |et, s2d2, _, xd| {
+            let (s2, d2) = s2d2.split_at(p * p);
+            let g = gfun(et.time);
+            let steps: Vec<(f64, f64)> = match self.ties {
+                Ties::Breslow => vec![(0.0, et.wd)],
+                Ties::Efron => (0..et.m)
+                    .map(|k| (k as f64 / et.m as f64, et.wd / et.m as f64))
+                    .collect(),
+            };
+            for a in 0..p {
+                u2[a] += g * xd[a];
+            }
+            for (f, wt) in steps {
+                let den = et.s0 - f * et.d0;
+                let m: Vec<f64> = (0..p).map(|a| (et.s1[a] - f * et.d1[a]) / den).collect();
+                for a in 0..p {
+                    u2[a] -= g * wt * m[a];
+                    for b in 0..p {
+                        let v = (s2[a * p + b] - f * d2[a * p + b]) / den - m[a] * m[b];
+                        imat[(a, b)] += wt * v;
+                        imat[(a, p + b)] += g * wt * v;
+                        imat[(p + a, b)] += g * wt * v;
+                        imat[(p + a, p + b)] += g * g * wt * v;
+                    }
+                }
+            }
+        });
+        if self.ridge > 0.0 {
+            for a in 0..2 * p {
+                imat[(a, a)] += self.ridge;
+            }
+        }
+        let test = |jj: &[usize]| -> ZphTest {
+            let kk: Vec<usize> = (0..p).chain(jj.iter().map(|j| p + j)).collect();
+            let q = kk.len();
+            let sub = Mat::from_fn(q, q, |a, b| imat[(kk[a], kk[b])]);
+            let u = faer::Col::from_fn(q, |a| if a < p { 0.0 } else { u2[jj[a - p]] });
+            let x = sub.partial_piv_lu().solve(&u);
+            let chisq: f64 = (0..q).map(|a| x[a] * u[a]).sum();
+            ZphTest {
+                chisq,
+                df: jj.len(),
+                p_value: ChiSquared::new(jj.len() as f64).map_or(f64::NAN, |c| c.sf(chisq)),
+            }
+        };
+        let default_terms: Vec<Vec<usize>> = (0..p).map(|j| vec![j]).collect();
+        let groups = terms.unwrap_or(&default_terms);
+        if groups.iter().flatten().any(|&j| j >= p) {
+            return Err(SurvivalError::Invalid("term column out of range"));
+        }
+        let all: Vec<usize> = (0..p).collect();
+        let (rows, time, y) = self.schoenfeld_residuals(true);
+        Ok(CoxZph {
+            terms: groups.iter().map(|g| test(g)).collect(),
+            global: test(&all),
+            x: rows.iter().map(|&i| ttimes[i]).collect(),
+            time,
+            y,
+        })
     }
 
     /// Predicted survival curve for the covariate row `x0` (uncentred, no

@@ -94,6 +94,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - predicted survival with SEs and CIs (Efron, Breslow);
     - `cph`'s LR, R² and Dxy;
     - counting-process data with a time-dependent covariate (`heart`), with Efron, Breslow and the robust variance.
+- **Cox and AFT model diagnostics (#115, RMS §18.3, §20.6–20.8).**
+  - **Residuals on `CoxFit`:** `martingale_residuals`, `deviance_residuals`, `schoenfeld_residuals(scaled)` (event rows by stratum and time, Efron-averaged over tied deaths; scaled = `β̂ + n_d V r`), `dfbeta` (weighted, as survival ≥ 3) and `dfbetas`, as `residuals.coxph`.
+  - **`CoxFit::cox_zph(transform, terms)`** is the Grambsch–Therneau proportional-hazards test of survival ≥ 3. It is the score test at `(β̂, 0)` for adding `g(t)·x`, per term and global, with `ZphTransform::{Km, Rank, Identity, Log}`. It also returns the transformed times and the scaled Schoenfeld residuals for plotting β(t).
+  - **AFT:** `FittedAft::standardized_residuals` (`(log t − η)/σ`) and `cox_snell_residuals` (`−log S(t | x)`), for checking the error distribution against a Kaplan–Meier curve.
+  - Validated in `tests/r_validation_coxdiag.rs` (generator `tests/r_scripts/generate_coxdiag_validation.R`) against `residuals.coxph` and `cox.zph` (all four transforms and the plotting data), for Efron, Breslow, weighted, stratified and counting-process (`heart`) fits, and against `survreg` for the AFT residuals.
 
 ### Fixed
 
