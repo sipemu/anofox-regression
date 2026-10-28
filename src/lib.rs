@@ -28,6 +28,7 @@ pub mod core;
 pub mod design;
 pub mod diagnostics;
 pub mod distributions;
+pub mod effects;
 pub mod inference;
 pub mod solvers;
 pub mod splines;

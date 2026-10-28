@@ -116,6 +116,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`glm_score_test(family, reduced, x_add, φ)`** is Rao's score test for adding predictors, evaluated at the reduced fit only: the joint `Uᵀ S⁻¹ U / φ` of `anova(..., test = "Rao")`, plus the per-column z of `statmod::glm.scoretest`.
   - **`profile_confint(family, data, dispersion, level)`** reproduces `confint.glm` (R ≥ 4.4 / MASS): the same profiling grid, a port of R's FMM `spline()`, and `approx` inversion.
   - Validated in `tests/r_validation_likelihood.rs` (generator `tests/r_scripts/generate_likelihood_validation.R`) against `glm`, `anova` LRT / Rao, `glm.scoretest` and `confint` (95% and 90%), for binomial, weighted Poisson with an offset, and Gamma(log) with estimated dispersion. It also checks the trait on the crate's binomial and Gamma regressors.
+- **Partial effects and contrasts on the covariate scale: `effects` (#116, RMS §5.1).** A `ModelSpec` records how each predictor enters the design — `linear`, `rcs`, `lsp`, or `categorical` with treatment contrasts — and the interactions (tensor or `%ia%`). It carries `datadist`-style `Limits`: quartiles for effects; the median (or the mode for categorical predictors) to adjust to; the `10/max(n, 200)` quantiles for prediction grids; and rms's rules for few distinct values. `design(columns)` builds the design, and `row(setting)` builds a design row with the other predictors at their adjust-to values.
+  - `summary(beta, vcov, …)` is `summary.rms`: inter-quartile-range effects for numeric predictors, and each level against the adjust-to level for categorical ones, with CIs (t for OLS, normal otherwise). `exp` gives odds / hazard / time ratios.
+  - `contrast` and `double_contrast` are `contrast.rms`, single and double difference, with any covariance (model, robust or bootstrap).
+  - `predict_grid` is `Predict`: a 200-point grid between the prediction limits, or given values, with pointwise CIs.
+  - Validated in `tests/r_validation_effects.rs` (generator `tests/r_scripts/generate_effects_validation.R`) against `datadist`, `summary` (with odds ratios), `contrast` (single, double, factor levels) and `Predict` for `ols` and `lrm` with an rcs × linear interaction and a three-level factor.
 
 ### Fixed
 
