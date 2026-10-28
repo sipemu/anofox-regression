@@ -2,6 +2,7 @@
 
 pub mod anova;
 mod anova_table;
+pub mod cluster;
 mod coefficient;
 mod nested_f;
 mod predict_se;
@@ -18,6 +19,9 @@ pub use anova::{
 };
 pub use anova_table::{
     anova_table, AnovaTable, AnovaTableError, AnovaTableOptions, AnovaTerm, AnovaType,
+};
+pub use cluster::{
+    cluster_sandwich, glm_cluster_vcov, lm_cluster_vcov, ClusterError, ClusterOptions, ClusterType,
 };
 pub use coefficient::CoefficientInference;
 pub use nested_f::{

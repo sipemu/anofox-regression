@@ -135,6 +135,74 @@ impl FittedAft {
     pub fn coefficients(&self) -> &Col<f64> {
         &self.coefficients
     }
+    /// Per-observation score contributions (`n × k`) at the estimate, in the
+    /// parameter order of the covariance: intercept (if fitted), the
+    /// coefficients, then `log σ` when the scale is estimated. `x`, `time`
+    /// and `event` are the data of the fit.
+    pub fn score_contributions(
+        &self,
+        x: &Mat<f64>,
+        time: &Col<f64>,
+        event: &[bool],
+    ) -> Result<Mat<f64>, crate::inference::ClusterError> {
+        let n = x.nrows();
+        if time.nrows() != n || event.len() != n || x.ncols() != self.coefficients.nrows() {
+            return Err(crate::inference::ClusterError::Dimension(format!(
+                "x is {}x{}, time has {} and event {} entries",
+                n,
+                x.ncols(),
+                time.nrows(),
+                event.len()
+            )));
+        }
+        let off = usize::from(self.intercept().is_some());
+        let p = x.ncols();
+        let fit_scale = self.distribution != AftDistribution::Exponential;
+        let k = off + p + usize::from(fit_scale);
+        let sigma = self.scale();
+        let eta = self.predict_linear(x);
+        let mut s = Mat::<f64>::zeros(n, k);
+        for i in 0..n {
+            let z = (time[i].ln() - eta[i]) / sigma;
+            let u = if event[i] {
+                self.distribution.d_log_density(z)
+            } else {
+                self.distribution.d_log_survival(z)
+            };
+            if off == 1 {
+                s[(i, 0)] = -u / sigma;
+            }
+            for j in 0..p {
+                s[(i, off + j)] = -u * x[(i, j)] / sigma;
+            }
+            if fit_scale {
+                s[(i, k - 1)] = -u * z - f64::from(u8::from(event[i]));
+            }
+        }
+        Ok(s)
+    }
+
+    /// Cluster-robust covariance of all parameters (order of
+    /// [`Self::score_contributions`]), `A (Σ_g s_g s_gᵀ) A` with `A` the
+    /// fitted covariance; [`crate::inference::ClusterOptions::robcov`]
+    /// reproduces `survreg(..., cluster = id)`. Needs a fit with inference.
+    pub fn cluster_vcov(
+        &self,
+        x: &Mat<f64>,
+        time: &Col<f64>,
+        event: &[bool],
+        clusters: &[&[usize]],
+        options: &crate::inference::ClusterOptions,
+    ) -> Result<Mat<f64>, crate::inference::ClusterError> {
+        let bread = self.inference().and_then(|i| i.vcov.as_ref()).ok_or(
+            crate::inference::ClusterError::Unsupported(
+                "the fit has no covariance; fit with compute_inference(true)",
+            ),
+        )?;
+        let scores = self.score_contributions(x, time, event)?;
+        crate::inference::cluster_sandwich(bread, &scores, clusters, options)
+    }
+
     /// Intercept, if fitted.
     pub fn intercept(&self) -> Option<f64> {
         self.result.core.intercept

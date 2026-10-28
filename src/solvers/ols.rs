@@ -934,6 +934,26 @@ impl FittedOls {
     pub fn options(&self) -> &RegressionOptions {
         &self.options
     }
+
+    /// Cluster-robust covariance (`sandwich::vcovCL`), intercept first, from
+    /// the design `x` used in the fit and one code vector per clustering
+    /// dimension. See [`crate::inference::cluster`].
+    pub fn cluster_vcov(
+        &self,
+        x: &Mat<f64>,
+        clusters: &[&[usize]],
+        options: &crate::inference::ClusterOptions,
+    ) -> Result<Mat<f64>, crate::inference::ClusterError> {
+        crate::inference::lm_cluster_vcov(
+            x,
+            &self.result.residuals,
+            None,
+            self.result.intercept.is_some(),
+            &self.aliased,
+            clusters,
+            options,
+        )
+    }
 }
 
 impl FittedRegressor for FittedOls {

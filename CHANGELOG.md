@@ -45,6 +45,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `lrm_stats(y, lp, w, df)`: the binary `rms::lrm` stats vector from the linear predictor — model LR, P, C, Dxy, γ, τ-a, Nagelkerke R², R2Measures, Brier, g, gr, gp.
   - `val_prob(p, y)`: `rms::val.prob` external validation — Dxy, C, R², D, U, Q (with χ² and p), Brier, the logistic calibration intercept and slope, Emax / E90 / Eavg from `lowess(p, y, iter = 0)`, and Spiegelhalter's z.
   - Validated in `tests/r_validation_accuracy.rs` (generator `tests/r_scripts/generate_accuracy_validation.R`) against `concordancefit` (with ties and weights), `somers2` (with and without weights), the `lrm` stats (with and without weights), `rcorr.cens` (censored and uncensored, with ties), `R2Measures` and `val.prob`; values agree to 1e-8 or better.
+- **Cluster-robust (Huber–White) sandwich covariance: `inference::cluster` (#105, RMS §9.5).** It computes `V = A (Σ_g s_g s_gᵀ) A`, as `sandwich::vcovCL` and `rms::robcov` do, with one or more clustering dimensions. Several dimensions are combined by inclusion–exclusion (Cameron, Gelbach & Miller), e.g. `V₁ + V₂ − V₁∩₂` for two-way clustering.
+  - `ClusterOptions { kind: ClusterType::{HC0, HC1, HC2, HC3}, cadjust }` follows `vcovCL(type, cadjust)`:
+    - `cadjust` multiplies each dimension by `G/(G−1)`;
+    - HC1 multiplies by `(n−1)/(n−k)`;
+    - HC2 is Bell–McCaffrey bias-reduced linearization and HC3 is jackknife-like, with per-cluster `(I − H_gg)^{−½}` / `(I − H_gg)^{−1}`. These are for linear models only, weighted ones included.
+    - Presets: `ClusterOptions::cr1()` is Stata's CR1 and the default; `::hc0()` is `vcovCL`'s GLM default; `::robcov()` applies no correction, as `rms::robcov` and `survreg(cluster =)`.
+  - `cluster_sandwich(bread, scores, clusters, opts)` works for any model from its inverse information and per-observation scores.
+  - `lm_cluster_vcov`, plus `FittedOls::cluster_vcov` / `FittedWls::cluster_vcov`, for linear models (aliased columns get zero rows and columns).
+  - `glm_cluster_vcov(family, x, …, mu, prior_weights, …)` for GLMs of any `GlmFamily` (scores `p(y − μ)/(V g′) x`, bread `(XᵀWX)⁻¹`).
+  - `FittedAft::score_contributions` and `FittedAft::cluster_vcov` for AFT models (all parameters including `log σ`).
+  - The result is a covariance matrix, intercept first, ready for `inference::wald_test` / `anova`.
+  - Validated in `tests/r_validation_cluster.rs` (generator `tests/r_scripts/generate_cluster_validation.R`):
+    - against `vcovCL` for OLS with HC0–HC3, with and without `cadjust`, and for two-way clustering;
+    - for WLS with HC0–HC3 and for a model without an intercept;
+    - against `rms::robcov`;
+    - for Poisson, logit, probit and Gamma(log) GLMs, plus two-way and prior-weighted Poisson;
+    - against `survreg(..., cluster = id)` for a Weibull AFT.
+- `compute_hc_standard_errors` already refuses fits without residuals; `lm_cluster_vcov` does the same (e.g. fits from `SufficientStats`).
 
 ### Fixed
 
