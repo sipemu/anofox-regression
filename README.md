@@ -37,6 +37,9 @@ This library provides sklearn-style regression estimators with full statistical 
     `wald_test`): chunk tests of predictors, nonlinearity and interactions from
     one fit with any (model, robust or bootstrap) covariance, on a `design::Design`
     that records its terms
+  - **Predictive accuracy indexes** (`diagnostics::accuracy`): C / Dxy / γ / τ-a,
+    Harrell's C for censored data, Brier, Nagelkerke and adjusted R², g-indexes,
+    the `lrm` stats vector and `val.prob` calibration (intercept, slope, Emax, …)
   - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
     serializable (versioned bytes) state of weighted means and centred
     co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`

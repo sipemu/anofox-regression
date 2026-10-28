@@ -37,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `FittedOls::vcov`, `FittedWls::vcov` and `FittedRidge::vcov` return `σ̂² · M`, intercept first.
   - Validated in `tests/r_validation_anova.rs` (generator `tests/r_scripts/generate_anova_validation.R`) against `rms::anova.rms` for four models: OLS with an rcs × linear interaction (χ², F and partial SS), the same design as `lrm`, an rcs × rcs tensor interaction plus a second interaction, and `%ia%`. It also checks the nested-model F test (`anova(lm, lm)`), a two-row general linear hypothesis with `r ≠ 0`, and an end-to-end Rust design → OLS → `vcov` → ANOVA run that reproduces rms. Statistics agree to 1e-9; p-values agree to statrs' tail accuracy (1e-5 relative near p = 1e-11).
 - `splines::Basis::new` / `Basis::linear` constructors and `SplineError::Length`.
+- **Predictive accuracy indexes: `diagnostics::accuracy` (#102, RMS §4.5, §10.8).** These are free functions over `(y, prediction, [weights])`, so they apply to any model.
+  - `concordance(x, y, w)`: weighted concordant / discordant / tied pair counts (`survival::concordancefit`), with `c()`, `dxy()`, `gamma()` and `tau_a()` (the rank statistics of `rms::lrm`). O(n log n), using a Fenwick tree.
+  - `somers2(p, y, w)`: ROC area and Somers' Dxy (`Hmisc::somers2`, case weights).
+  - `rcorr_cens(x, time, event)`: Harrell's C for right-censored data, matching `Hmisc::rcorr.cens`. It gives C, Dxy, the S.D. of Dxy (`sqrt(Σ(cᵢ − dᵢ − Dxy·rᵢ)²)/R`), and the relevant / concordant / uncertain ordered-pair counts. O(n log n).
+  - `brier_score`, `gini_md` (`Hmisc::GiniMd`, the g-index) and `nagelkerke_r2`. `r2_measures(lr, p, n, ess)` is `Hmisc::R2Measures`: R²(n), R²(p,n) and the effective-sample-size variants of RMS 2nd ed. §4.5. `effective_sample_size(n, freqs)` is `n(1 − ΣP³)`.
+  - `lrm_stats(y, lp, w, df)`: the binary `rms::lrm` stats vector from the linear predictor — model LR, P, C, Dxy, γ, τ-a, Nagelkerke R², R2Measures, Brier, g, gr, gp.
+  - `val_prob(p, y)`: `rms::val.prob` external validation — Dxy, C, R², D, U, Q (with χ² and p), Brier, the logistic calibration intercept and slope, Emax / E90 / Eavg from `lowess(p, y, iter = 0)`, and Spiegelhalter's z.
+  - Validated in `tests/r_validation_accuracy.rs` (generator `tests/r_scripts/generate_accuracy_validation.R`) against `concordancefit` (with ties and weights), `somers2` (with and without weights), the `lrm` stats (with and without weights), `rcorr.cens` (censored and uncensored, with ties), `R2Measures` and `val.prob`; values agree to 1e-8 or better.
 
 ### Fixed
 

@@ -51,6 +51,7 @@
 //! let influential = influential_cooks(&cooks, None);
 //! ```
 
+pub mod accuracy;
 pub(crate) mod augment;
 mod condition_number;
 mod glm_residuals;
