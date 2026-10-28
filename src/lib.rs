@@ -33,6 +33,7 @@ pub mod solvers;
 pub mod splines;
 pub mod survival;
 pub mod utils;
+pub mod validation;
 
 /// Prelude module for convenient imports.
 pub mod prelude {
