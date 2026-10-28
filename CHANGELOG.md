@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`OlsRegressor::fit_from_state`, `WlsRegressor::fit_from_state`, `RidgeRegressor::fit_from_state`** return what `fit()` returns on the concatenated rows (to 1e-12 relative). That covers coefficients, R-`lm`-style aliasing in column order (from the pivots of a sequential Cholesky factorisation of the Gram matrix, same tolerance), classical standard errors, t, p and confidence intervals, R², adjusted R², F, MSE, log-likelihood, AIC / AICc / BIC, the variance factor, and confidence / prediction intervals for new rows. For ridge the λ (with its `LambdaScaling`) is applied at finalize, so one state serves a λ grid; the sandwich SEs are included. Weights recorded in the state are honoured: OLS on a weighted state is the WLS fit.
   - Row-level quantities are not available from a state: residuals, fitted values, leverage, LOO, Cook's distance and the HC0–HC3 sandwich (`Σ eᵢ² xᵢxᵢᵀ` needs the residuals, so it is not mergeable in one pass). `residuals` / `fitted_values` are empty, and `hc_standard_errors` / `hc_inference` return an error. GLMs have no exact single-pass state; the module docs show how a state with working responses and weights makes each IRLS step distributable.
   - Validated in `tests/issue122_sufficient_stats.rs`: random splits into 1–7 parts with random merge orders and byte round trips against `fit()` (OLS and WLS with and without intercept, zero weights, ridge over λ ∈ {0, 1e-3, 0.5, 10} with both scalings, aliased duplicate / constant / linear-combination columns, intervals); large offsets against a fit on the shifted data; and R `lm(weights =)`.
+- **Regression-spline bases for ordinary design matrices: `splines` (#99, RMS §2.4).**
+  - **`Rcs`**: a restricted (natural) cubic spline in Harrell's truncated-power parametrisation (`Hmisc::rcspline.eval` / `rms::rcs`). With `k` knots it has `k − 1` columns, `x, x', x'', …`, and is linear beyond the outer knots. Normalisation is `RcsNorm::{None, LastInterval, Range}` (`norm = 0, 1, 2`), with `Range`, i.e. `(t_k − t₁)²`, as the default. `Rcs::new(knots)` takes user knots; `Rcs::from_data(x, nk)` places the defaults. Keep the `Rcs` value to rebuild the basis on new data. `Rcs::restate` returns the unrestricted truncated-power coefficients of a fitted spline (`rcspline.restate`, including the two implied by the linearity restriction), and `RcsRestated::eval` evaluates them.
+  - **Default knots**, `rcs_default_knots(x, nk)` / `rcs_default_knots_with(x, nk, fractied)`, port `rcspline.eval`:
+    - the quantiles of RMS Table 2.3 (`default_knot_quantiles`, R type-7 quantiles);
+    - outer knots moved to the 5th smallest / largest value when `n < 100`;
+    - separate handling of extremes tied in at least `fractied` of the rows;
+    - interior distinct values when there are few distinct values;
+    - the alternate algorithm when the quantiles are not distinct.
+  - **`Lsp`**: a linear spline `x, (x − t₁)₊, …` (`rms::lsp`).
+  - **`restricted_interaction(a, b)`**: `rms::%ia%` (RMS §2.7.2), the products of two bases without doubly nonlinear terms, in the rms order.
+  - Each basis is a `Basis` with rms column names and per-column `nonlinear` flags (`nonlinear_columns()` gives the chunk for a test of linearity).
+  - Validated in `tests/r_validation_rcs.rs` (generator `tests/r_scripts/generate_rcs_validation.R`) against Hmisc 5 / rms 8: default knots for 3–7 knots on six data sets (small n, large n, ties at one or both extremes, few distinct values, integers), the basis for every normalisation, `rms::rcs`, `rcspline.restate`, `rms::lsp` and `%ia%`.
 
 ### Fixed
 
