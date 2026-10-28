@@ -25,6 +25,7 @@
 //! ```
 
 pub mod core;
+pub mod design;
 pub mod diagnostics;
 pub mod distributions;
 pub mod inference;

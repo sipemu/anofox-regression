@@ -33,6 +33,10 @@ This library provides sklearn-style regression estimators with full statistical 
     default knots (`rms::rcs`), linear splines (`rms::lsp`), restricted
     interactions (`%ia%`) and the algebraic form of a fitted spline
     (`rcspline.restate`), as design-matrix columns for any model
+  - **Multi-d.f. Wald tests and the `rms` ANOVA table** (`inference::anova`,
+    `wald_test`): chunk tests of predictors, nonlinearity and interactions from
+    one fit with any (model, robust or bootstrap) covariance, on a `design::Design`
+    that records its terms
   - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
     serializable (versioned bytes) state of weighted means and centred
     co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`

@@ -55,6 +55,9 @@ pub enum SplineError {
     /// A coefficient vector had the wrong length.
     #[error("expected {expected} coefficients, got {got}")]
     CoefficientLength { expected: usize, got: usize },
+    /// Names or flags do not match the number of columns.
+    #[error("expected {expected} names / flags, got {got}")]
+    Length { expected: usize, got: usize },
     /// Bases of a product have different row counts.
     #[error("bases have {0} and {1} rows")]
     RowMismatch(usize, usize),
@@ -72,6 +75,35 @@ pub struct Basis {
 }
 
 impl Basis {
+    /// Basis from columns, names and nonlinearity flags (e.g. dummy columns
+    /// of a factor, all linear).
+    pub fn new(
+        columns: Mat<f64>,
+        names: Vec<String>,
+        nonlinear: Vec<bool>,
+    ) -> Result<Self, SplineError> {
+        let m = columns.ncols();
+        for got in [names.len(), nonlinear.len()] {
+            if got != m {
+                return Err(SplineError::Length { expected: m, got });
+            }
+        }
+        Ok(Self {
+            columns,
+            names,
+            nonlinear,
+        })
+    }
+
+    /// A single linear column.
+    pub fn linear(x: &[f64], name: &str) -> Self {
+        Self {
+            columns: Mat::from_fn(x.len(), 1, |i, _| x[i]),
+            names: vec![name.to_string()],
+            nonlinear: vec![false],
+        }
+    }
+
     /// Number of columns.
     pub fn n_columns(&self) -> usize {
         self.columns.ncols()
