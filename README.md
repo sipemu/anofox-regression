@@ -40,6 +40,9 @@ This library provides sklearn-style regression estimators with full statistical 
   - **Predictive accuracy indexes** (`diagnostics::accuracy`): C / Dxy / γ / τ-a,
     Harrell's C for censored data, Brier, Nagelkerke and adjusted R², g-indexes,
     the `lrm` stats vector and `val.prob` calibration (intercept, slope, Emax, …)
+  - **Cluster-robust covariance** (`inference::cluster`): one- and multi-way
+    clustered sandwich (CR0 / CR1 / CR2 / CR3 as `sandwich::vcovCL`, `rms::robcov`)
+    for OLS / WLS, any GLM family and AFT
   - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
     serializable (versioned bytes) state of weighted means and centred
     co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`

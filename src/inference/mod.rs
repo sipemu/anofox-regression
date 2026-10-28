@@ -1,6 +1,7 @@
 //! Statistical inference (standard errors, p-values, confidence intervals).
 
 pub mod anova;
+pub mod cluster;
 mod coefficient;
 mod predict_se;
 mod prediction;
@@ -13,6 +14,9 @@ pub(crate) use wald::{fill_wald_inference, WaldReference};
 pub use anova::{
     anova, drop_intercept, wald_chunk, wald_test, AnovaOptions, AnovaRow, AnovaRowKind, AnovaTable,
     WaldDistribution, WaldError, WaldTest,
+};
+pub use cluster::{
+    cluster_sandwich, glm_cluster_vcov, lm_cluster_vcov, ClusterError, ClusterOptions, ClusterType,
 };
 pub use coefficient::CoefficientInference;
 pub(crate) use predict_se::{glm_prediction, quadratic_se};
