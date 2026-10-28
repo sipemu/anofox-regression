@@ -31,6 +31,7 @@ pub mod distributions;
 pub mod inference;
 pub mod solvers;
 pub mod splines;
+pub mod survival;
 pub mod utils;
 
 /// Prelude module for convenient imports.
