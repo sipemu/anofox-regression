@@ -1,5 +1,6 @@
 //! Statistical inference (standard errors, p-values, confidence intervals).
 
+pub mod anova;
 mod coefficient;
 mod predict_se;
 mod prediction;
@@ -9,6 +10,10 @@ mod wald;
 pub(crate) use variance_factor::expand_reduced_factor;
 pub(crate) use wald::{fill_wald_inference, WaldReference};
 
+pub use anova::{
+    anova, drop_intercept, wald_chunk, wald_test, AnovaOptions, AnovaRow, AnovaRowKind, AnovaTable,
+    WaldDistribution, WaldError, WaldTest,
+};
 pub use coefficient::CoefficientInference;
 pub(crate) use predict_se::{glm_prediction, quadratic_se};
 pub use predict_se::{PredictSeError, PredictSeOptions, PredictWithSe, PredictionSe};

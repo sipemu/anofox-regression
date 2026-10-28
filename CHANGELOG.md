@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`restricted_interaction(a, b)`**: `rms::%ia%` (RMS §2.7.2), the products of two bases without doubly nonlinear terms, in the rms order.
   - Each basis is a `Basis` with rms column names and per-column `nonlinear` flags (`nonlinear_columns()` gives the chunk for a test of linearity).
   - Validated in `tests/r_validation_rcs.rs` (generator `tests/r_scripts/generate_rcs_validation.R`) against Hmisc 5 / rms 8: default knots for 3–7 knots on six data sets (small n, large n, ties at one or both extremes, few distinct values, integers), the basis for every normalisation, `rms::rcs`, `rcspline.restate`, `rms::lsp` and `%ia%`.
+- **Term-aware Wald tests and the `rms::anova.rms` table (#100, RMS §2.6, §4).** Everything works from `β̂` and `V̂` alone, so any fit qualifies, and robust or bootstrap covariances can be passed in.
+  - **`inference::wald_test(beta, vcov, C, r, dist)`** tests `H₀: Cβ = r` with `W = (Cβ̂ − r)ᵀ(CV̂Cᵀ)⁻¹(Cβ̂ − r)` against `χ²(q)`, or as `F = W/q` against `F(q, df)` when the dispersion is estimated (`WaldDistribution::{ChiSquare, F}`). `wald_chunk(beta, vcov, columns, dist)` is the chunk test. `WaldTest::chi_square_minus_df` gives the RMS importance measure. `drop_intercept` splits off the intercept.
+  - **`design::TermMap` / `design::Design`** record which slope columns belong to which predictor, which are nonlinear, and which are interactions. `Design` stacks `splines::Basis` blocks (`Basis::linear`, `Basis::new` for factor dummies) into the design matrix. Two-way interactions come in both rms forms: `add_interaction` is the full tensor product of `a * b` (first factor fastest); `add_restricted_interaction` is `%ia%`.
+  - **`inference::anova(beta, vcov, &terms, &AnovaOptions)`** ports `anova.rms` row by row, with the same labels, the same columns tested and the same rules:
+    - each predictor with its higher-order factors, `All Interactions` and `Nonlinear`;
+    - each interaction with `Nonlinear`, `Nonlinear Interaction : f(A,B) vs. AB`, `f(A,B) vs. Af(B) + Bg(A)` and the single-factor nonlinear-interaction rows;
+    - `TOTAL NONLINEAR`, `TOTAL INTERACTION`, `TOTAL NONLINEAR + INTERACTION` and `TOTAL`.
+
+    With σ² and an F reference it adds partial sums of squares and the `ERROR` row (`ss = TRUE`).
+  - `FittedOls::vcov`, `FittedWls::vcov` and `FittedRidge::vcov` return `σ̂² · M`, intercept first.
+  - Validated in `tests/r_validation_anova.rs` (generator `tests/r_scripts/generate_anova_validation.R`) against `rms::anova.rms` for four models: OLS with an rcs × linear interaction (χ², F and partial SS), the same design as `lrm`, an rcs × rcs tensor interaction plus a second interaction, and `%ia%`. It also checks the nested-model F test (`anova(lm, lm)`), a two-row general linear hypothesis with `r ≠ 0`, and an end-to-end Rust design → OLS → `vcov` → ANOVA run that reproduces rms. Statistics agree to 1e-9; p-values agree to statrs' tail accuracy (1e-5 relative near p = 1e-11).
+- `splines::Basis::new` / `Basis::linear` constructors and `SplineError::Length`.
 
 ### Fixed
 

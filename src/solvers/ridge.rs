@@ -669,6 +669,15 @@ impl FittedRidge {
         self.variance_factor.as_ref()
     }
 
+    /// Estimated covariance of the coefficients, `σ̂² · M` with `M` from
+    /// [`Self::variance_factor`]: intercept first when fitted, zero rows and
+    /// columns for aliased coefficients. `None` without a variance factor.
+    pub fn vcov(&self) -> Option<Mat<f64>> {
+        let mse = self.result.mse;
+        self.variance_factor()
+            .map(|m| Mat::from_fn(m.nrows(), m.ncols(), |i, j| mse * m[(i, j)]))
+    }
+
     /// Leverage `x₀' M x₀` of new rows (NaN if no variance factor is available).
     pub fn leverage_new(&self, x_new: &Mat<f64>) -> Col<f64> {
         match &self.variance_factor {
