@@ -129,6 +129,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `rank_intervals(original, replicates, level)` gives bootstrap intervals for the ranks of predictor importance, e.g. from partial χ² − d.f. (RMS §5.4).
   - Validated in `tests/r_validation_bootcov.rs` (generator `tests/r_scripts/generate_bootcov_validation.R`) against `bootcov` replicates, covariance and percentiles, with ordinary and cluster bootstrap, replaying R's resamples.
 
+- **Fast backward step-down: `inference::fastbw` (#108, RMS §5.5.2).** `fastbw(beta, vcov, n_intercepts, &terms, rule, type)` is `rms::fastbw`.
+  - It uses only `β̂` and `V̂`, deleting whole terms by Wald χ² with `StepRule::Aic { k, threshold }` or `StepRule::P { sls }`, applied to the residual or the individual test.
+  - It reports each step's χ², d.f., p, residual χ², d.f., p and AIC, plus the kept terms and the approximate reduced-model coefficients `β_in − V_io V_oo⁻¹ β_out`.
+  - Validated in `tests/r_validation_fastbw.rs` (generator `tests/r_scripts/generate_fastbw_validation.R`) against `fastbw` on an `lrm` with a spline and a factor, for all four rule / type combinations.
+
 ### Changed
 
 - **Fewer allocations and less work per OLS fit (#129).** For many small per-group fits, 100K fits of 20×3 (`examples/many_small_fits.rs`) go from 58 to 32 allocations per fit (−45%) and from 6.3 to 4.4 µs without inference, and from 76 to 48 allocations and from 11.3 to 9.2 µs with inference.

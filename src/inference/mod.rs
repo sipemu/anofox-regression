@@ -9,6 +9,7 @@ mod nested_f;
 mod predict_se;
 mod prediction;
 mod robust_covariance;
+pub mod stepdown;
 mod variance_factor;
 mod wald;
 pub(crate) use prediction::compute_matrix_inverse;
@@ -45,6 +46,7 @@ pub use robust_covariance::{
     compute_hc_inference, compute_hc_standard_errors, HcInference, HcInterceptInference, HcResult,
     HcType,
 };
+pub use stepdown::{fastbw, StepDeletion, StepDown, StepRule, StepType};
 pub use variance_factor::{
     compute_ridge_variance_factor, compute_variance_factor, intervals_from_variance_factor,
     leverage_new,
