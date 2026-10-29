@@ -151,6 +151,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - On the R fixtures this raises the log-likelihood by 7.8 (logistic), 2.9 (gamma), 1.8 (inverse Gaussian), 1.4 (generalised normal), 0.57 (log-normal) and 0.45 (log-generalised normal). 19 distributions now match greybox 2.0.9 `alm()` converged to its optimum to 1e-5 in the log-likelihood and 1e-4 in the coefficients (1e-5 except the Laplace, whose likelihood is flat around the LAD fit) (`tests/r_validation_alm_greybox_parity.rs`, generator `tests/r_scripts/generate_alm_greybox_parity.R`). `scale()` and the log-likelihood of these fits change accordingly.
   - Cost: unchanged for the distributions without the polish and 2× faster for the log-normal; the polished gamma, geometric, inverse Gaussian and logistic fits take 1.7–3.5× as long (e.g. gamma 1.0 → 3.0 ms at n = 2000).
   - Not covered: the Student t (greybox's `dt` has no scale), Beta (greybox models both shape parameters), Box–Cox normal (greybox's μ is on the transformed scale) and S (multimodal; we reach a higher likelihood).
+- **ALM Box–Cox normal, Beta and Student t reach the maximum of their likelihood (#145).**
+  - **Box–Cox normal (breaking):** now greybox's `dbcnorm`, `bc(y, λ) ~ N(μ, σ²)` with μ = Xβ on the transformed scale. It is fitted in closed form (OLS on bc(y)) and fitted values and predictions are `bc⁻¹(μ)`. Before, μ = Xβ was on the y scale inside `bc(μ)` and the numerical fit stopped far from the optimum (ll −190.6 on the R fixture; greybox and now ours −147.09). Coefficients are now on the Box–Cox scale.
+  - **Logit-normal:** fitted values, residuals and predictions are on the response scale, `plogis(μ)` (they were the logit-scale location).
+  - **Beta:** the precision φ is estimated jointly by ML. The fit is the mean–precision MLE of R's `betareg` model (ll 20.381 vs 20.055 with the moment φ; checked against `optim`). greybox's `dbeta` is a different model (both shapes regressed on X).
+  - **Student t:** σ is estimated jointly by ML, so the fit is the location–scale t MLE for the given df (ll −127.193 vs −127.44 with the MAD-based σ; checked against `optim`). greybox's `dt` has no scale.
+  - New `AlmDistribution::fitted_from_location`.
 
 ## [0.5.38] - 2026-10-29
 

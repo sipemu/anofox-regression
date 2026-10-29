@@ -4,10 +4,9 @@
 //! out by its `scalerInternal()` (denominator n). The reference values are
 //! `alm()` converged to that optimum (nloptr `xtol_rel = ftol_rel = 1e-14`);
 //! generator `tests/r_scripts/generate_alm_greybox_parity.R`. Not covered:
-//! Student t (greybox's `dt` has no scale), Beta (greybox models both shape
-//! parameters with covariates), Box–Cox normal (greybox's μ is on the
-//! transformed scale), S (multimodal: we reach a higher likelihood) and the
-//! binomial (checked in `r_validation_alm_extended.rs`).
+//! the Student t and Beta, which are different models from greybox's (checked
+//! against their own MLEs in `r_validation_alm*.rs`), the S (multimodal: we
+//! reach a higher likelihood) and the binomial (`r_validation_alm_extended.rs`).
 
 use anofox_regression::solvers::{AlmDistribution as D, AlmRegressor, FittedRegressor, Regressor};
 use faer::{Col, Mat};
@@ -35,6 +34,7 @@ fn distribution(name: &str) -> D {
         "NegativeBinomial" => D::NegativeBinomial,
         "InverseGaussian" => D::InverseGaussian,
         "AsymmetricLaplace" => D::AsymmetricLaplace,
+        "BoxCoxNormal" => D::BoxCoxNormal,
         other => panic!("no ALM distribution {other}"),
     }
 }

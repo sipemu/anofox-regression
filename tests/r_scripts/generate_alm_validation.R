@@ -107,6 +107,14 @@ cat(sprintf("const EXPECTED_INTERCEPT_T: f64 = %.10f;\n", coef(model_t)[1]))
 cat(sprintf("const EXPECTED_COEF_T: f64 = %.10f;\n", coef(model_t)[2]))
 cat(sprintf("const EXPECTED_SCALE_T: f64 = %.10f;\n", model_t$scale))
 cat(sprintf("const EXPECTED_LL_T: f64 = %.10f;\n", logLik(model_t)))
+# greybox's dt has no scale (and estimates df here); ALM's Student t is the
+# location-scale t with df = 5. Its converged MLE for MLE_T (#145):
+nll_t <- function(q) { s <- exp(q[3]); -sum(dt((y3 - q[1] - q[2] * x1) / s, df = 5, log = TRUE) - log(s)) }
+o <- optim(c(coef(lm(y3 ~ x1)), log(sd(y3))), nll_t, method = "BFGS", control = list(reltol = 1e-16, maxit = 1000))
+o <- optim(o$par, nll_t, method = "Nelder-Mead", control = list(reltol = 1e-16, maxit = 5000))
+o <- optim(o$par, nll_t, method = "BFGS", control = list(reltol = 1e-16, maxit = 1000))
+cat(sprintf("const MLE_T: [f64; 3] = [%.10f, %.10f, %.10f];\n", o$par[1], o$par[2], exp(o$par[3])))
+cat(sprintf("const MLE_LL_T: f64 = %.10f;\n", -o$value))
 cat("\n")
 
 # -----------------------------------------------------------------------------

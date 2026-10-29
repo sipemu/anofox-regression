@@ -120,6 +120,12 @@ const EXPECTED_INTERCEPT_T: f64 = 0.5875415906;
 const EXPECTED_COEF_T: f64 = 1.5458012827;
 const EXPECTED_LL_T: f64 = -130.3008375360;
 
+// greybox's `dt` has no scale (and estimated df for EXPECTED_* above); ALM's
+// Student t is the location–scale t with df = 5. Its converged MLE
+// (β₀, β₁, σ) from `optim` (#145):
+const MLE_T: [f64; 3] = [1.1588389511, 1.5189116429, 2.4805192212];
+const MLE_LL_T: f64 = -127.1932660023;
+
 const EXPECTED_INTERCEPT_LOGNORM: f64 = 0.4956574961;
 const EXPECTED_COEF_LOGNORM: f64 = 0.0301845076;
 const EXPECTED_LL_LOGNORM: f64 = -68.7844926408;
@@ -303,6 +309,19 @@ fn test_validate_student_t_vs_r() {
         coef,
         EXPECTED_COEF_T
     );
+
+    // The location–scale t MLE (#145)
+    assert!(
+        (intercept - MLE_T[0]).abs() < 1e-6,
+        "t intercept {intercept}"
+    );
+    assert!((coef - MLE_T[1]).abs() < 1e-6, "t coef {coef}");
+    assert!(
+        (fitted.scale() - MLE_T[2]).abs() < 1e-6,
+        "t scale {}",
+        fitted.scale()
+    );
+    assert!((ll - MLE_LL_T).abs() < 1e-8, "t LL {ll}");
 }
 
 /// Test Log-Normal distribution against R greybox

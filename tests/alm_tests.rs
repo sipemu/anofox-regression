@@ -847,3 +847,55 @@ mod distribution_comparison {
         assert!((fitted_low.coefficients()[0] - fitted_high.coefficients()[0]).abs() < 0.5);
     }
 }
+
+/// #145: the Box–Cox normal and logit-normal locations live on the transformed
+/// scale; fitted values and predictions are back on the response scale
+/// (greybox's `bcTransformInv(μ)` / `plogis(μ)`).
+#[test]
+fn test_box_cox_and_logit_normal_predict_on_the_response_scale() {
+    let n = 30;
+    let x = Mat::from_fn(n, 1, |i, _| i as f64 / 10.0);
+    let lambda: f64 = 0.5;
+    let y_bc = Col::from_fn(n, |i| {
+        let z = 1.0 + 0.8 * x[(i, 0)] + 0.3 * ((i * 7 % 5) as f64 - 2.0);
+        (lambda * z + 1.0).powf(1.0 / lambda)
+    });
+    let y_unit = Col::from_fn(n, |i| {
+        let z = -0.5 + 0.6 * x[(i, 0)] + 0.4 * ((i * 7 % 5) as f64 - 2.0);
+        1.0 / (1.0 + (-z).exp())
+    });
+    let cases = [
+        (AlmDistribution::BoxCoxNormal, &y_bc, Some(lambda)),
+        (AlmDistribution::LogitNormal, &y_unit, None),
+    ];
+    for (dist, y, extra) in cases {
+        let mut builder = AlmRegressor::builder()
+            .distribution(dist)
+            .with_intercept(true);
+        if let Some(e) = extra {
+            builder = builder.extra_parameter(e);
+        }
+        let fitted = builder.build().fit(&x, y).unwrap();
+        let r = fitted.result();
+        let location = |i: usize| r.intercept.unwrap() + r.coefficients[0] * x[(i, 0)];
+        let pred = fitted.predict(&x);
+        for i in 0..n {
+            let expected = match dist {
+                AlmDistribution::BoxCoxNormal => (lambda * location(i) + 1.0).powf(1.0 / lambda),
+                _ => 1.0 / (1.0 + (-location(i)).exp()),
+            };
+            assert!(
+                (pred[i] - expected).abs() < 1e-12,
+                "{dist:?} prediction {i}"
+            );
+            assert!(
+                (r.fitted_values[i] - expected).abs() < 1e-12,
+                "{dist:?} fitted {i}"
+            );
+            assert!(
+                (r.residuals[i] - (y[i] - expected)).abs() < 1e-12,
+                "{dist:?} residual {i}"
+            );
+        }
+    }
+}

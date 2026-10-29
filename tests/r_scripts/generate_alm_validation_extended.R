@@ -208,6 +208,15 @@ cat(sprintf("const Y_BETA: [f64; %d] = [%s];\n", n, paste(sprintf("%.6f", y_beta
 cat(sprintf("const EXPECTED_INTERCEPT_BETA: f64 = %.10f;\n", coef(model_beta)[1]))
 cat(sprintf("const EXPECTED_COEF_BETA: f64 = %.10f;\n", coef(model_beta)[2]))
 cat(sprintf("const EXPECTED_LL_BETA: f64 = %.10f;\n", logLik(model_beta)))
+# greybox's dbeta regresses both shape parameters; ALM's Beta is the
+# mean-precision model of betareg (logit mean, constant phi). Its converged
+# MLE for MLE_BETA (#145):
+nll_beta <- function(q) { mu <- plogis(q[1] + q[2] * x_unit); phi <- exp(q[3]); -sum(dbeta(y_beta, mu * phi, (1 - mu) * phi, log = TRUE)) }
+o <- optim(c(0, 0, 1), nll_beta, method = "BFGS", control = list(reltol = 1e-16, maxit = 1000))
+o <- optim(o$par, nll_beta, method = "Nelder-Mead", control = list(reltol = 1e-16, maxit = 5000))
+o <- optim(o$par, nll_beta, method = "BFGS", control = list(reltol = 1e-16, maxit = 1000))
+cat(sprintf("const MLE_BETA: [f64; 3] = [%.10f, %.10f, %.10f];\n", o$par[1], o$par[2], exp(o$par[3])))
+cat(sprintf("const MLE_LL_BETA: f64 = %.10f;\n", -o$value))
 cat("\n")
 
 # -----------------------------------------------------------------------------

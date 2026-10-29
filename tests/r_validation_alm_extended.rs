@@ -311,6 +311,12 @@ const EXPECTED_INTERCEPT_BETA: f64 = 1.2943265349;
 const EXPECTED_COEF_BETA: f64 = 0.6552399967;
 const EXPECTED_LL_BETA: f64 = 22.5218269040;
 
+// greybox's `dbeta` regresses both shape parameters (EXPECTED_* above); ALM's
+// Beta is the mean–precision model of R's `betareg` (logit mean, constant φ).
+// Its converged MLE (β₀, β₁, φ) from `optim` (#145):
+const MLE_BETA: [f64; 3] = [0.4914325202, 0.6185552125, 5.4452626197];
+const MLE_LL_BETA: f64 = 20.3805573812;
+
 #[test]
 fn test_validate_beta_vs_r() {
     let n = X_BETA.len();
@@ -329,20 +335,18 @@ fn test_validate_beta_vs_r() {
     let coef = fitted.result().coefficients[0];
     let ll = fitted.result().log_likelihood;
 
-    // Beta distribution may find slightly different local optima
-    // R's nloptr may use global optimization features we don't have
-    // We validate by checking LL is reasonably close to R's result
-    // and that the coefficient (slope) direction is correct
+    // The mean–precision MLE (betareg's model), not greybox's two-shape model
     assert!(
-        ll > 15.0, // Should have positive LL for this dataset
-        "Beta LL: {} should be positive and reasonably high",
-        ll
+        (intercept - MLE_BETA[0]).abs() < 1e-6,
+        "Beta intercept {intercept}"
     );
+    assert!((coef - MLE_BETA[1]).abs() < 1e-6, "Beta coef {coef}");
     assert!(
-        coef > 0.0 && coef < 1.0, // Coefficient should be positive
-        "Beta coef: {} should be positive and less than 1",
-        coef
+        (fitted.scale() - MLE_BETA[2]).abs() < 1e-5,
+        "Beta phi {}",
+        fitted.scale()
     );
+    assert!((ll - MLE_LL_BETA).abs() < 1e-8, "Beta LL {ll}");
 }
 
 /// R code:
