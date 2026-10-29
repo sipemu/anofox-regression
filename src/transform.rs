@@ -1,7 +1,8 @@
 //! Transforming the response and back (RMS Ch 16): the Box–Cox profile
-//! likelihood of the power `λ` (`MASS::boxcox`) and Duan's smearing
-//! estimator of the mean or quantiles of `Y` on the original scale from a
-//! model of `g(Y)` (`Hmisc::smearingEst`).
+//! likelihood of the power `λ` (`MASS::boxcox`), additive regression with
+//! optimal transformations of both sides ([`areg`], `Hmisc::areg`), and
+//! Duan's smearing estimator of the mean or quantiles of `Y` on the original
+//! scale from a model of `g(Y)` (`Hmisc::smearingEst`).
 //!
 //! ```rust,ignore
 //! use anofox_regression::transform::{box_cox, BoxCoxOptions, smearing_estimate, Smearing};
@@ -12,6 +13,10 @@
 //! // a model of sqrt(y): smear the residuals back through z ↦ z²
 //! let mean_y = smearing_estimate(&lp, &residuals, |z| z * z, Smearing::Mean);
 //! ```
+
+mod areg;
+
+pub use areg::{areg, Areg, AregBootstrap, AregOptions, AregType};
 
 use crate::diagnostics::accuracy::quantile7;
 use crate::solvers::RegressionError;

@@ -172,6 +172,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `box_cox_transform` / `box_cox_inverse`.
   - `smearing_estimate(lp, residuals, inverse, Smearing)` is `Hmisc::smearingEst`: Duan's smearing estimate of the mean (`mean_i g⁻¹(lp + r_i)`), the median or a quantile (`g⁻¹(lp + quantile(r))`), or the naive back-transform.
   - Validated in `tests/r_validation_transform.rs` (generator `tests/r_scripts/generate_transform_validation.R`) against MASS and Hmisc: the grid profile, the small-λ series, a design without an intercept, `λ̂` and the interval (`optimize` / `uniroot` on the same profile), and smearing for square-root, log and Box–Cox models.
+- **Transform-both-sides regression: `transform::areg` (#112, RMS §16.1).** `areg(x, y, &AregOptions)` ports `Hmisc::areg`.
+  - Each predictor is a restricted cubic spline with `nk` default knots, linear, or dummy-coded (`AregType::{Spline, Linear, Categorical}`). The response is a spline or linear.
+  - With a spline response, the first canonical correlation between the bases gives the transformation of `y` and the additive transformations of the predictors (unit-variance variates, `y` transform increasing in `y`). A linear response is least squares on the predictor bases.
+  - `Areg` gives the coefficients, R², d.f., the transformed response and predictors (`ty`, centered `tx`), linear predictors, residuals, and mean / median `|y − ŷ|`.
+  - `transform_y`, `predict` and `inverse_y` (`yinv`, linear interpolation over 1000 points spanning `y`). The inverse is `None` when the transformation is not monotone, where Hmisc samples a branch at random.
+  - `bootstrap(indices)` gives the optimism of R² and of the mean / median |error| over caller-supplied resamples (`areg(B = )`).
+  - Validated in `tests/r_validation_areg.rs` (generator `tests/r_scripts/generate_areg_validation.R`) against Hmisc on spline, linear and categorical predictors, for a spline response (and its knots, transform and inverse) and a linear one, and for the bootstrap, replaying areg's own resamples; all at 1e-8. For a linear response Hmisc reports `ycoefficients = 1`; ours keep the intercept slot, `[0, 1]`.
 
 ### Changed
 
