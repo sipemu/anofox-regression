@@ -120,7 +120,9 @@ pub enum AlmDistribution {
     Normal,
     /// Laplace (double exponential) - robust to outliers, LAD regression
     Laplace,
-    /// Student's t distribution - heavy-tailed, robust
+    /// Student's t distribution - heavy-tailed, robust. The location–scale t
+    /// with `extra_parameter` degrees of freedom (default 5) and σ estimated
+    /// jointly by maximum likelihood (greybox's `dt` has no scale).
     StudentT,
     /// Logistic distribution
     Logistic,
@@ -142,7 +144,9 @@ pub enum AlmDistribution {
     FoldedNormal,
     /// Rectified Normal distribution
     RectifiedNormal,
-    /// Box-Cox Normal distribution
+    /// Box-Cox Normal distribution: `bc(y, λ) ~ N(μ, σ²)` with μ = Xβ on the
+    /// transformed scale and λ the `extra_parameter` (default 1); fitted
+    /// values and predictions are `bc⁻¹(μ)` (greybox's `dbcnorm`).
     BoxCoxNormal,
     /// Gamma distribution - for positive continuous data. Shape `1/scale` with
     /// the scale estimated as `mean((y/μ − 1)²)` (greybox); an
@@ -154,9 +158,13 @@ pub enum AlmDistribution {
     InverseGaussian,
     /// Exponential distribution
     Exponential,
-    /// Beta distribution - for data in (0, 1)
+    /// Beta distribution - for data in (0, 1). The mean–precision model of R's
+    /// `betareg`: logit mean, constant precision φ (`scale()`) estimated
+    /// jointly by maximum likelihood (greybox's `dbeta` regresses both shape
+    /// parameters instead).
     Beta,
-    /// Logit-Normal distribution
+    /// Logit-Normal distribution: `logit(y) ~ N(μ, σ²)`; fitted values and
+    /// predictions are `plogis(μ)`.
     LogitNormal,
     /// Poisson distribution - for count data
     Poisson,
@@ -252,14 +260,19 @@ impl AlmDistribution {
         )
     }
 
-    /// Returns whether the scale σ is a parameter of the numerical
+    /// Returns whether the scale is a parameter of the numerical
     /// optimisation, estimated jointly with the coefficients by maximum
-    /// likelihood, as greybox does for `dfnorm` / `drectnorm`. Other
-    /// distributions profile it out with a moment estimate.
+    /// likelihood: σ of the folded / rectified normal (as greybox does for
+    /// `dfnorm` / `drectnorm`), σ of the location–scale Student t, and the
+    /// precision φ of the Beta (the mean–precision model of R's `betareg`). Other distributions profile it
+    /// out with a closed-form estimate.
     pub fn scale_is_joint(&self) -> bool {
         matches!(
             self,
-            AlmDistribution::FoldedNormal | AlmDistribution::RectifiedNormal
+            AlmDistribution::FoldedNormal
+                | AlmDistribution::RectifiedNormal
+                | AlmDistribution::Beta
+                | AlmDistribution::StudentT
         )
     }
 
@@ -326,11 +339,23 @@ impl AlmDistribution {
             self,
             AlmDistribution::FoldedNormal
                 | AlmDistribution::RectifiedNormal
+                | AlmDistribution::StudentT
                 | AlmDistribution::S
                 | AlmDistribution::LogS
-                | AlmDistribution::BoxCoxNormal
                 | AlmDistribution::Beta
         )
+    }
+
+    /// The response-scale fitted value for the location `mu` (greybox's
+    /// `extractorFitted`): the inverse Box–Cox transform for the Box–Cox
+    /// normal and the inverse logit for the logit-normal, whose locations live
+    /// on the transformed scale; `mu` itself otherwise.
+    pub fn fitted_from_location(&self, mu: f64, extra: Option<f64>) -> f64 {
+        match self {
+            AlmDistribution::BoxCoxNormal => box_cox_inverse(mu, extra.unwrap_or(1.0)),
+            AlmDistribution::LogitNormal => 1.0 / (1.0 + (-mu).exp()),
+            _ => mu,
+        }
     }
 }
 
@@ -589,6 +614,24 @@ fn ll_rectified_normal(y: &Col<f64>, mu: &Col<f64>, scale: f64) -> f64 {
     ll
 }
 
+/// Box–Cox transform `(y^λ − 1)/λ`, `ln y` for λ = 0.
+fn box_cox(y: f64, lambda: f64) -> f64 {
+    if lambda.abs() < 1e-10 {
+        y.ln()
+    } else {
+        (y.powf(lambda) - 1.0) / lambda
+    }
+}
+
+/// Inverse Box–Cox transform (greybox's `bcTransformInv`).
+fn box_cox_inverse(z: f64, lambda: f64) -> f64 {
+    if lambda.abs() < 1e-10 {
+        z.exp()
+    } else {
+        (lambda * z + 1.0).max(0.0).powf(1.0 / lambda)
+    }
+}
+
 fn ll_box_cox_normal(y: &Col<f64>, mu: &Col<f64>, scale: f64, lambda: f64) -> f64 {
     let n = y.nrows();
     let sigma2 = scale * scale;
@@ -602,12 +645,8 @@ fn ll_box_cox_normal(y: &Col<f64>, mu: &Col<f64>, scale: f64, lambda: f64) -> f6
         } else {
             (y[i].powf(lambda) - 1.0) / lambda
         };
-        let mu_trans = if lambda.abs() < 1e-10 {
-            mu[i].ln()
-        } else {
-            (mu[i].powf(lambda) - 1.0) / lambda
-        };
-        ll += -0.5 * (2.0 * PI * sigma2).ln() - (y_trans - mu_trans).powi(2) / (2.0 * sigma2)
+        // μ is the location on the Box–Cox scale (greybox's `dbcnorm`)
+        ll += -0.5 * (2.0 * PI * sigma2).ln() - (y_trans - mu[i]).powi(2) / (2.0 * sigma2)
             + (lambda - 1.0) * y[i].ln();
     }
     ll
@@ -1038,6 +1077,10 @@ fn score_wrt_mu(
     let d: Vec<f64> = match distribution {
         AlmDistribution::LogNormal => per_obs(&|y, m| (y.ln() - m.ln()) / (s * s * m)),
         AlmDistribution::LogitNormal => per_obs(&|y, m| ((y / (1.0 - y)).ln() - m) / (s * s)),
+        AlmDistribution::BoxCoxNormal => {
+            let lambda = extra.unwrap_or(1.0);
+            per_obs(&|y, m| (box_cox(y, lambda) - m) / (s * s))
+        }
         AlmDistribution::LogLaplace => per_obs(&|y, m| sign(y.ln() - m.ln()) / (s * m)),
         AlmDistribution::GeneralisedNormal => {
             let b = extra.unwrap_or(2.0);
@@ -1225,10 +1268,12 @@ pub fn estimate_scale(
         }
 
         AlmDistribution::BoxCoxNormal => {
-            // Use MAD-based estimate
-            let mut abs_residuals: Vec<f64> = (0..n).map(|i| (y[i] - mu[i]).abs()).collect();
-            abs_residuals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            abs_residuals[n / 2] / 0.6745
+            // greybox / ML: sqrt(mean((bc(y) − μ)²)), μ on the Box–Cox scale
+            let lambda = extra.unwrap_or(1.0);
+            let rss: f64 = (0..n)
+                .map(|i| (box_cox(y[i], lambda) - mu[i]).powi(2))
+                .sum();
+            (rss / df).sqrt().max(1e-10)
         }
 
         AlmDistribution::LogGeneralisedNormal => {
@@ -1560,14 +1605,16 @@ impl AlmRegressor {
             self.extra_parameter,
         );
 
-        // The OLS start of a log-normal (log link) or logit-normal (identity
-        // link on logit y) fit is already the likelihood optimum: IRLS would
+        // The OLS start of a log-normal (log link), logit-normal or Box–Cox
+        // normal (identity link on logit y / bc(y)) fit is already the
+        // likelihood optimum: IRLS would
         // only move away from it before the polish below brings it back.
         let ols_is_ml = self.loss == AlmLoss::Likelihood
             && matches!(
                 (self.distribution, self.link),
                 (AlmDistribution::LogNormal, LinkFunction::Log)
                     | (AlmDistribution::LogitNormal, LinkFunction::Identity)
+                    | (AlmDistribution::BoxCoxNormal, LinkFunction::Identity)
             );
         let irls_iterations = if ols_is_ml { 0 } else { self.max_iterations };
 
@@ -1878,29 +1925,13 @@ impl AlmRegressor {
                 }
                 starting_points.push(neg_start2);
             }
-            AlmDistribution::BoxCoxNormal => {
-                // For BoxCox, try starting from transformed y
-                let lambda = self.extra_parameter.unwrap_or(1.0);
-                let n = x.nrows();
-                let y_trans: Col<f64> = Col::from_fn(n, |i| {
-                    if lambda.abs() < 1e-10 {
-                        y[i].ln()
-                    } else {
-                        (y[i].powf(lambda) - 1.0) / lambda
-                    }
-                });
-                if let Ok(trans_beta) = self.initialize_coefficients_for_y(x, &y_trans) {
-                    let trans_params: Vec<f64> = (0..n_params).map(|i| trans_beta[i]).collect();
-                    starting_points.push(trans_params);
-                }
-            }
             _ => {}
         }
 
         Ok(starting_points)
     }
 
-    /// Initialize coefficients for a specific y vector (helper for BoxCox).
+    /// Initialize coefficients for a specific y vector.
     fn initialize_coefficients_for_y(
         &self,
         x: &Mat<f64>,
@@ -1986,7 +2017,11 @@ impl AlmRegressor {
 
         // Transform y for initialization based on link function
         // Special case: LogitNormal uses Identity link but models logit(y)
-        let y_init: Col<f64> = if matches!(self.distribution, AlmDistribution::LogitNormal) {
+        let y_init: Col<f64> = if matches!(self.distribution, AlmDistribution::BoxCoxNormal) {
+            // μ is the location of bc(y)
+            let lambda = self.extra_parameter.unwrap_or(1.0);
+            Col::from_fn(n, |i| box_cox(y[i], lambda))
+        } else if matches!(self.distribution, AlmDistribution::LogitNormal) {
             // For LogitNormal, we model logit(y) directly, so initialize with logit(y)
             Col::from_fn(n, |i| {
                 let yi = y[i].clamp(0.001, 0.999);
@@ -2119,9 +2154,12 @@ impl AlmRegressor {
         for i in 0..n {
             mu[i] = self.link.inverse(eta[i]);
             // Ensure valid range for certain distributions
-            // Note: LogitNormal uses Identity link where mu is on logit scale (unbounded)
-            // so we don't clamp mu for LogitNormal even though y is in (0,1)
-            if self.distribution.requires_positive() {
+            // Note: LogitNormal and BoxCoxNormal locations live on the
+            // transformed scale (unbounded), so they are not clamped although
+            // y is restricted
+            if self.distribution.requires_positive()
+                && !matches!(self.distribution, AlmDistribution::BoxCoxNormal)
+            {
                 mu[i] = mu[i].max(1e-10);
             }
             if self.distribution.requires_unit_interval()
@@ -2416,7 +2454,10 @@ impl AlmRegressor {
         // Compute residuals
         let mut residuals = Col::zeros(n);
         for i in 0..n {
-            residuals[i] = y[i] - mu[i];
+            residuals[i] = y[i]
+                - self
+                    .distribution
+                    .fitted_from_location(mu[i], self.extra_parameter);
         }
 
         // Compute statistics
@@ -2489,7 +2530,10 @@ impl AlmRegressor {
         result.coefficients = coefficients.clone();
         result.intercept = intercept;
         result.residuals = residuals;
-        result.fitted_values = mu.clone();
+        result.fitted_values = Col::from_fn(n, |i| {
+            self.distribution
+                .fitted_from_location(mu[i], self.extra_parameter)
+        });
         result.rank = p;
         result.n_parameters = n_params;
         result.n_observations = n;
@@ -2786,7 +2830,9 @@ impl FittedRegressor for FittedAlm {
                 }
             }
             // Apply inverse link to get predictions on response scale
-            predictions[i] = self.link.inverse(eta);
+            predictions[i] = self
+                .distribution
+                .fitted_from_location(self.link.inverse(eta), self.extra_parameter);
         }
 
         predictions
@@ -4085,6 +4131,7 @@ mod tests {
             (AlmDistribution::Gamma, &positive, None),
             (AlmDistribution::Gamma, &positive, Some(2.0)),
             (AlmDistribution::Logistic, &real, None),
+            (AlmDistribution::BoxCoxNormal, &positive, Some(0.5)),
         ];
         for (distribution, y, extra) in cases {
             let cost = NegLogLikelihoodCost {
