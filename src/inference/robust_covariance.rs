@@ -112,6 +112,10 @@ pub fn compute_hc_standard_errors(
     let n_features = x.ncols();
     let p = aliased.iter().filter(|&&a| !a).count() + if with_intercept { 1 } else { 0 };
 
+    if residuals.nrows() != n {
+        // E.g. a fit from sufficient statistics, which keeps no residuals.
+        return Err("HC standard errors need one residual per row of x");
+    }
     if n <= p {
         return Err("Not enough observations for HC standard errors");
     }
