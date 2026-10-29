@@ -2,6 +2,7 @@
 
 pub mod anova;
 mod anova_table;
+pub mod approximation;
 pub mod cluster;
 mod coefficient;
 pub mod likelihood;
@@ -22,6 +23,10 @@ pub use anova::{
 };
 pub use anova_table::{
     anova_table, AnovaTable, AnovaTableError, AnovaTableOptions, AnovaTerm, AnovaType,
+};
+pub use approximation::{
+    approximate_model, approximation_path, heuristic_shrinkage, shrink_slopes, ApproximationError,
+    ApproximationStep, ModelApproximation,
 };
 pub use cluster::{
     cluster_sandwich, glm_cluster_vcov, lm_cluster_vcov, ClusterError, ClusterOptions, ClusterType,
