@@ -52,10 +52,13 @@ use crate::core::{
 };
 use crate::inference::CoefficientInference;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
-use basin::{CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente};
+use basin::{
+    CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente, NelderMead,
+    SimplexProgress,
+};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
-use statrs::function::gamma::ln_gamma;
+use statrs::function::gamma::{digamma, ln_gamma};
 use std::f64::consts::PI;
 
 /// Loss functions for ALM model fitting and convergence.
@@ -141,9 +144,13 @@ pub enum AlmDistribution {
     RectifiedNormal,
     /// Box-Cox Normal distribution
     BoxCoxNormal,
-    /// Gamma distribution - for positive continuous data
+    /// Gamma distribution - for positive continuous data. Shape `1/scale` with
+    /// the scale estimated as `mean((y/μ − 1)²)` (greybox); an
+    /// `extra_parameter` fixes the shape instead.
     Gamma,
-    /// Inverse Gaussian distribution
+    /// Inverse Gaussian distribution, with dispersion `scale/μᵢ` (greybox's
+    /// `dinvgauss(y, mean = μ, dispersion = scale/μ)`, so `Var(y) ∝ μ²`); an
+    /// `extra_parameter` fixes the shape λ instead.
     InverseGaussian,
     /// Exponential distribution
     Exponential,
@@ -253,6 +260,37 @@ impl AlmDistribution {
         matches!(
             self,
             AlmDistribution::FoldedNormal | AlmDistribution::RectifiedNormal
+        )
+    }
+
+    /// Whether IRLS already converges to the maximum of the ALM likelihood,
+    /// so the likelihood polish is skipped: the exponential-family GLMs whose
+    /// dispersion does not enter the score, and the Laplace / asymmetric
+    /// Laplace fits, whose IRLS solves the (weighted) least-absolute-deviation
+    /// problem the likelihood reduces to for a fixed scale.
+    fn irls_is_ml(&self) -> bool {
+        matches!(
+            self,
+            AlmDistribution::Normal
+                | AlmDistribution::Poisson
+                | AlmDistribution::Binomial
+                | AlmDistribution::NegativeBinomial
+                | AlmDistribution::Exponential
+                | AlmDistribution::Laplace
+                | AlmDistribution::AsymmetricLaplace
+        )
+    }
+
+    /// Whether the log-likelihood depends on `|y − μ|` (or its log-scale
+    /// analogue) and so is not differentiable where a residual is zero.
+    fn has_kinked_likelihood(&self) -> bool {
+        matches!(
+            self,
+            AlmDistribution::Laplace
+                | AlmDistribution::AsymmetricLaplace
+                | AlmDistribution::S
+                | AlmDistribution::LogLaplace
+                | AlmDistribution::LogS
         )
     }
 
@@ -577,24 +615,28 @@ fn ll_box_cox_normal(y: &Col<f64>, mu: &Col<f64>, scale: f64, lambda: f64) -> f6
 
 fn ll_gamma(y: &Col<f64>, mu: &Col<f64>, shape: f64) -> f64 {
     let n = y.nrows();
+    let lg_shape = ln_gamma(shape);
     let mut ll = 0.0;
     for i in 0..n {
         if y[i] <= 0.0 || mu[i] <= 0.0 {
             return f64::NEG_INFINITY;
         }
         let rate = shape / mu[i];
-        ll += shape * rate.ln() + (shape - 1.0) * y[i].ln() - rate * y[i] - ln_gamma(shape);
+        ll += shape * rate.ln() + (shape - 1.0) * y[i].ln() - rate * y[i] - lg_shape;
     }
     ll
 }
 
-fn ll_inverse_gaussian(y: &Col<f64>, mu: &Col<f64>, lambda: f64) -> f64 {
+/// Inverse Gaussian with shape `λᵢ = μᵢ / scale` (greybox's `dinvgauss(y, mean
+/// = μ, dispersion = scale/μ)`), or a fixed shape `lambda` when given.
+fn ll_inverse_gaussian(y: &Col<f64>, mu: &Col<f64>, scale: f64, lambda: Option<f64>) -> f64 {
     let n = y.nrows();
     let mut ll = 0.0;
     for i in 0..n {
         if y[i] <= 0.0 || mu[i] <= 0.0 {
             return f64::NEG_INFINITY;
         }
+        let lambda = lambda.unwrap_or(mu[i] / scale);
         ll += 0.5 * (lambda / (2.0 * PI * y[i].powi(3))).ln()
             - lambda * (y[i] - mu[i]).powi(2) / (2.0 * mu[i].powi(2) * y[i]);
     }
@@ -766,8 +808,8 @@ pub fn log_likelihood(
         AlmDistribution::FoldedNormal => ll_folded_normal(y, mu, scale),
         AlmDistribution::RectifiedNormal => ll_rectified_normal(y, mu, scale),
         AlmDistribution::BoxCoxNormal => ll_box_cox_normal(y, mu, scale, extra.unwrap_or(1.0)),
-        AlmDistribution::Gamma => ll_gamma(y, mu, extra.unwrap_or(1.0)),
-        AlmDistribution::InverseGaussian => ll_inverse_gaussian(y, mu, extra.unwrap_or(1.0)),
+        AlmDistribution::Gamma => ll_gamma(y, mu, extra.unwrap_or(1.0 / scale)),
+        AlmDistribution::InverseGaussian => ll_inverse_gaussian(y, mu, scale, extra),
         AlmDistribution::Exponential => ll_exponential(y, mu),
         AlmDistribution::Beta => ll_beta(y, mu, scale), // scale is precision (φ) for Beta
         AlmDistribution::LogitNormal => ll_logit_normal(y, mu, scale),
@@ -804,6 +846,11 @@ struct NegLogLikelihoodCost<'a> {
 impl<'a> NegLogLikelihoodCost<'a> {
     /// Compute mu from parameter vector.
     fn compute_mu_from_params(&self, params: &[f64]) -> Col<f64> {
+        self.mu_from_eta(&self.eta_from_params(params))
+    }
+
+    /// Linear predictor from the parameter vector (a trailing `ln σ` is ignored).
+    fn eta_from_params(&self, params: &[f64]) -> Col<f64> {
         let n = self.x.nrows();
         let p = self.x.ncols();
 
@@ -825,7 +872,12 @@ impl<'a> NegLogLikelihoodCost<'a> {
             }
         }
 
-        // Apply inverse link
+        eta
+    }
+
+    /// Mean from the linear predictor, clamped to the distribution's range.
+    fn mu_from_eta(&self, eta: &Col<f64>) -> Col<f64> {
+        let n = eta.nrows();
         let mut mu = Col::zeros(n);
         for i in 0..n {
             mu[i] = self.link.inverse(eta[i]);
@@ -859,20 +911,13 @@ impl<'a> NegLogLikelihoodCost<'a> {
         mu
     }
 
-    /// Estimate scale from current mu.
+    /// Estimate scale from current mu (greybox's scaler: denominator n).
     fn estimate_scale_from_mu(&self, mu: &Col<f64>) -> f64 {
-        let n = self.y.nrows();
-        let p = if self.with_intercept {
-            self.x.ncols() + 1
-        } else {
-            self.x.ncols()
-        };
-        let df = (n - p) as f64;
         estimate_scale(
             self.y,
             mu,
             self.distribution,
-            df.max(1.0),
+            self.y.nrows() as f64,
             self.extra_parameter,
         )
     }
@@ -905,6 +950,15 @@ impl Gradient for NegLogLikelihoodCost<'_> {
     type Gradient = Vec<f64>;
 
     fn gradient(&self, params: &Self::Param) -> Result<Self::Gradient, Self::Error> {
+        // The closed form is NaN where μ overflows (the cost there is the
+        // finite 1e20 penalty); the central difference stays finite (zero on
+        // the penalty plateau), which lets the line search backtrack.
+        if let Some(grad) = self.analytic_gradient(params) {
+            if grad.iter().all(|g| g.is_finite()) {
+                return Ok(grad);
+            }
+        }
+
         // Numerical gradient using central differences
         let eps = 1e-7;
         let mut grad = vec![0.0; params.len()];
@@ -925,7 +979,133 @@ impl Gradient for NegLogLikelihoodCost<'_> {
     }
 }
 
+impl NegLogLikelihoodCost<'_> {
+    /// Gradient of the profiled negative log-likelihood `−ℓ(β, s(β))` in
+    /// closed form, or `None` where only the central-difference gradient is
+    /// available (joint scale, S / log-S, Box–Cox, Beta, Student t, ...).
+    ///
+    /// With `dᵢ = dℓ/dμᵢ` (the total derivative through the profiled scale),
+    /// `∇ = −Σᵢ dᵢ · (dμ/dη)ᵢ · x̃ᵢ`. Where the scale is the ML scale for fixed
+    /// μ (log-normal, logit-normal, (log-)generalised normal, log-Laplace,
+    /// inverse Gaussian) `∂ℓ/∂s = 0` and only `∂ℓᵢ/∂μᵢ` remains; the moment
+    /// scales of the gamma and logistic add `(Σⱼ ∂ℓⱼ/∂s) · ∂s/∂μᵢ`.
+    fn analytic_gradient(&self, params: &[f64]) -> Option<Vec<f64>> {
+        if self.joint_scale {
+            return None;
+        }
+        let eta = self.eta_from_params(params);
+        let mu = self.mu_from_eta(&eta);
+        let s = self.estimate_scale_from_mu(&mu);
+        let d = score_wrt_mu(self.y, &mu, s, self.distribution, self.extra_parameter)?;
+
+        let (n, p) = (self.x.nrows(), self.x.ncols());
+        let offset = usize::from(self.with_intercept);
+        let mut grad = vec![0.0; params.len()];
+        for i in 0..n {
+            let w = -d[i] * self.link.inverse_derivative(eta[i]);
+            if self.with_intercept {
+                grad[0] += w;
+            }
+            for j in 0..p {
+                grad[j + offset] += w * self.x[(i, j)];
+            }
+        }
+        Some(grad)
+    }
+}
+
+/// `dℓ/dμᵢ` of the profiled log-likelihood (see
+/// [`NegLogLikelihoodCost::analytic_gradient`]), `None` where it is not
+/// implemented.
+fn score_wrt_mu(
+    y: &Col<f64>,
+    mu: &Col<f64>,
+    s: f64,
+    distribution: AlmDistribution,
+    extra: Option<f64>,
+) -> Option<Vec<f64>> {
+    let n = y.nrows();
+    let sign = |v: f64| {
+        if v > 0.0 {
+            1.0
+        } else if v < 0.0 {
+            -1.0
+        } else {
+            0.0
+        }
+    };
+    let per_obs = |f: &dyn Fn(f64, f64) -> f64| (0..n).map(|i| f(y[i], mu[i])).collect();
+    let d: Vec<f64> = match distribution {
+        AlmDistribution::LogNormal => per_obs(&|y, m| (y.ln() - m.ln()) / (s * s * m)),
+        AlmDistribution::LogitNormal => per_obs(&|y, m| ((y / (1.0 - y)).ln() - m) / (s * s)),
+        AlmDistribution::LogLaplace => per_obs(&|y, m| sign(y.ln() - m.ln()) / (s * m)),
+        AlmDistribution::GeneralisedNormal => {
+            let b = extra.unwrap_or(2.0);
+            per_obs(&|y, m| {
+                let e = y - m;
+                b * e.abs().powf(b - 1.0) * sign(e) / s.powf(b)
+            })
+        }
+        AlmDistribution::LogGeneralisedNormal => {
+            let b = extra.unwrap_or(2.0);
+            per_obs(&|y, m| {
+                let e = y.ln() - m.ln();
+                b * e.abs().powf(b - 1.0) * sign(e) / (s.powf(b) * m)
+            })
+        }
+        AlmDistribution::Geometric => per_obs(&|y, m| {
+            let (lambda, k) = (m.max(1e-10), y.round().max(0.0));
+            k / lambda - (k + 1.0) / (1.0 + lambda)
+        }),
+        AlmDistribution::CumulativeLogistic | AlmDistribution::CumulativeNormal => {
+            per_obs(&|y, m| {
+                let p = m.clamp(1e-10, 1.0 - 1e-10);
+                y / p - (1.0 - y) / (1.0 - p)
+            })
+        }
+        AlmDistribution::InverseGaussian => match extra {
+            Some(lambda) => per_obs(&|y, m| lambda * (y - m) / m.powi(3)),
+            None => per_obs(&|y, m| 0.5 / m + (y * y - m * m) / (2.0 * s * m * m * y)),
+        },
+        AlmDistribution::Gamma => match extra {
+            Some(k) => per_obs(&|y, m| k * (y - m) / (m * m)),
+            None => {
+                // shape k = 1/s, s = mean((y/μ − 1)²)
+                let k = 1.0 / s;
+                let dl_dk: f64 = (0..n)
+                    .map(|i| k.ln() + 1.0 - mu[i].ln() + y[i].ln() - y[i] / mu[i] - digamma(k))
+                    .sum();
+                let dl_ds = -dl_dk / (s * s);
+                per_obs(&|y, m| {
+                    let ds_dm = -2.0 * (y / m - 1.0) * y / (m * m * n as f64);
+                    k * (y - m) / (m * m) + dl_ds * ds_dm
+                })
+            }
+        },
+        AlmDistribution::Logistic => {
+            // s = sqrt(mean(e²) · 3/π²)
+            let dl_ds: f64 = (0..n)
+                .map(|i| {
+                    let z = (y[i] - mu[i]) / s;
+                    (z * (z / 2.0).tanh() - 1.0) / s
+                })
+                .sum();
+            per_obs(&|y, m| {
+                let e = y - m;
+                let ds_dm = -3.0 * e / (PI * PI * s * n as f64);
+                (e / s / 2.0).tanh() / s + dl_ds * ds_dm
+            })
+        }
+        _ => return None,
+    };
+    Some(d)
+}
+
 /// Estimate the scale parameter from residuals.
+///
+/// `df` is the denominator of the mean (greybox's `meanFast(.., df)`); the
+/// fits pass the number of observations, as greybox does, which makes the
+/// Normal / log-Normal / logit-Normal scales the ML estimates.
 pub fn estimate_scale(
     y: &Col<f64>,
     mu: &Col<f64>,
@@ -967,7 +1147,13 @@ pub fn estimate_scale(
             sad / n as f64
         }
 
-        AlmDistribution::StudentT | AlmDistribution::Logistic => {
+        AlmDistribution::Logistic => {
+            // greybox: sqrt(mean(e²) · 3/π²), the moment estimate (Var = s²π²/3)
+            let rss: f64 = (0..n).map(|i| (y[i] - mu[i]).powi(2)).sum();
+            (rss / df * 3.0 / (PI * PI)).sqrt()
+        }
+
+        AlmDistribution::StudentT => {
             // Use robust scale estimate
             let mut abs_residuals: Vec<f64> = (0..n).map(|i| (y[i] - mu[i]).abs()).collect();
             abs_residuals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -1031,7 +1217,14 @@ pub fn estimate_scale(
             (weighted_sum / n as f64).max(1e-10)
         }
 
-        AlmDistribution::GeneralisedNormal | AlmDistribution::BoxCoxNormal => {
+        AlmDistribution::GeneralisedNormal => {
+            // greybox / ML: (s · mean|e|^s)^(1/s) with shape s
+            let shape = extra.unwrap_or(2.0);
+            let sum: f64 = (0..n).map(|i| (y[i] - mu[i]).abs().powf(shape)).sum();
+            (shape * sum / df).powf(1.0 / shape).max(1e-10)
+        }
+
+        AlmDistribution::BoxCoxNormal => {
             // Use MAD-based estimate
             let mut abs_residuals: Vec<f64> = (0..n).map(|i| (y[i] - mu[i]).abs()).collect();
             abs_residuals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -1039,17 +1232,30 @@ pub fn estimate_scale(
         }
 
         AlmDistribution::LogGeneralisedNormal => {
-            // Use MAD-based estimate on log scale
-            let mut abs_residuals: Vec<f64> = (0..n)
+            // greybox / ML: (s · mean|ln y − ln μ|^s)^(1/s) with shape s
+            let shape = extra.unwrap_or(2.0);
+            let sum: f64 = (0..n)
                 .filter(|&i| y[i] > 0.0 && mu[i] > 0.0)
-                .map(|i| (y[i].ln() - mu[i].ln()).abs())
-                .collect();
-            abs_residuals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            if abs_residuals.is_empty() {
-                1.0
-            } else {
-                abs_residuals[abs_residuals.len() / 2] / 0.6745
-            }
+                .map(|i| (y[i].ln() - mu[i].ln()).abs().powf(shape))
+                .sum();
+            (shape * sum / df).powf(1.0 / shape).max(1e-10)
+        }
+
+        AlmDistribution::Gamma => {
+            // greybox: mean((y/μ − 1)²), the dispersion; the shape is 1/scale
+            let sum: f64 = (0..n).map(|i| (y[i] / mu[i] - 1.0).powi(2)).sum();
+            (sum / df).max(1e-10)
+        }
+
+        AlmDistribution::InverseGaussian => {
+            // greybox: mean((y/μ − 1)² / (y/μ)); the dispersion of yᵢ is scale/μᵢ
+            let sum: f64 = (0..n)
+                .map(|i| {
+                    let r = y[i] / mu[i];
+                    (r - 1.0).powi(2) / r
+                })
+                .sum();
+            (sum / df).max(1e-10)
         }
 
         AlmDistribution::Beta => {
@@ -1332,12 +1538,6 @@ impl AlmRegressor {
     /// distributions, or gradient descent for others.
     fn fit_irls(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedAlm, RegressionError> {
         let n = x.nrows();
-        let p = x.ncols();
-        let n_params = if self.options.with_intercept {
-            p + 1
-        } else {
-            p
-        };
 
         // Initialize coefficients using OLS
         let mut beta = self.initialize_coefficients(x, y)?;
@@ -1346,10 +1546,9 @@ impl AlmRegressor {
         let mut eta = self.compute_eta(x, &beta);
         let mut mu = self.compute_mu(&eta);
 
-        // Initial scale estimate
-        let df = (n - n_params) as f64;
-        let mut scale =
-            estimate_scale(y, &mu, self.distribution, df.max(1.0), self.extra_parameter);
+        // Initial scale estimate (greybox's scaler: denominator n)
+        let df = n as f64;
+        let mut scale = estimate_scale(y, &mu, self.distribution, df, self.extra_parameter);
 
         // Initial loss value (using selected loss function)
         let mut prev_loss = compute_loss(
@@ -1361,7 +1560,18 @@ impl AlmRegressor {
             self.extra_parameter,
         );
 
-        for iter in 0..self.max_iterations {
+        // The OLS start of a log-normal (log link) or logit-normal (identity
+        // link on logit y) fit is already the likelihood optimum: IRLS would
+        // only move away from it before the polish below brings it back.
+        let ols_is_ml = self.loss == AlmLoss::Likelihood
+            && matches!(
+                (self.distribution, self.link),
+                (AlmDistribution::LogNormal, LinkFunction::Log)
+                    | (AlmDistribution::LogitNormal, LinkFunction::Identity)
+            );
+        let irls_iterations = if ols_is_ml { 0 } else { self.max_iterations };
+
+        for iter in 0..irls_iterations {
             // Compute weights and working response for IRLS
             let (weights, z) = self.compute_irls_components(y, &mu, &eta);
 
@@ -1373,7 +1583,7 @@ impl AlmRegressor {
             mu = self.compute_mu(&eta);
 
             // Update scale
-            scale = estimate_scale(y, &mu, self.distribution, df.max(1.0), self.extra_parameter);
+            scale = estimate_scale(y, &mu, self.distribution, df, self.extra_parameter);
 
             // Check convergence using selected loss function
             let loss = compute_loss(
@@ -1398,8 +1608,80 @@ impl AlmRegressor {
             prev_loss = loss;
         }
 
+        if self.loss == AlmLoss::Likelihood && !self.distribution.irls_is_ml() {
+            if let Some(polished) = self.polish_likelihood(x, y, &beta) {
+                beta = polished;
+                eta = self.compute_eta(x, &beta);
+                mu = self.compute_mu(&eta);
+                scale = estimate_scale(y, &mu, self.distribution, df, self.extra_parameter);
+            }
+        }
+
         // Compute final results
         self.build_result(x, y, &beta, &mu, scale)
+    }
+
+    /// Minimise the negative log-likelihood from `init` with L-BFGS and return
+    /// the best parameters and their cost.
+    fn minimise_neg_log_likelihood(
+        &self,
+        cost: &NegLogLikelihoodCost<'_>,
+        init: Vec<f64>,
+    ) -> (Vec<f64>, f64) {
+        // argmin's L-BFGS settings: memory 7, Moré–Thuente with c₁ = 1e-4,
+        // stop on ‖∇f‖ ≤ √ε or |Δf| ≤ ε; the gradient is a central difference,
+        // so also stop once |Δf| ≤ 1e-12·|f|
+        let solver =
+            Lbfgs::with_line_search(MoreThuente::new().with_sufficient_decrease_coefficient(1e-4))
+                .unbounded()
+                .with_m_capacity(7)
+                .with_absolute_gradient_tolerance(f64::EPSILON.sqrt())
+                .with_absolute_cost_change_tolerance(f64::EPSILON)
+                .with_relative_cost_change_tolerance(1e-12);
+        let state = FirstOrderState::new(init);
+        let Ok(res) = Executor::new(cost.clone(), solver, state)
+            .max_iter(self.max_iterations as u64)
+            .run();
+        let mut params = res.best_param().clone();
+        let Ok(mut cost_val) = cost.cost(&params);
+
+        // Likelihoods built on |y − μ| have kinks where L-BFGS stalls; finish
+        // with Nelder–Mead (greybox optimises derivative-free throughout).
+        if self.distribution.has_kinked_likelihood() {
+            let state = SimplexProgress::new(params.clone());
+            let Ok(res) = Executor::new(cost.clone(), NelderMead::adaptive(), state)
+                .max_iter(200 * (params.len() as u64 + 1))
+                .run();
+            let Ok(nm_cost) = cost.cost(res.best_param());
+            if nm_cost < cost_val {
+                params = res.best_param().clone();
+                cost_val = nm_cost;
+            }
+        }
+        (params, cost_val)
+    }
+
+    /// Polish an IRLS estimate by maximising the likelihood directly, with the
+    /// scale profiled out by [`estimate_scale`] as greybox does. IRLS solves
+    /// the score equations of an exponential-family GLM, which is not the
+    /// maximum of the likelihood for most ALM distributions (e.g. the inverse
+    /// Gaussian with dispersion scale/μ, or a logistic location model). The
+    /// polished β is kept only if it raises the log-likelihood.
+    fn polish_likelihood(&self, x: &Mat<f64>, y: &Col<f64>, beta: &Col<f64>) -> Option<Col<f64>> {
+        let cost = NegLogLikelihoodCost {
+            x,
+            y,
+            distribution: self.distribution,
+            link: self.link,
+            extra_parameter: self.extra_parameter,
+            with_intercept: self.options.with_intercept,
+            joint_scale: false,
+        };
+        let init: Vec<f64> = beta.iter().copied().collect();
+        let Ok(init_cost) = cost.cost(&init);
+        let (params, cost_val) = self.minimise_neg_log_likelihood(&cost, init);
+        (cost_val.is_finite() && cost_val < init_cost)
+            .then(|| Col::from_fn(params.len(), |i| params[i]))
     }
 
     /// Fit the model using L-BFGS numerical optimization.
@@ -1442,24 +1724,10 @@ impl AlmRegressor {
         }
 
         for init_params in starting_points {
-            // argmin's L-BFGS settings: memory 7, Moré–Thuente with c₁ = 1e-4,
-            // stop on ‖∇f‖ ≤ √ε or |Δf| ≤ ε
-            let solver = Lbfgs::with_line_search(
-                MoreThuente::new().with_sufficient_decrease_coefficient(1e-4),
-            )
-            .unbounded()
-            .with_m_capacity(7)
-            .with_absolute_gradient_tolerance(f64::EPSILON.sqrt())
-            .with_absolute_cost_change_tolerance(f64::EPSILON);
-            let state = FirstOrderState::new(init_params);
-            let Ok(res) = Executor::new(cost.clone(), solver, state)
-                .max_iter(self.max_iterations as u64)
-                .run();
-            let params = res.best_param();
-            let Ok(cost_val) = cost.cost(params);
+            let (params, cost_val) = self.minimise_neg_log_likelihood(&cost, init_params);
             if cost_val < best_cost {
                 best_cost = cost_val;
-                best_params = Some(params.clone());
+                best_params = Some(params);
             }
         }
 
@@ -1482,9 +1750,8 @@ impl AlmRegressor {
         // Compute final mu and scale
         let eta = self.compute_eta(x, &beta);
         let mu = self.compute_mu(&eta);
-        let df = (n - n_params) as f64;
         let scale = joint_scale.unwrap_or_else(|| {
-            estimate_scale(y, &mu, self.distribution, df.max(1.0), self.extra_parameter)
+            estimate_scale(y, &mu, self.distribution, n as f64, self.extra_parameter)
         });
 
         // Build result
@@ -3793,5 +4060,59 @@ mod tests {
 
         // May or may not converge
         let _ = fitted;
+    }
+
+    #[test]
+    fn analytic_gradient_matches_central_differences() {
+        let n = 40;
+        let x = Mat::from_fn(n, 2, |i, j| ((i * 7 + j * 3) % 11) as f64 / 11.0 - 0.3);
+        let positive = Col::from_fn(n, |i| 0.5 + ((i * 13) % 17) as f64 / 5.0);
+        let unit = Col::from_fn(n, |i| 0.05 + 0.9 * ((i * 13) % 17) as f64 / 17.0);
+        let counts = Col::from_fn(n, |i| ((i * 13) % 7) as f64);
+        let binary = Col::from_fn(n, |i| ((i * 13) % 5 < 2) as u8 as f64);
+        let real = Col::from_fn(n, |i| ((i * 13) % 17) as f64 / 3.0 - 2.0);
+        let cases: Vec<(AlmDistribution, &Col<f64>, Option<f64>)> = vec![
+            (AlmDistribution::LogNormal, &positive, None),
+            (AlmDistribution::LogitNormal, &unit, None),
+            (AlmDistribution::LogLaplace, &positive, None),
+            (AlmDistribution::GeneralisedNormal, &real, Some(1.5)),
+            (AlmDistribution::LogGeneralisedNormal, &positive, Some(1.5)),
+            (AlmDistribution::Geometric, &counts, None),
+            (AlmDistribution::CumulativeLogistic, &binary, None),
+            (AlmDistribution::CumulativeNormal, &binary, None),
+            (AlmDistribution::InverseGaussian, &positive, None),
+            (AlmDistribution::InverseGaussian, &positive, Some(2.0)),
+            (AlmDistribution::Gamma, &positive, None),
+            (AlmDistribution::Gamma, &positive, Some(2.0)),
+            (AlmDistribution::Logistic, &real, None),
+        ];
+        for (distribution, y, extra) in cases {
+            let cost = NegLogLikelihoodCost {
+                x: &x,
+                y,
+                distribution,
+                link: distribution.canonical_link(),
+                extra_parameter: extra,
+                with_intercept: true,
+                joint_scale: false,
+            };
+            // away from the optimum, so the gradient is not ~0
+            let params = vec![0.2, 0.3, -0.4];
+            let analytic = cost.analytic_gradient(&params).expect("analytic gradient");
+            for k in 0..params.len() {
+                let h = 1e-6;
+                let (mut up, mut down) = (params.clone(), params.clone());
+                up[k] += h;
+                down[k] -= h;
+                let Ok(fu) = cost.cost(&up);
+                let Ok(fd) = cost.cost(&down);
+                let numeric = (fu - fd) / (2.0 * h);
+                assert!(
+                    (analytic[k] - numeric).abs() <= 1e-5 * (1.0 + numeric.abs()),
+                    "{distribution:?} extra={extra:?} d/dβ{k}: analytic {} vs numeric {numeric}",
+                    analytic[k]
+                );
+            }
+        }
     }
 }
