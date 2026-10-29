@@ -177,6 +177,11 @@ const EXPECTED_COEF_FOLDEDNORMAL: f64 = 0.0564417205;
 const _EXPECTED_SCALE_FOLDEDNORMAL: f64 = 2.3053503859;
 const EXPECTED_LL_FOLDEDNORMAL: f64 = -88.6234796597;
 
+// Converged maximum-likelihood estimate under greybox's `dfnorm` (μ is
+// identified up to sign): see MLE_RECTIFIEDNORMAL.
+const MLE_FOLDEDNORMAL: [f64; 3] = [0.3036577969, 0.0531416137, 2.2929079422];
+const MLE_LL_FOLDEDNORMAL: f64 = -88.6194000127;
+
 #[test]
 fn test_validate_folded_normal_vs_r() {
     let n = X_NORMAL.len();
@@ -237,6 +242,12 @@ const EXPECTED_INTERCEPT_RECTIFIEDNORMAL: f64 = 0.8008230031;
 const EXPECTED_COEF_RECTIFIEDNORMAL: f64 = 0.3564934618;
 const _EXPECTED_SCALE_RECTIFIEDNORMAL: f64 = 1.6604212026;
 const EXPECTED_LL_RECTIFIEDNORMAL: f64 = -79.6908130165;
+
+// The maximum-likelihood estimate of (β₀, β₁, σ) under greybox's `drectnorm`,
+// converged with `optim` (Nelder–Mead then BFGS, reltol 1e-15). greybox's
+// `alm` stops short of it (ll -79.6908 above); see #142.
+const MLE_RECTIFIEDNORMAL: [f64; 3] = [0.8279103413, 0.3676860087, 1.6541667553];
+const MLE_LL_RECTIFIEDNORMAL: f64 = -79.6796618019;
 
 #[test]
 fn test_validate_rectified_normal_vs_r() {
@@ -978,4 +989,94 @@ fn test_validate_asymmetric_laplace_vs_r() {
         "AsymmetricLaplace coef: {} should be around 1.48",
         coef
     );
+}
+
+/// #142: σ is estimated jointly with the coefficients, so the folded and
+/// rectified normal fits reach the maximum-likelihood estimate.
+#[test]
+fn test_folded_and_rectified_normal_reach_the_mle() {
+    let cases = [
+        (
+            AlmDistribution::RectifiedNormal,
+            &X_RECTIFIEDNORMAL,
+            &Y_RECTIFIEDNORMAL,
+            MLE_RECTIFIEDNORMAL,
+            MLE_LL_RECTIFIEDNORMAL,
+        ),
+        (
+            AlmDistribution::FoldedNormal,
+            &X_NORMAL,
+            &Y_FOLDEDNORMAL,
+            MLE_FOLDEDNORMAL,
+            MLE_LL_FOLDEDNORMAL,
+        ),
+    ];
+    for (dist, xs, ys, mle, mle_ll) in cases {
+        let n = xs.len();
+        let x = Mat::from_fn(n, 1, |i, _| xs[i]);
+        let y = Col::from_fn(n, |i| ys[i]);
+        let fitted = AlmRegressor::builder()
+            .distribution(dist)
+            .with_intercept(true)
+            .build()
+            .fit(&x, &y)
+            .expect("fit should succeed");
+        let r = fitted.result();
+        let (b0, b1) = (r.intercept.unwrap(), r.coefficients[0]);
+        // the folded normal depends on |μ| only
+        let sign = if dist == AlmDistribution::FoldedNormal {
+            b0.signum()
+        } else {
+            1.0
+        };
+        assert!(
+            (sign * b0 - mle[0]).abs() < 1e-4,
+            "{dist:?} intercept {b0} vs {}",
+            mle[0]
+        );
+        assert!(
+            (sign * b1 - mle[1]).abs() < 1e-4,
+            "{dist:?} slope {b1} vs {}",
+            mle[1]
+        );
+        assert!(
+            (fitted.scale() - mle[2]).abs() < 1e-4,
+            "{dist:?} scale {} vs {}",
+            fitted.scale(),
+            mle[2]
+        );
+        assert!(
+            (r.log_likelihood - mle_ll).abs() < 1e-6,
+            "{dist:?} ll {} vs {mle_ll}",
+            r.log_likelihood
+        );
+    }
+}
+
+/// #142: responses outside the support are an error, as in greybox, instead of
+/// a fit whose log-likelihood is -inf.
+#[test]
+fn test_rectified_and_box_cox_normal_reject_responses_outside_the_support() {
+    let x = Mat::from_fn(6, 1, |i, _| i as f64);
+    let fit = |dist, y: &[f64]| {
+        AlmRegressor::builder()
+            .distribution(dist)
+            .build()
+            .fit(&x, &Col::from_fn(6, |i| y[i]))
+    };
+    assert!(fit(
+        AlmDistribution::RectifiedNormal,
+        &[0.0, 1.0, -0.5, 2.0, 0.0, 3.0]
+    )
+    .is_err());
+    assert!(fit(
+        AlmDistribution::RectifiedNormal,
+        &[0.0, 1.0, 0.5, 2.0, 0.0, 3.0]
+    )
+    .is_ok());
+    assert!(fit(
+        AlmDistribution::BoxCoxNormal,
+        &[0.5, 1.0, 0.0, 2.0, 1.5, 3.0]
+    )
+    .is_err());
 }

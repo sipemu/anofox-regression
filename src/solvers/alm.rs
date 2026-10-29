@@ -238,10 +238,28 @@ impl AlmDistribution {
                 | AlmDistribution::LogS
                 | AlmDistribution::LogGeneralisedNormal
                 | AlmDistribution::FoldedNormal
+                | AlmDistribution::BoxCoxNormal
                 | AlmDistribution::Gamma
                 | AlmDistribution::InverseGaussian
                 | AlmDistribution::Exponential
         )
+    }
+
+    /// Returns whether the scale σ is a parameter of the numerical
+    /// optimisation, estimated jointly with the coefficients by maximum
+    /// likelihood, as greybox does for `dfnorm` / `drectnorm`. Other
+    /// distributions profile it out with a moment estimate.
+    pub fn scale_is_joint(&self) -> bool {
+        matches!(
+            self,
+            AlmDistribution::FoldedNormal | AlmDistribution::RectifiedNormal
+        )
+    }
+
+    /// Returns whether this distribution requires non-negative response values
+    /// (a point mass at zero is allowed).
+    pub fn requires_non_negative(&self) -> bool {
+        matches!(self, AlmDistribution::RectifiedNormal)
     }
 
     /// Returns whether this distribution is for count data.
@@ -778,6 +796,9 @@ struct NegLogLikelihoodCost<'a> {
     link: LinkFunction,
     extra_parameter: Option<f64>,
     with_intercept: bool,
+    /// The last parameter is `ln σ`, estimated jointly with the coefficients
+    /// (see [`AlmDistribution::scale_is_joint`]).
+    joint_scale: bool,
 }
 
 impl<'a> NegLogLikelihoodCost<'a> {
@@ -864,7 +885,10 @@ impl CostFunction for NegLogLikelihoodCost<'_> {
 
     fn cost(&self, params: &Self::Param) -> Result<Self::Output, Self::Error> {
         let mu = self.compute_mu_from_params(params);
-        let scale = self.estimate_scale_from_mu(&mu);
+        let scale = match params.last() {
+            Some(log_scale) if self.joint_scale => log_scale.exp(),
+            _ => self.estimate_scale_from_mu(&mu),
+        };
 
         let ll = log_likelihood(self.y, &mu, self.distribution, scale, self.extra_parameter);
 
@@ -1400,14 +1424,22 @@ impl AlmRegressor {
             link: self.link,
             extra_parameter: self.extra_parameter,
             with_intercept: self.options.with_intercept,
+            joint_scale: self.distribution.scale_is_joint(),
         };
 
         // Try multiple starting points and pick the best
         let mut best_params: Option<Vec<f64>> = None;
         let mut best_cost = f64::INFINITY;
 
-        // Generate starting points
-        let starting_points = self.generate_starting_points(x, y, n_params)?;
+        // Generate starting points; with a joint scale, start ln σ at the
+        // moment estimate for each start's coefficients
+        let mut starting_points = self.generate_starting_points(x, y, n_params)?;
+        if cost.joint_scale {
+            for start in &mut starting_points {
+                let mu = cost.compute_mu_from_params(start);
+                start.push(cost.estimate_scale_from_mu(&mu).max(1e-8).ln());
+            }
+        }
 
         for init_params in starting_points {
             // argmin's L-BFGS settings: memory 7, Moré–Thuente with c₁ = 1e-4,
@@ -1432,6 +1464,11 @@ impl AlmRegressor {
         }
 
         // Use best params or fall back to OLS initialization
+        let joint_scale = best_params
+            .as_ref()
+            .filter(|_| cost.joint_scale)
+            .and_then(|params| params.last())
+            .map(|log_scale| log_scale.exp());
         let final_params = best_params.unwrap_or_else(|| {
             let init_beta = self
                 .initialize_coefficients(x, y)
@@ -1446,7 +1483,9 @@ impl AlmRegressor {
         let eta = self.compute_eta(x, &beta);
         let mu = self.compute_mu(&eta);
         let df = (n - n_params) as f64;
-        let scale = estimate_scale(y, &mu, self.distribution, df.max(1.0), self.extra_parameter);
+        let scale = joint_scale.unwrap_or_else(|| {
+            estimate_scale(y, &mu, self.distribution, df.max(1.0), self.extra_parameter)
+        });
 
         // Build result
         self.build_result(x, y, &beta, &mu, scale)
@@ -2346,6 +2385,13 @@ impl Regressor for AlmRegressor {
             }
         }
 
+        if self.distribution.requires_non_negative() && (0..n_samples).any(|i| y[i] < 0.0) {
+            return Err(RegressionError::NumericalError(format!(
+                "Distribution {:?} requires non-negative response values",
+                self.distribution
+            )));
+        }
+
         if self.distribution.requires_unit_interval() {
             for i in 0..n_samples {
                 if y[i] <= 0.0 || y[i] >= 1.0 {
@@ -3034,6 +3080,10 @@ mod tests {
         assert!(AlmDistribution::Gamma.requires_positive());
         assert!(AlmDistribution::LogNormal.requires_positive());
         assert!(AlmDistribution::Exponential.requires_positive());
+        assert!(AlmDistribution::BoxCoxNormal.requires_positive());
+        assert!(!AlmDistribution::RectifiedNormal.requires_positive());
+        assert!(AlmDistribution::RectifiedNormal.requires_non_negative());
+        assert!(!AlmDistribution::Normal.requires_non_negative());
     }
 
     #[test]

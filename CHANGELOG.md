@@ -140,6 +140,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `lm_alias_columns` keeps its orthonormal basis in one flat buffer, with the same arithmetic.
   - Fit results are moved into the `RegressionResult` instead of allocated and cloned.
 
+### Fixed
+
+- **ALM rectified / folded normal (#142).** σ is now estimated jointly with the coefficients by maximum likelihood (as `ln σ`, the last L-BFGS parameter), as greybox does for `drectnorm` / `dfnorm`, instead of a moment estimate plugged into the likelihood. The rectified normal fit was 2.2 log-likelihood units short of the optimum on the R fixture; it now reaches the converged MLE (to 1e-6 in the log-likelihood, checked against `optim` on greybox's `drectnorm`), which is 0.011 above greybox's own `alm`, which stops early. The folded normal already reached its optimum and is unchanged in the log-likelihood; `scale()` is now its MLE. New `AlmDistribution::scale_is_joint()`.
+- **ALM response support is checked for the rectified and Box–Cox normal (#142).** `RectifiedNormal` rejects negative responses (new `AlmDistribution::requires_non_negative()`) and `BoxCoxNormal` non-positive ones (it is now in `requires_positive()`), as greybox does. Before, `fit` returned a fit with log-likelihood `-inf` (every L-BFGS start sat on the `1e20` penalty with a zero gradient).
+
 ## [0.5.38] - 2026-10-29
 
 ### Added
