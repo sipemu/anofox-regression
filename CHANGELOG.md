@@ -130,6 +130,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - It uses only `β̂` and `V̂`, deleting whole terms by Wald χ² with `StepRule::Aic { k, threshold }` or `StepRule::P { sls }`, applied to the residual or the individual test.
   - It reports each step's χ², d.f., p, residual χ², d.f., p and AIC, plus the kept terms and the approximate reduced-model coefficients `β_in − V_io V_oo⁻¹ β_out`.
   - Validated in `tests/r_validation_fastbw.rs` (generator `tests/r_scripts/generate_fastbw_validation.R`) against `fastbw` on an `lrm` with a spline and a factor, for all four rule / type combinations.
+- **Shrinkage and model approximation: `inference::approximation` (#108, RMS §4.5, §5.5.2, Ch 19).**
+  - `heuristic_shrinkage(lr_chisq, df)`: the van Houwelingen–le Cessie factor `γ̂ = (LR χ² − p) / LR χ²`, the expected calibration slope in new data. `shrink_slopes(beta, n_intercepts, gamma)` applies it to the slopes; the intercepts are to be re-estimated.
+  - `approximate_model(x, lp, vcov, &terms, keep)`: approximates a full model by a subset of its terms. It regresses the full linear predictor on the kept terms (OLS) and returns the approximate coefficients, the R² of the approximation and their covariance `W V̂ Wᵀ` with `W = (ZᵀZ)⁻¹ZᵀX̃` (the `ols(lp ~ ., sigma = 1)` construction of RMS §5.5.2). Works for any fit with a linear predictor.
+  - `approximation_path(x, lp, &terms)`: the Ch 19 table, deleting terms in the order of `rms::fastbw` on `ols(lp ~ <all terms>, sigma = 1)` and reporting the R² of the approximation after each deletion.
+  - Validated in `tests/r_validation_approximation.rs` (generator `tests/r_scripts/generate_approximation_validation.R`) on the `fastbw` fixture's `lrm`: the shrinkage factor from `lrm`'s model LR χ², the deletion order and R² path (1e-10), and the coefficients and covariance of an approximation by the spline and one linear term (1e-9). Approximating by all terms reproduces β̂ and V̂.
 
 ### Changed
 
