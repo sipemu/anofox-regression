@@ -1,0 +1,879 @@
+//! Ordinal regression: cumulative link models (RMS Ch 13, 15; `rms::orm`,
+//! `rms::lrm`, `MASS::polr`).
+//!
+//! For an ordered response with distinct values `y₁ < … < y_k`, the model is
+//!
+//! ```text
+//! P(Y ≥ y_{j+1} | x) = F(α_j + xᵀβ),   j = 1, …, k − 1,
+//! ```
+//!
+//! with decreasing intercepts `α₁ > … > α_{k−1}` and a link `F`
+//! ([`OrdinalLink`]); the logistic link is the proportional odds model. This
+//! is the parametrisation of `rms::orm` / `lrm` (`MASS::polr` uses
+//! `P(Y ≤ y_j) = F(ζ_j − xᵀβ)`, i.e. `ζ_j = −α_j` and the same β).
+//!
+//! The fit is maximum likelihood by Newton–Raphson with the analytic gradient
+//! and observed information. Each observation involves at most two adjacent
+//! intercepts, so the intercept block of the information is tridiagonal and
+//! a Newton step costs O(k·p + n·p²) with an LDLᵀ factorisation of that block
+//! and the Schur complement for the slopes. A continuous response, with one
+//! intercept per distinct value (`orm`'s semiparametric regression, RMS
+//! Ch 15), is therefore as cheap as a few categories.
+
+use crate::solvers::traits::RegressionError;
+use faer::linalg::solvers::Solve;
+use faer::{Col, Mat, Side};
+use statrs::distribution::{ChiSquared, Continuous, ContinuousCDF, Normal};
+use std::f64::consts::PI;
+
+/// The link (cumulative distribution `F`) of a cumulative link model, named
+/// as the `family` of `rms::orm`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OrdinalLink {
+    /// `F(x) = 1 / (1 + e⁻ˣ)`: proportional odds (`lrm`, `polr`).
+    #[default]
+    Logistic,
+    /// `F = Φ`, the standard normal distribution.
+    Probit,
+    /// `F(x) = exp(−exp(−x))` (rms `loglog`).
+    LogLog,
+    /// `F(x) = 1 − exp(−exp(x))` (rms `cloglog`): proportional hazards in the
+    /// discrete-time sense.
+    CLogLog,
+    /// `F(x) = 1/2 + atan(x)/π`.
+    Cauchit,
+}
+
+fn std_normal() -> Normal {
+    Normal::new(0.0, 1.0).expect("standard normal")
+}
+
+impl OrdinalLink {
+    /// `F(x)`.
+    pub fn cdf(&self, x: f64) -> f64 {
+        match self {
+            OrdinalLink::Logistic => 1.0 / (1.0 + (-x).exp()),
+            OrdinalLink::Probit => std_normal().cdf(x),
+            OrdinalLink::LogLog => (-(-x).exp()).exp(),
+            OrdinalLink::CLogLog => -(-x.exp()).exp_m1(),
+            OrdinalLink::Cauchit => 0.5 + x.atan() / PI,
+        }
+    }
+
+    /// `1 − F(x)`, accurate in the upper tail.
+    pub fn sf(&self, x: f64) -> f64 {
+        match self {
+            OrdinalLink::Logistic => 1.0 / (1.0 + x.exp()),
+            OrdinalLink::Probit => std_normal().cdf(-x),
+            OrdinalLink::LogLog => -(-(-x).exp()).exp_m1(),
+            OrdinalLink::CLogLog => (-x.exp()).exp(),
+            OrdinalLink::Cauchit => 0.5 - x.atan() / PI,
+        }
+    }
+
+    /// The density `f = F'`.
+    pub fn pdf(&self, x: f64) -> f64 {
+        match self {
+            OrdinalLink::Logistic => {
+                let e = (-x.abs()).exp();
+                e / ((1.0 + e) * (1.0 + e))
+            }
+            OrdinalLink::Probit => std_normal().pdf(x),
+            OrdinalLink::LogLog => (-x - (-x).exp()).exp(),
+            OrdinalLink::CLogLog => (x - x.exp()).exp(),
+            OrdinalLink::Cauchit => 1.0 / (PI * (1.0 + x * x)),
+        }
+    }
+
+    /// `f'`.
+    fn dpdf(&self, x: f64) -> f64 {
+        let f = self.pdf(x);
+        match self {
+            OrdinalLink::Logistic => f * (1.0 - 2.0 * self.cdf(x)),
+            OrdinalLink::Probit => -x * f,
+            OrdinalLink::LogLog => f * ((-x).exp() - 1.0),
+            OrdinalLink::CLogLog => f * (1.0 - x.exp()),
+            OrdinalLink::Cauchit => -2.0 * x * PI * f * f,
+        }
+    }
+
+    /// `F⁻¹(p)`.
+    pub fn quantile(&self, p: f64) -> f64 {
+        match self {
+            OrdinalLink::Logistic => (p / (1.0 - p)).ln(),
+            OrdinalLink::Probit => std_normal().inverse_cdf(p),
+            OrdinalLink::LogLog => -(-p.ln()).ln(),
+            OrdinalLink::CLogLog => (-(1.0 - p).ln()).ln(),
+            OrdinalLink::Cauchit => (PI * (p - 0.5)).tan(),
+        }
+    }
+
+    /// `F(a) − F(b)` for `a ≥ b`, from the tail that keeps precision.
+    fn prob_between(&self, a: f64, b: f64) -> f64 {
+        if b > 0.0 {
+            self.sf(b) - self.sf(a)
+        } else {
+            self.cdf(a) - self.cdf(b)
+        }
+    }
+}
+
+/// How [`FittedOrdinal::predict_quantile`] turns the predicted distribution
+/// into a quantile (`rms::Quantile.orm`'s `method`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OrdinalQuantileMethod {
+    /// Linear interpolation of the predicted CDF between the response values
+    /// (rms default).
+    #[default]
+    Interpolated,
+    /// The smallest response value whose predicted CDF reaches `q`.
+    Discrete,
+}
+
+/// Cumulative link model regressor.
+///
+/// ```
+/// use anofox_regression::solvers::{OrdinalLink, OrdinalRegressor};
+/// use faer::{Col, Mat};
+///
+/// let x = Mat::from_fn(60, 1, |i, _| (i % 12) as f64 / 4.0);
+/// let y = Col::from_fn(60, |i| ((i % 12) / 4 + (i % 5 == 0) as usize) as f64);
+/// let fit = OrdinalRegressor::builder()
+///     .link(OrdinalLink::Logistic)
+///     .build()
+///     .fit(&x, &y)
+///     .unwrap();
+/// assert!(fit.coefficients()[0] > 0.0);
+/// assert_eq!(fit.intercepts().nrows(), fit.levels().len() - 1);
+/// ```
+#[derive(Debug, Clone)]
+pub struct OrdinalRegressor {
+    link: OrdinalLink,
+    weights: Option<Col<f64>>,
+    offset: Option<Col<f64>>,
+    max_iterations: usize,
+    tolerance: f64,
+}
+
+/// Builder for [`OrdinalRegressor`].
+#[derive(Debug, Clone)]
+pub struct OrdinalRegressorBuilder {
+    inner: OrdinalRegressor,
+}
+
+impl Default for OrdinalRegressorBuilder {
+    fn default() -> Self {
+        Self {
+            inner: OrdinalRegressor {
+                link: OrdinalLink::Logistic,
+                weights: None,
+                offset: None,
+                max_iterations: 100,
+                tolerance: 1e-10,
+            },
+        }
+    }
+}
+
+impl OrdinalRegressorBuilder {
+    /// The link (default [`OrdinalLink::Logistic`]).
+    pub fn link(mut self, link: OrdinalLink) -> Self {
+        self.inner.link = link;
+        self
+    }
+
+    /// Case (frequency) weights.
+    pub fn weights(mut self, weights: Col<f64>) -> Self {
+        self.inner.weights = Some(weights);
+        self
+    }
+
+    /// An offset added to the linear predictor.
+    pub fn offset(mut self, offset: Col<f64>) -> Self {
+        self.inner.offset = Some(offset);
+        self
+    }
+
+    /// Maximum Newton iterations (default 100).
+    pub fn max_iterations(mut self, n: usize) -> Self {
+        self.inner.max_iterations = n;
+        self
+    }
+
+    /// Convergence tolerance on the largest absolute score (default 1e-10;
+    /// the score is scaled by the total weight).
+    pub fn tolerance(mut self, tol: f64) -> Self {
+        self.inner.tolerance = tol;
+        self
+    }
+
+    /// Build the regressor.
+    pub fn build(self) -> OrdinalRegressor {
+        self.inner
+    }
+}
+
+/// The observed information `[[A, B], [Bᵀ, D]]` at the estimate: `A` the
+/// tridiagonal intercept block, `B` intercepts × slopes, `D` the slopes.
+#[derive(Debug, Clone)]
+struct Information {
+    a_diag: Vec<f64>,
+    a_off: Vec<f64>,
+    b: Mat<f64>,
+    d: Mat<f64>,
+}
+
+/// LDLᵀ factor of the tridiagonal block and the Schur complement inverse.
+struct InformationFactor<'a> {
+    info: &'a Information,
+    d: Vec<f64>,
+    l: Vec<f64>,
+    ainv_b: Mat<f64>,
+    s_inv: Mat<f64>,
+}
+
+impl<'a> InformationFactor<'a> {
+    fn new(info: &'a Information) -> Option<Self> {
+        let m = info.a_diag.len();
+        let mut d = vec![0.0; m];
+        let mut l = vec![0.0; m.saturating_sub(1)];
+        for i in 0..m {
+            d[i] = info.a_diag[i]
+                - if i > 0 {
+                    l[i - 1] * info.a_off[i - 1]
+                } else {
+                    0.0
+                };
+            if d[i].is_nan() || d[i] <= 0.0 || !d[i].is_finite() {
+                return None;
+            }
+            if i + 1 < m {
+                l[i] = info.a_off[i] / d[i];
+            }
+        }
+        let mut factor = Self {
+            info,
+            d,
+            l,
+            ainv_b: Mat::zeros(0, 0),
+            s_inv: Mat::zeros(0, 0),
+        };
+        let p = info.d.nrows();
+        let mut ainv_b = Mat::zeros(m, p);
+        for c in 0..p {
+            let col: Vec<f64> = (0..m).map(|r| info.b[(r, c)]).collect();
+            let sol = factor.solve_a(&col);
+            for r in 0..m {
+                ainv_b[(r, c)] = sol[r];
+            }
+        }
+        let s = &info.d - info.b.transpose() * &ainv_b;
+        let s_inv = if p == 0 {
+            Mat::zeros(0, 0)
+        } else {
+            let llt = s.llt(Side::Lower).ok()?;
+            llt.solve(Mat::<f64>::identity(p, p))
+        };
+        factor.ainv_b = ainv_b;
+        factor.s_inv = s_inv;
+        Some(factor)
+    }
+
+    /// `A⁻¹ r` for the tridiagonal block.
+    fn solve_a(&self, r: &[f64]) -> Vec<f64> {
+        let m = self.d.len();
+        let mut z = r.to_vec();
+        for i in 1..m {
+            z[i] -= self.l[i - 1] * z[i - 1];
+        }
+        for (zi, di) in z.iter_mut().zip(&self.d) {
+            *zi /= di;
+        }
+        for i in (0..m.saturating_sub(1)).rev() {
+            z[i] -= self.l[i] * z[i + 1];
+        }
+        z
+    }
+
+    /// `I⁻¹ (g_α, g_β)`.
+    fn solve(&self, g_a: &[f64], g_b: &[f64]) -> (Vec<f64>, Vec<f64>) {
+        let m = g_a.len();
+        let p = g_b.len();
+        let ainv_ga = self.solve_a(g_a);
+        // δβ = S⁻¹ (g_β − Bᵀ A⁻¹ g_α)
+        let rhs: Vec<f64> = (0..p)
+            .map(|c| {
+                g_b[c]
+                    - (0..m)
+                        .map(|r| self.info.b[(r, c)] * ainv_ga[r])
+                        .sum::<f64>()
+            })
+            .collect();
+        let db: Vec<f64> = (0..p)
+            .map(|r| (0..p).map(|c| self.s_inv[(r, c)] * rhs[c]).sum())
+            .collect();
+        // δα = A⁻¹ g_α − (A⁻¹ B) δβ
+        let da: Vec<f64> = (0..m)
+            .map(|r| ainv_ga[r] - (0..p).map(|c| self.ainv_b[(r, c)] * db[c]).sum::<f64>())
+            .collect();
+        (da, db)
+    }
+}
+
+/// A fitted cumulative link model.
+#[derive(Debug, Clone)]
+pub struct FittedOrdinal {
+    link: OrdinalLink,
+    levels: Vec<f64>,
+    counts: Vec<f64>,
+    intercepts: Col<f64>,
+    coefficients: Col<f64>,
+    log_likelihood: f64,
+    null_log_likelihood: f64,
+    iterations: usize,
+    converged: bool,
+    n_observations: usize,
+    information: Information,
+}
+
+/// Data shared by the likelihood evaluations.
+struct Problem<'a> {
+    link: OrdinalLink,
+    x: &'a Mat<f64>,
+    category: Vec<usize>,
+    weights: Vec<f64>,
+    offset: Vec<f64>,
+    k: usize,
+}
+
+impl Problem<'_> {
+    fn eta(&self, beta: &[f64]) -> Vec<f64> {
+        let (n, p) = (self.x.nrows(), self.x.ncols());
+        (0..n)
+            .map(|i| self.offset[i] + (0..p).map(|j| self.x[(i, j)] * beta[j]).sum::<f64>())
+            .collect()
+    }
+
+    /// The two cumulative-probability arguments of observation `i`:
+    /// `(α_{c−1} + η, α_c + η)` with ±∞ at the ends.
+    fn bounds(&self, alpha: &[f64], c: usize, eta: f64) -> (f64, f64) {
+        let upper = if c == 0 {
+            f64::INFINITY
+        } else {
+            alpha[c - 1] + eta
+        };
+        let lower = if c + 1 == self.k {
+            f64::NEG_INFINITY
+        } else {
+            alpha[c] + eta
+        };
+        (upper, lower)
+    }
+
+    fn log_likelihood(&self, alpha: &[f64], beta: &[f64]) -> f64 {
+        if alpha.windows(2).any(|w| w[0] <= w[1]) {
+            return f64::NEG_INFINITY;
+        }
+        let eta = self.eta(beta);
+        let mut ll = 0.0;
+        for (i, &c) in self.category.iter().enumerate() {
+            let (a, b) = self.bounds(alpha, c, eta[i]);
+            let p = self.link.prob_between(a, b);
+            if p.is_nan() || p <= 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            ll += self.weights[i] * p.ln();
+        }
+        ll
+    }
+
+    /// Score and observed information at `(alpha, beta)`.
+    #[allow(clippy::needless_range_loop)]
+    fn score_information(&self, alpha: &[f64], beta: &[f64]) -> (Vec<f64>, Vec<f64>, Information) {
+        let m = self.k - 1;
+        let p = self.x.ncols();
+        let eta = self.eta(beta);
+        let mut g_a = vec![0.0; m];
+        let mut g_b = vec![0.0; p];
+        let mut info = Information {
+            a_diag: vec![0.0; m],
+            a_off: vec![0.0; m.saturating_sub(1)],
+            b: Mat::zeros(m, p),
+            d: Mat::zeros(p, p),
+        };
+        let link = self.link;
+        let finite = |v: f64, f: &dyn Fn(f64) -> f64| if v.is_finite() { f(v) } else { 0.0 };
+        for (i, &c) in self.category.iter().enumerate() {
+            let w = self.weights[i];
+            let (a, b) = self.bounds(alpha, c, eta[i]);
+            let pr = link.prob_between(a, b);
+            let (fa, fb) = (finite(a, &|v| link.pdf(v)), finite(b, &|v| link.pdf(v)));
+            let (dfa, dfb) = (finite(a, &|v| link.dpdf(v)), finite(b, &|v| link.dpdf(v)));
+            let (ia, ib) = (c.checked_sub(1), (c + 1 < self.k).then_some(c));
+            let df = fa - fb;
+            // second derivatives of log p (negated below)
+            let haa = dfa / pr - fa * fa / pr / pr;
+            let hbb = -dfb / pr - fb * fb / pr / pr;
+            let hab = fa * fb / pr / pr;
+            let hax = dfa / pr - fa * df / pr / pr;
+            let hbx = -dfb / pr + fb * df / pr / pr;
+            let hxx = (dfa - dfb) / pr - df * df / pr / pr;
+            if let Some(ja) = ia {
+                g_a[ja] += w * fa / pr;
+                info.a_diag[ja] -= w * haa;
+            }
+            if let Some(jb) = ib {
+                g_a[jb] -= w * fb / pr;
+                info.a_diag[jb] -= w * hbb;
+            }
+            if let (Some(ja), Some(_)) = (ia, ib) {
+                info.a_off[ja] -= w * hab;
+            }
+            for r in 0..p {
+                let xr = self.x[(i, r)];
+                g_b[r] += w * xr * df / pr;
+                if let Some(ja) = ia {
+                    info.b[(ja, r)] -= w * hax * xr;
+                }
+                if let Some(jb) = ib {
+                    info.b[(jb, r)] -= w * hbx * xr;
+                }
+                for s in 0..=r {
+                    let v = w * hxx * xr * self.x[(i, s)];
+                    info.d[(r, s)] -= v;
+                }
+            }
+        }
+        for r in 0..p {
+            for s in 0..r {
+                info.d[(s, r)] = info.d[(r, s)];
+            }
+        }
+        (g_a, g_b, info)
+    }
+}
+
+impl OrdinalRegressor {
+    /// Builder with the defaults (logistic link, no weights or offset).
+    pub fn builder() -> OrdinalRegressorBuilder {
+        OrdinalRegressorBuilder::default()
+    }
+
+    /// Fit the model. `x` holds the predictors (no intercept column; the
+    /// intercepts are the cut-points) and `y` the ordered response; its
+    /// distinct values are the categories.
+    pub fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedOrdinal, RegressionError> {
+        let n = x.nrows();
+        let p = x.ncols();
+        if y.nrows() != n {
+            return Err(RegressionError::DimensionMismatch {
+                x_rows: n,
+                y_len: y.nrows(),
+            });
+        }
+        for v in [&self.weights, &self.offset].into_iter().flatten() {
+            if v.nrows() != n {
+                return Err(RegressionError::DimensionMismatch {
+                    x_rows: n,
+                    y_len: v.nrows(),
+                });
+            }
+        }
+        if y.iter()
+            .chain(x.col_iter().flat_map(|c| c.iter()))
+            .any(|v| !v.is_finite())
+        {
+            return Err(RegressionError::NumericalError(
+                "non-finite values in x or y".to_string(),
+            ));
+        }
+        let weights: Vec<f64> = match &self.weights {
+            Some(w) => w.iter().copied().collect(),
+            None => vec![1.0; n],
+        };
+        if weights
+            .iter()
+            .any(|&w| w.is_nan() || w < 0.0 || !w.is_finite())
+        {
+            return Err(RegressionError::NumericalError(
+                "weights must be finite and non-negative".to_string(),
+            ));
+        }
+        let offset: Vec<f64> = match &self.offset {
+            Some(o) => o.iter().copied().collect(),
+            None => vec![0.0; n],
+        };
+
+        let mut levels: Vec<f64> = y.iter().copied().collect();
+        levels.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+        levels.dedup();
+        let k = levels.len();
+        if k < 2 {
+            return Err(RegressionError::NumericalError(
+                "an ordinal response needs at least two distinct values".to_string(),
+            ));
+        }
+        let category: Vec<usize> = y
+            .iter()
+            .map(|v| levels.partition_point(|l| l < v))
+            .collect();
+        let mut counts = vec![0.0; k];
+        for (i, &c) in category.iter().enumerate() {
+            counts[c] += weights[i];
+        }
+        let total: f64 = counts.iter().sum();
+        if counts.iter().any(|&c| c <= 0.0) {
+            return Err(RegressionError::NumericalError(
+                "every response value needs positive total weight".to_string(),
+            ));
+        }
+
+        let problem = Problem {
+            link: self.link,
+            x,
+            category,
+            weights,
+            offset,
+            k,
+        };
+
+        // Start: the intercept-only MLE, α_j = F⁻¹(P̂(Y ≥ y_{j+1})), β = 0.
+        let mut alpha: Vec<f64> = (1..k)
+            .map(|j| self.link.quantile(counts[j..].iter().sum::<f64>() / total))
+            .collect();
+        let mut beta = vec![0.0; p];
+        // The intercept-only model: closed form, or (with an offset) its own
+        // fit, as rms's model LR χ² compares against intercepts + offset.
+        let null_ll: f64 = if self.offset.is_some() && p > 0 {
+            self.fit(&Mat::zeros(n, 0), y)?.log_likelihood
+        } else {
+            counts.iter().map(|&c| c * (c / total).ln()).sum()
+        };
+        let mut ll = problem.log_likelihood(&alpha, &beta);
+        if !ll.is_finite() {
+            return Err(RegressionError::NumericalError(
+                "the starting values have zero likelihood (check the offset)".to_string(),
+            ));
+        }
+
+        let mut converged = false;
+        let mut iterations = 0;
+        let (mut g_a, mut g_b, mut info) = problem.score_information(&alpha, &beta);
+        while iterations < self.max_iterations {
+            let max_score = g_a.iter().chain(&g_b).fold(0.0_f64, |m, g| m.max(g.abs()));
+            if max_score <= self.tolerance * total.max(1.0) {
+                converged = true;
+                break;
+            }
+            iterations += 1;
+            let factor = InformationFactor::new(&info).ok_or_else(|| {
+                RegressionError::NumericalError(
+                    "the information matrix is not positive definite".to_string(),
+                )
+            })?;
+            let (da, db) = factor.solve(&g_a, &g_b);
+            let mut step = 1.0;
+            let mut accepted = false;
+            for _ in 0..50 {
+                let alpha_new: Vec<f64> =
+                    alpha.iter().zip(&da).map(|(a, d)| a + step * d).collect();
+                let beta_new: Vec<f64> = beta.iter().zip(&db).map(|(b, d)| b + step * d).collect();
+                let ll_new = problem.log_likelihood(&alpha_new, &beta_new);
+                if ll_new.is_finite() && ll_new >= ll - 1e-12 * ll.abs().max(1.0) {
+                    alpha = alpha_new;
+                    beta = beta_new;
+                    ll = ll_new;
+                    accepted = true;
+                    break;
+                }
+                step /= 2.0;
+            }
+            (g_a, g_b, info) = problem.score_information(&alpha, &beta);
+            if !accepted {
+                break;
+            }
+        }
+        if !converged {
+            let max_score = g_a.iter().chain(&g_b).fold(0.0_f64, |m, g| m.max(g.abs()));
+            converged = max_score <= self.tolerance * total.max(1.0);
+        }
+        if InformationFactor::new(&info).is_none() {
+            return Err(RegressionError::NumericalError(
+                "the information matrix is not positive definite at the estimate".to_string(),
+            ));
+        }
+
+        Ok(FittedOrdinal {
+            link: self.link,
+            levels,
+            counts,
+            intercepts: Col::from_fn(k - 1, |j| alpha[j]),
+            coefficients: Col::from_fn(p, |j| beta[j]),
+            log_likelihood: ll,
+            null_log_likelihood: null_ll,
+            iterations,
+            converged,
+            n_observations: n,
+            information: info,
+        })
+    }
+}
+
+impl FittedOrdinal {
+    /// The link.
+    pub fn link(&self) -> OrdinalLink {
+        self.link
+    }
+
+    /// The distinct response values `y₁ < … < y_k`.
+    pub fn levels(&self) -> &[f64] {
+        &self.levels
+    }
+
+    /// Total weight of each response value.
+    pub fn counts(&self) -> &[f64] {
+        &self.counts
+    }
+
+    /// Intercepts `α_j` of `P(Y ≥ y_{j+1})`, `j = 1, …, k − 1` (decreasing).
+    pub fn intercepts(&self) -> &Col<f64> {
+        &self.intercepts
+    }
+
+    /// Slopes β.
+    pub fn coefficients(&self) -> &Col<f64> {
+        &self.coefficients
+    }
+
+    /// Maximised log-likelihood.
+    pub fn log_likelihood(&self) -> f64 {
+        self.log_likelihood
+    }
+
+    /// Log-likelihood of the intercept-only model (with the offset, if any).
+    pub fn null_log_likelihood(&self) -> f64 {
+        self.null_log_likelihood
+    }
+
+    /// Model likelihood-ratio χ² against the intercept-only model.
+    pub fn lr_chisq(&self) -> f64 {
+        2.0 * (self.log_likelihood - self.null_log_likelihood)
+    }
+
+    /// Its degrees of freedom (the number of slopes).
+    pub fn lr_df(&self) -> usize {
+        self.coefficients.nrows()
+    }
+
+    /// p-value of [`Self::lr_chisq`].
+    pub fn lr_p_value(&self) -> f64 {
+        let df = self.lr_df();
+        if df == 0 {
+            return f64::NAN;
+        }
+        ChiSquared::new(df as f64).map_or(f64::NAN, |d| d.sf(self.lr_chisq()))
+    }
+
+    /// AIC `−2ℓ + 2(k − 1 + p)`.
+    pub fn aic(&self) -> f64 {
+        -2.0 * self.log_likelihood
+            + 2.0 * (self.intercepts.nrows() + self.coefficients.nrows()) as f64
+    }
+
+    /// Newton iterations used.
+    pub fn iterations(&self) -> usize {
+        self.iterations
+    }
+
+    /// Whether the score reached the tolerance.
+    pub fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// Number of observations.
+    pub fn n_observations(&self) -> usize {
+        self.n_observations
+    }
+
+    fn factor(&self) -> InformationFactor<'_> {
+        InformationFactor::new(&self.information).expect("positive definite at the fit")
+    }
+
+    /// Covariance of the slopes (inverse observed information), without
+    /// forming the intercept block: O(k·p²).
+    pub fn vcov_slopes(&self) -> Mat<f64> {
+        self.factor().s_inv.clone()
+    }
+
+    /// Standard errors of the slopes.
+    pub fn std_errors(&self) -> Col<f64> {
+        let v = self.vcov_slopes();
+        Col::from_fn(v.nrows(), |j| v[(j, j)].sqrt())
+    }
+
+    /// Full covariance of `(α, β)`, intercepts first (dense, O(k²) memory:
+    /// for a continuous response prefer [`Self::vcov_slopes`]).
+    pub fn vcov(&self) -> Mat<f64> {
+        let factor = self.factor();
+        let (m, p) = (self.intercepts.nrows(), self.coefficients.nrows());
+        let mut v = Mat::zeros(m + p, m + p);
+        for c in 0..m + p {
+            let (ga, gb): (Vec<f64>, Vec<f64>) = (
+                (0..m).map(|r| (r == c) as u8 as f64).collect(),
+                (0..p).map(|r| (r + m == c) as u8 as f64).collect(),
+            );
+            let (da, db) = factor.solve(&ga, &gb);
+            for r in 0..m {
+                v[(r, c)] = da[r];
+            }
+            for r in 0..p {
+                v[(m + r, c)] = db[r];
+            }
+        }
+        v
+    }
+
+    /// `xᵀβ` for each row of `x` (no intercept, no offset).
+    pub fn linear_predictor(&self, x: &Mat<f64>) -> Col<f64> {
+        x * &self.coefficients
+    }
+
+    /// `P(Y ≥ y_{j+1} | x)` for `j = 1, …, k − 1`: one row per row of `x`.
+    pub fn exceedance_probabilities(&self, x: &Mat<f64>) -> Mat<f64> {
+        let lp = self.linear_predictor(x);
+        let m = self.intercepts.nrows();
+        Mat::from_fn(x.nrows(), m, |i, j| {
+            self.link.cdf(self.intercepts[j] + lp[i])
+        })
+    }
+
+    /// `P(Y = y_j | x)` for `j = 1, …, k`.
+    pub fn category_probabilities(&self, x: &Mat<f64>) -> Mat<f64> {
+        let lp = self.linear_predictor(x);
+        let k = self.levels.len();
+        Mat::from_fn(x.nrows(), k, |i, j| {
+            let a = if j == 0 {
+                f64::INFINITY
+            } else {
+                self.intercepts[j - 1] + lp[i]
+            };
+            let b = if j + 1 == k {
+                f64::NEG_INFINITY
+            } else {
+                self.intercepts[j] + lp[i]
+            };
+            self.link.prob_between(a, b)
+        })
+    }
+
+    /// Predicted mean `Σ_j y_j P(Y = y_j | x)` (`rms::Mean.orm`).
+    pub fn predict_mean(&self, x: &Mat<f64>) -> Col<f64> {
+        let probs = self.category_probabilities(x);
+        Col::from_fn(x.nrows(), |i| {
+            (0..self.levels.len())
+                .map(|j| probs[(i, j)] * self.levels[j])
+                .sum()
+        })
+    }
+
+    /// Predicted mean with its delta-method standard error (`Mean.orm` with
+    /// `conf.int`): `∂mean/∂α_j = f(α_j + xᵀβ)(y_{j+1} − y_j)` and
+    /// `∂mean/∂β = x Σ_j ∂mean/∂α_j`.
+    pub fn predict_mean_with_se(&self, x: &Mat<f64>) -> (Col<f64>, Col<f64>) {
+        let mean = self.predict_mean(x);
+        let lp = self.linear_predictor(x);
+        let factor = self.factor();
+        let m = self.intercepts.nrows();
+        let p = self.coefficients.nrows();
+        let se = Col::from_fn(x.nrows(), |i| {
+            let da: Vec<f64> = (0..m)
+                .map(|j| {
+                    self.link.pdf(self.intercepts[j] + lp[i])
+                        * (self.levels[j + 1] - self.levels[j])
+                })
+                .collect();
+            let total: f64 = da.iter().sum();
+            let db: Vec<f64> = (0..p).map(|r| total * x[(i, r)]).collect();
+            let (za, zb) = factor.solve(&da, &db);
+            let var: f64 = da.iter().zip(&za).map(|(a, b)| a * b).sum::<f64>()
+                + db.iter().zip(&zb).map(|(a, b)| a * b).sum::<f64>();
+            var.max(0.0).sqrt()
+        });
+        (mean, se)
+    }
+
+    /// Predicted `q`-quantile of `Y` (`rms::Quantile.orm`).
+    pub fn predict_quantile(
+        &self,
+        x: &Mat<f64>,
+        q: f64,
+        method: OrdinalQuantileMethod,
+    ) -> Col<f64> {
+        let exceed = self.exceedance_probabilities(x);
+        let m = self.intercepts.nrows();
+        let values = &self.levels;
+        Col::from_fn(x.nrows(), |i| match method {
+            OrdinalQuantileMethod::Discrete => {
+                // smallest y_j with P(Y ≤ y_j) = 1 − P(Y ≥ y_{j+1}) ≥ q
+                (0..m)
+                    .find(|&j| 1.0 - exceed[(i, j)] >= q)
+                    .map_or(values[m], |j| values[j])
+            }
+            OrdinalQuantileMethod::Interpolated => {
+                // Quantile.orm: interpolate (1, cp₁, …, cp_m, 0) → y values
+                // shifted within each interval in proportion to cp
+                let cp: Vec<f64> = (0..m).map(|j| exceed[(i, j)]).collect();
+                let span = cp[m - 1] - cp[0];
+                let w = |j: usize| {
+                    if span != 0.0 {
+                        (cp[j] - cp[0]) / span
+                    } else {
+                        0.0
+                    }
+                };
+                let mut xs = Vec::with_capacity(m + 2);
+                let mut ys = Vec::with_capacity(m + 2);
+                xs.push(1.0);
+                ys.push(values[0]);
+                for j in 0..m {
+                    xs.push(cp[j]);
+                    ys.push((1.0 - w(j)) * values[j] + w(j) * values[j + 1]);
+                }
+                xs.push(0.0);
+                ys.push(values[m]);
+                interpolate_decreasing(&xs, &ys, 1.0 - q)
+            }
+        })
+    }
+}
+
+/// `approx(xs, ys, xout, rule = 2)` for `xs` in decreasing order: tied `xs`
+/// are collapsed to the mean of their `ys` (R's `ties = mean`), then the
+/// points are interpolated linearly, constant beyond the ends.
+fn interpolate_decreasing(xs: &[f64], ys: &[f64], x: f64) -> f64 {
+    let mut pts: Vec<(f64, f64)> = Vec::with_capacity(xs.len());
+    let mut j = 0;
+    while j < xs.len() {
+        let mut end = j + 1;
+        while end < xs.len() && xs[end] == xs[j] {
+            end += 1;
+        }
+        let mean = ys[j..end].iter().sum::<f64>() / (end - j) as f64;
+        pts.push((xs[j], mean));
+        j = end;
+    }
+    let last = pts.len() - 1;
+    if x >= pts[0].0 {
+        return pts[0].1;
+    }
+    if x <= pts[last].0 {
+        return pts[last].1;
+    }
+    for w in pts.windows(2) {
+        let ((x0, y0), (x1, y1)) = (w[0], w[1]);
+        if x <= x0 && x >= x1 {
+            return y0 + (y1 - y0) * (x0 - x) / (x0 - x1);
+        }
+    }
+    pts[last].1
+}

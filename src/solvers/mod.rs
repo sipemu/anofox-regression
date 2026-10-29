@@ -24,6 +24,7 @@ pub mod mediation;
 mod moments;
 mod negative_binomial;
 mod ols;
+pub mod ordinal;
 mod passive_aggressive;
 pub mod path;
 pub mod penalized_glm;
@@ -69,6 +70,9 @@ pub use logistic::{FittedLogistic, LogisticRegression, LogisticRegressionBuilder
 pub use moments::MomentAccumulator;
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
 pub use ols::{FittedOls, OlsRegressor, OlsRegressorBuilder};
+pub use ordinal::{
+    FittedOrdinal, OrdinalLink, OrdinalQuantileMethod, OrdinalRegressor, OrdinalRegressorBuilder,
+};
 pub use passive_aggressive::{
     FittedPassiveAggressive, PaLoss, PaState, PassiveAggressiveRegressor,
     PassiveAggressiveRegressorBuilder,
