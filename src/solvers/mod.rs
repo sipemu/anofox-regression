@@ -6,6 +6,7 @@ pub mod alm;
 mod bayesian;
 mod binomial;
 mod bls;
+pub mod continuation_ratio;
 pub mod cv;
 pub mod eb_shrink;
 mod elastic_net;
@@ -55,6 +56,10 @@ pub use bayesian::{
 };
 pub use binomial::{BinomialRegressor, FittedBinomial};
 pub use bls::{BlsRegressor, FittedBls};
+pub use continuation_ratio::{
+    cr_setup, ContinuationRatioData, ContinuationRatioRegressor, ContinuationRatioRegressorBuilder,
+    FittedContinuationRatio,
+};
 pub use elastic_net::{ElasticNetRegressor, FittedElasticNet};
 pub use gamma::{FittedGamma, GammaRegressor, GammaRegressorBuilder};
 pub use glmm::{
