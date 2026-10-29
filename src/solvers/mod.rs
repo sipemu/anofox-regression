@@ -15,6 +15,7 @@ mod gamma;
 mod glm_alias;
 mod glmm;
 mod glmm_satterthwaite;
+pub mod gls;
 mod huber;
 mod isotonic;
 mod lars;
@@ -65,6 +66,10 @@ pub use elastic_net::{ElasticNetRegressor, FittedElasticNet};
 pub use gamma::{FittedGamma, GammaRegressor, GammaRegressorBuilder};
 pub use glmm::{
     FactorSummary, FittedGlmm, GlmmDdf, GlmmInference, GlmmRegressor, GlmmRegressorBuilder,
+};
+pub use gls::{
+    FittedGls, GlsCorrelation, GlsMethod, GlsRegressor, GlsRegressorBuilder, GlsResidualType,
+    GlsVariance, VarCovIntervals, VariogramBin,
 };
 pub use huber::{FittedHuber, HuberRegressor, HuberRegressorBuilder};
 pub use isotonic::{FittedIsotonic, IsotonicRegressor, IsotonicRegressorBuilder, OutOfBounds};

@@ -43,6 +43,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_pls_validation.R` | Validates PLS regression |
 | `tests/r_scripts/generate_glmm_validation.R` | Validates `GlmmRegressor` (random intercept, slopes, crossed/nested) against `lme4::lmer` / `glmer(nAGQ=0)` |
 | `tests/r_scripts/generate_glmm_satterthwaite_validation.R` | Validates GLMM `vcov`, Satterthwaite df (`lmerTest`), BLUP conditional SEs and fitted values / residuals |
+| `tests/r_scripts/generate_gls_validation.R` | Validates `GlsRegressor` (correlation structures, variance functions, REML/ML, var-cov intervals, variogram) against `nlme::gls` |
 
 #### scikit-learn-based oracles (Python, `validation/python/`)
 
