@@ -23,6 +23,7 @@
 //! println!("phi = {:?}, AIC = {}", fit.correlation_params(), fit.aic());
 //! ```
 
+use crate::diagnostics::accuracy::quantile7;
 use crate::solvers::traits::RegressionError;
 use basin::{
     CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente, NelderMead,
@@ -1317,7 +1318,7 @@ fn collapse_variogram(pairs: Vec<(f64, f64)>, nint: usize) -> Vec<VariogramBin> 
     // (b_k, b_k+1] (`cut` drops distances equal to the smallest break)
     let class: Box<dyn Fn(f64) -> Option<usize>> = if nint < distinct.len() {
         let mut breaks: Vec<f64> = (0..=nint)
-            .map(|k| quantile_type7(&dists, k as f64 / nint as f64))
+            .map(|k| quantile7(&dists, k as f64 / nint as f64))
             .collect();
         breaks.dedup();
         Box::new(move |d| {
@@ -1343,17 +1344,9 @@ fn collapse_variogram(pairs: Vec<(f64, f64)>, nint: usize) -> Vec<VariogramBin> 
             ds.sort_by(f64::total_cmp);
             VariogramBin {
                 variog: b.iter().map(|p| p.1).sum::<f64>() / b.len() as f64,
-                dist: quantile_type7(&ds, 0.5),
+                dist: quantile7(&ds, 0.5),
                 n_pairs: b.len(),
             }
         })
         .collect()
-}
-
-/// R's default (type 7) quantile of sorted data.
-fn quantile_type7(sorted: &[f64], p: f64) -> f64 {
-    let h = (sorted.len() - 1) as f64 * p;
-    let lo = h.floor() as usize;
-    let hi = (lo + 1).min(sorted.len() - 1);
-    sorted[lo] + (h - lo as f64) * (sorted[hi] - sorted[lo])
 }
