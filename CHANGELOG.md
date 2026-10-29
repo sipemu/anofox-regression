@@ -122,6 +122,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `predict_grid` is `Predict`: a 200-point grid between the prediction limits, or given values, with pointwise CIs.
   - Validated in `tests/r_validation_effects.rs` (generator `tests/r_scripts/generate_effects_validation.R`) against `datadist`, `summary` (with odds ratios), `contrast` (single, double, factor levels) and `Predict` for `ols` and `lrm` with an rcs × linear interaction and a three-level factor.
 
+- **Bootstrap covariance for any fit: `validation::bootcov` (#104, RMS §5.2, §5.4).**
+  - `bootcov(samples, fit)` refits any model (a closure returning its coefficients) on each resample. It returns the replicates, their mean and the bootstrap covariance (divisor B − 1, as `rms::bootcov`), which is usable as `V̂` in `wald_test`, `anova` and `effects` contrasts.
+  - `percentile_ci(level)` gives percentile intervals; `linear_combination_ci(c, level)` gives them for contrasts and predictions.
+  - `bootstrap_rows` draws ordinary resamples; `cluster_bootstrap_rows` draws cluster (block) resamples of whole clusters.
+  - `rank_intervals(original, replicates, level)` gives bootstrap intervals for the ranks of predictor importance, e.g. from partial χ² − d.f. (RMS §5.4).
+  - Validated in `tests/r_validation_bootcov.rs` (generator `tests/r_scripts/generate_bootcov_validation.R`) against `bootcov` replicates, covariance and percentiles, with ordinary and cluster bootstrap, replaying R's resamples.
+
 ### Changed
 
 - **Fewer allocations and less work per OLS fit (#129).** For many small per-group fits, 100K fits of 20×3 (`examples/many_small_fits.rs`) go from 58 to 32 allocations per fit (−45%) and from 6.3 to 4.4 µs without inference, and from 76 to 48 allocations and from 11.3 to 9.2 µs with inference.
