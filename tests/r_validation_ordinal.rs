@@ -313,3 +313,75 @@ fn ordinal_rejects_bad_input() {
         .fit(&x, &y)
         .is_err());
 }
+
+#[test]
+fn accessors_and_summary_statistics() {
+    let f = fit(&Y_CAT, OrdinalLink::Probit, Some(&W), None);
+    assert_eq!(f.link(), OrdinalLink::Probit);
+    assert_eq!(f.n_observations(), N);
+    assert!(f.iterations() > 0);
+    let total: f64 = W.iter().sum();
+    close("total weight", f.counts().iter().sum::<f64>(), total, 1e-12);
+    let v = f.vcov_slopes();
+    let se = f.std_errors();
+    for j in 0..3 {
+        close("se", se[j], v[(j, j)].sqrt(), 1e-15);
+    }
+    let p = f.lr_p_value();
+    assert!(p > 0.0 && p < 1e-6, "LR p-value {p}");
+    // intercept-only: no slopes, so no LR test
+    let y = Col::from_fn(N, |i| Y_CAT[i]);
+    let f0 = OrdinalRegressor::builder()
+        .build()
+        .fit(&Mat::zeros(N, 0), &y)
+        .unwrap();
+    assert!(f0.lr_p_value().is_nan());
+    close(
+        "intercept-only ll",
+        f0.log_likelihood(),
+        f0.null_log_likelihood(),
+        1e-9,
+    );
+}
+
+#[test]
+fn iteration_limit_reports_non_convergence() {
+    let y = Col::from_fn(N, |i| Y_CONT[i]);
+    let f = OrdinalRegressor::builder()
+        .max_iterations(1)
+        .tolerance(1e-14)
+        .build()
+        .fit(&x(), &y)
+        .unwrap();
+    assert!(!f.converged());
+    assert_eq!(f.iterations(), 1);
+}
+
+#[test]
+fn ordinal_rejects_more_bad_input() {
+    let x = x();
+    let y = Col::from_fn(N, |i| Y_CAT[i]);
+    let mut y_nan = y.clone();
+    y_nan[3] = f64::NAN;
+    assert!(OrdinalRegressor::builder().build().fit(&x, &y_nan).is_err());
+    let short_w = Col::from_fn(5, |_| 1.0);
+    assert!(OrdinalRegressor::builder()
+        .weights(short_w)
+        .build()
+        .fit(&x, &y)
+        .is_err());
+    // a level whose observations all have zero weight
+    let w = Col::from_fn(N, |i| if Y_CAT[i] == 1.0 { 0.0 } else { 1.0 });
+    assert!(OrdinalRegressor::builder()
+        .weights(w)
+        .build()
+        .fit(&x, &y)
+        .is_err());
+    // an offset so extreme that the start has zero likelihood
+    let off = Col::from_fn(N, |i| if i == 0 { 1e300 } else { 0.0 });
+    assert!(OrdinalRegressor::builder()
+        .offset(off)
+        .build()
+        .fit(&x, &y)
+        .is_err());
+}

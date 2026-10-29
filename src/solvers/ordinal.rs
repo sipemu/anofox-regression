@@ -877,3 +877,62 @@ fn interpolate_decreasing(xs: &[f64], ys: &[f64], x: f64) -> f64 {
     }
     pts[last].1
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_functions_are_consistent() {
+        let links = [
+            OrdinalLink::Logistic,
+            OrdinalLink::Probit,
+            OrdinalLink::LogLog,
+            OrdinalLink::CLogLog,
+            OrdinalLink::Cauchit,
+        ];
+        for link in links {
+            for x in [-3.0, -0.7, 0.0, 0.4, 2.5] {
+                assert!(
+                    (link.cdf(x) + link.sf(x) - 1.0).abs() < 1e-14,
+                    "{link:?} sf"
+                );
+                assert!(
+                    (link.quantile(link.cdf(x)) - x).abs() < 1e-8,
+                    "{link:?} quantile"
+                );
+                let h = 1e-5;
+                let dcdf = (link.cdf(x + h) - link.cdf(x - h)) / (2.0 * h);
+                assert!((link.pdf(x) - dcdf).abs() < 1e-8, "{link:?} pdf");
+                let dpdf = (link.pdf(x + h) - link.pdf(x - h)) / (2.0 * h);
+                assert!((link.dpdf(x) - dpdf).abs() < 1e-7, "{link:?} dpdf");
+                let between = link.prob_between(x + 1.0, x);
+                assert!((between - (link.cdf(x + 1.0) - link.cdf(x))).abs() < 1e-14);
+            }
+        }
+    }
+
+    #[test]
+    fn interpolation_follows_r_approx() {
+        let xs = [1.0, 0.8, 0.8, 0.3, 0.0];
+        let ys = [0.0, 1.0, 3.0, 4.0, 5.0];
+        // ends are held constant (rule = 2)
+        assert_eq!(interpolate_decreasing(&xs, &ys, 1.5), 0.0);
+        assert_eq!(interpolate_decreasing(&xs, &ys, -0.2), 5.0);
+        // tied x collapse to the mean of their y (ties = mean)
+        assert!((interpolate_decreasing(&xs, &ys, 0.8) - 2.0).abs() < 1e-15);
+        assert!((interpolate_decreasing(&xs, &ys, 0.9) - 1.0).abs() < 1e-15);
+        assert!((interpolate_decreasing(&xs, &ys, 0.55) - 3.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn a_non_positive_definite_information_is_rejected() {
+        let info = Information {
+            a_diag: vec![1.0, -1.0],
+            a_off: vec![0.0],
+            b: Mat::zeros(2, 0),
+            d: Mat::zeros(0, 0),
+        };
+        assert!(InformationFactor::new(&info).is_none());
+    }
+}
