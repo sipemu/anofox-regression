@@ -144,6 +144,12 @@ cat(sprintf("const EXPECTED_INTERCEPT_FOLDEDNORMAL: f64 = %.10f;\n", coef(model_
 cat(sprintf("const EXPECTED_COEF_FOLDEDNORMAL: f64 = %.10f;\n", coef(model_fn)[2]))
 cat(sprintf("const EXPECTED_SCALE_FOLDEDNORMAL: f64 = %.10f;\n", model_fn$scale))
 cat(sprintf("const EXPECTED_LL_FOLDEDNORMAL: f64 = %.10f;\n", logLik(model_fn)))
+# converged MLE of (b0, b1, log sigma) for MLE_FOLDEDNORMAL (#142); mu is identified up to sign
+nll_fn <- function(p) -sum(dfnorm(y_fn, mu = p[1] + p[2] * x1, sigma = exp(p[3]), log = TRUE))
+o <- optim(c(coef(model_fn), log(sd(y_fn))), nll_fn, method = "Nelder-Mead", control = list(reltol = 1e-15, maxit = 5000))
+o <- optim(o$par, nll_fn, method = "BFGS", control = list(reltol = 1e-16, maxit = 1000))
+cat(sprintf("const MLE_FOLDEDNORMAL: [f64; 3] = [%.10f, %.10f, %.10f];\n", abs(o$par[1]), sign(o$par[1]) * o$par[2], exp(o$par[3])))
+cat(sprintf("const MLE_LL_FOLDEDNORMAL: f64 = %.10f;\n", -o$value))
 cat("\n")
 
 # -----------------------------------------------------------------------------
@@ -165,6 +171,12 @@ cat(sprintf("const EXPECTED_INTERCEPT_RECTIFIEDNORMAL: f64 = %.10f;\n", coef(mod
 cat(sprintf("const EXPECTED_COEF_RECTIFIEDNORMAL: f64 = %.10f;\n", coef(model_rect)[2]))
 cat(sprintf("const EXPECTED_SCALE_RECTIFIEDNORMAL: f64 = %.10f;\n", model_rect$scale))
 cat(sprintf("const EXPECTED_LL_RECTIFIEDNORMAL: f64 = %.10f;\n", logLik(model_rect)))
+# alm() stops short of the MLE; converge (b0, b1, log sigma) for MLE_RECTIFIEDNORMAL (#142)
+nll_rect <- function(p) -sum(drectnorm(y_rect, mu = p[1] + p[2] * x_rect, sigma = exp(p[3]), log = TRUE))
+o <- optim(c(coef(model_rect), log(sd(y_rect))), nll_rect, method = "Nelder-Mead", control = list(reltol = 1e-15, maxit = 5000))
+o <- optim(o$par, nll_rect, method = "BFGS", control = list(reltol = 1e-16, maxit = 1000))
+cat(sprintf("const MLE_RECTIFIEDNORMAL: [f64; 3] = [%.10f, %.10f, %.10f];\n", o$par[1], o$par[2], exp(o$par[3])))
+cat(sprintf("const MLE_LL_RECTIFIEDNORMAL: f64 = %.10f;\n", -o$value))
 cat("\n")
 
 # =============================================================================
