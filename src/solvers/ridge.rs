@@ -367,6 +367,40 @@ impl RidgeRegressor {
         self.fit_from_moments(acc.xtx(), acc.xty(), acc.sum_x(), acc.sum_y(), acc.n())
     }
 
+    /// Fit ridge from a mergeable [`crate::solvers::SufficientStats`] state.
+    ///
+    /// λ (with the configured [`LambdaScaling`], `n` = rows in the state) is
+    /// applied here, so one state serves any λ grid. Gives the same result
+    /// as [`Regressor::fit`] on the rows the state was built from, up to
+    /// floating-point summation order, including the sandwich standard
+    /// errors and the variance factor for intervals. Weights recorded in the
+    /// state are honoured (weighted ridge). `residuals` and `fitted_values`
+    /// are empty.
+    pub fn fit_from_state(
+        &self,
+        state: &crate::solvers::SufficientStats,
+    ) -> Result<FittedRidge, RegressionError> {
+        let lambda = if self.options.lambda == 0.0 {
+            0.0
+        } else {
+            self.effective_lambda(state.n_observations())
+        };
+        let fit = crate::solvers::suff_stats::fit_state(
+            state,
+            &self.options,
+            crate::utils::LM_ALIAS_TOLERANCE,
+            lambda,
+        )?;
+        let variance_factor = fit.reduced_factor.map(|m| {
+            crate::inference::expand_reduced_factor(&m, &fit.aliased, self.options.with_intercept)
+        });
+        Ok(FittedRidge {
+            options: self.options.clone(),
+            result: fit.result,
+            variance_factor,
+        })
+    }
+
     /// Ridge sandwich variance factor `A X'X A`, `A = (X'X + λP)⁻¹` (augmented
     /// with an unpenalised intercept when one is fitted).
     fn ridge_variance_factor(&self, x: &Mat<f64>) -> Option<Mat<f64>> {

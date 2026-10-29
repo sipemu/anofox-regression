@@ -29,10 +29,14 @@ This library provides sklearn-style regression estimators with full statistical 
   - Ridge / elastic-net regularisation paths and `cv.glmnet`-style CV (`solvers::path`),
     with group, leave-one-group-out, stratified, stratified-group and time-series
     (rolling-origin) folds, CV on explicit train / test splits and nested CV (`solvers::cv`)
-  - **Streaming fits** via `MomentAccumulator` — OLS and Ridge accept
-    pre-accumulated sufficient statistics `(n, Σx, Σy, XᵀX, Xᵀy)`, so
-    panels with millions of rows can be fit without ever materialising
-    the full design matrix (see `cargo run --example streaming_ridge`)
+  - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
+    serializable (versioned bytes) state of weighted means and centred
+    co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`
+    return the same coefficients, aliasing, standard errors, R², F,
+    log-likelihood and intervals as `fit()` on the concatenated rows; ridge
+    applies λ at finalize, so one state serves a λ grid. Stays accurate for
+    data with large offsets. The older `MomentAccumulator` (raw moments,
+    coefficients only) is kept (see `cargo run --example streaming_ridge`)
 
 - **Robust & Bayesian Regression**
   - Theil-Sen (Vardi-Zhang spatial-median, ~29.3% breakdown point)

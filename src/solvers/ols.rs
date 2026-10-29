@@ -248,6 +248,29 @@ impl OlsRegressor {
         })
     }
 
+    /// Fit OLS from a mergeable [`crate::solvers::SufficientStats`] state.
+    ///
+    /// Gives the same result as [`Regressor::fit`] on the rows the state was
+    /// built from (up to floating-point summation order): coefficients,
+    /// R-`lm`-style aliasing, classical inference, R², F, log-likelihood and
+    /// information criteria, and confidence / prediction intervals. Weights
+    /// recorded in the state are honoured, so a weighted state gives the
+    /// WLS fit. `residuals` and `fitted_values` are empty and the HC methods
+    /// return an error, since they need the rows.
+    pub fn fit_from_state(
+        &self,
+        state: &crate::solvers::SufficientStats,
+    ) -> Result<FittedOls, RegressionError> {
+        let fit =
+            crate::solvers::suff_stats::fit_state(state, &self.options, self.alias_tolerance, 0.0)?;
+        Ok(FittedOls {
+            options: self.options.clone(),
+            result: fit.result,
+            xtx_inverse: fit.reduced_factor,
+            aliased: fit.aliased,
+        })
+    }
+
     /// Fit OLS directly from a [`crate::solvers::MomentAccumulator`].
     /// Convenience wrapper around [`Self::fit_from_moments`].
     pub fn fit_from_accumulator(

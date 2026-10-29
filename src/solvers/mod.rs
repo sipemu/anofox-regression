@@ -35,6 +35,7 @@ pub mod quantile_inference;
 mod ransac;
 mod ridge;
 mod rls;
+pub mod suff_stats;
 mod theil_sen;
 mod traits;
 mod tweedie;
@@ -79,6 +80,7 @@ pub use quantile::{FittedQuantile, QuantileRegressor, QuantileRegressorBuilder};
 pub use ransac::{FittedRansac, RansacRegressor, RansacRegressorBuilder};
 pub use ridge::{FittedRidge, RidgeLoo, RidgeRegressor, RidgeRegressorBuilder};
 pub use rls::{FittedRls, RlsRegressor};
+pub use suff_stats::SufficientStats;
 pub use theil_sen::{
     FittedTheilSen, TheilSenCiMethod, TheilSenRegressor, TheilSenRegressorBuilder,
 };

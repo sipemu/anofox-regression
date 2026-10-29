@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.38] - 2026-10-29
+
+### Added
+
+- **Mergeable sufficient-statistic states for OLS / WLS / ridge: `solvers::SufficientStats` (#122, DataZooDE/anofox-statistics#266).** The state holds the row counts (all rows and rows with positive weight), `Σw`, `Σ ln w`, the weighted means and the centred co-moments `Cxx`, `Cxy`, `Cyy`. Rows go in with a weighted Welford update (`push`, `push_weighted`) or a two-pass block constructor (`from_data`). States combine with the Chan–Golub–LeVeque pairwise formula (`merge`, `merged`) in any order and grouping, and an empty state is the identity. The means are stored relative to a per-state shift (the first row), so data with a large offset (`x ≈ 1e9 + noise`) keeps the precision of the batch fit. `to_bytes` / `from_bytes` give a stable, versioned little-endian encoding that rejects a wrong magic or version, a length that does not match the feature count, and inconsistent contents.
+  - **`OlsRegressor::fit_from_state`, `WlsRegressor::fit_from_state`, `RidgeRegressor::fit_from_state`** return what `fit()` returns on the concatenated rows (to 1e-12 relative). That covers coefficients, R-`lm`-style aliasing in column order (from the pivots of a sequential Cholesky factorisation of the Gram matrix, same tolerance), classical standard errors, t, p and confidence intervals, R², adjusted R², F, MSE, log-likelihood, AIC / AICc / BIC, the variance factor, and confidence / prediction intervals for new rows. For ridge the λ (with its `LambdaScaling`) is applied at finalize, so one state serves a λ grid; the sandwich SEs are included. Weights recorded in the state are honoured: OLS on a weighted state is the WLS fit.
+  - Row-level quantities are not available from a state: residuals, fitted values, leverage, LOO, Cook's distance and the HC0–HC3 sandwich (`Σ eᵢ² xᵢxᵢᵀ` needs the residuals, so it is not mergeable in one pass). `residuals` / `fitted_values` are empty, and `hc_standard_errors` / `hc_inference` return an error. GLMs have no exact single-pass state; the module docs show how a state with working responses and weights makes each IRLS step distributable.
+  - Validated in `tests/issue122_sufficient_stats.rs`: random splits into 1–7 parts with random merge orders and byte round trips against `fit()` (OLS and WLS with and without intercept, zero weights, ridge over λ ∈ {0, 1e-3, 0.5, 10} with both scalings, aliased duplicate / constant / linear-combination columns, intervals); large offsets against a fit on the shifted data; and R `lm(weights =)`.
+
+### Fixed
+
+- `compute_hc_standard_errors` (and the `hc_*` methods built on it) returns an error instead of panicking when the residuals do not have one entry per row of `x`.
+
 ## [0.5.37] - 2026-10-23
 
 ### Added
