@@ -862,6 +862,27 @@ impl HasModelInfo for FittedTweedie {
 }
 
 impl FittedTweedie {
+    /// Estimated covariance of the coefficients, `φ̂ · (XᵀWX)⁻¹` (R's
+    /// `vcov(glm)`): intercept first when fitted, zero rows and columns for
+    /// aliased (dropped constant) columns. `None` unless the model was fitted
+    /// with `compute_inference(true)`.
+    pub fn vcov(&self) -> Option<Mat<f64>> {
+        if let Some((inner, keep)) = &self.reduced {
+            return inner.vcov().map(|v| {
+                super::glm_alias::expand_vcov(
+                    &v,
+                    keep,
+                    self.result.coefficients.nrows(),
+                    self.options.with_intercept,
+                )
+            });
+        }
+        let dispersion = self.dispersion;
+        self.xtwx_inverse
+            .as_ref()
+            .map(|m| Mat::from_fn(m.nrows(), m.ncols(), |i, j| dispersion * m[(i, j)]))
+    }
+
     /// Get the Tweedie family used for this model.
     pub fn family(&self) -> &TweedieFamily {
         &self.family

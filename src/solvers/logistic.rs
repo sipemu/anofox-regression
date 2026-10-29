@@ -137,6 +137,12 @@ impl HasModelInfo for FittedLogistic {
 }
 
 impl FittedLogistic {
+    /// Estimated covariance of the coefficients (R's `vcov(glm)`); see
+    /// the inner fit's `vcov`.
+    pub fn vcov(&self) -> Option<faer::Mat<f64>> {
+        self.inner.vcov()
+    }
+
     /// Predict class labels (0.0 or 1.0) for the given data.
     ///
     /// Applies the classification threshold to predicted probabilities:

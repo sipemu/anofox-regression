@@ -36,6 +36,26 @@ fn expand_col(c: &Col<f64>, keep: &[usize], p: usize) -> Col<f64> {
     out
 }
 
+/// Re-expand a coefficient covariance of a fit on `x[:, keep]` (intercept
+/// first when `with_intercept`) to the original `p` columns, with zero rows
+/// and columns for the dropped ones.
+pub(crate) fn expand_vcov(
+    v: &Mat<f64>,
+    keep: &[usize],
+    p: usize,
+    with_intercept: bool,
+) -> Mat<f64> {
+    let off = usize::from(with_intercept);
+    let index: Vec<usize> = (0..off).chain(keep.iter().map(|&j| j + off)).collect();
+    let mut out = Mat::zeros(p + off, p + off);
+    for (a, &i) in index.iter().enumerate() {
+        for (b, &j) in index.iter().enumerate() {
+            out[(i, j)] = v[(a, b)];
+        }
+    }
+    out
+}
+
 /// Re-expand a result fitted on `x[:, keep]` to the original `p` columns:
 /// dropped columns get `NaN` coefficients / inference and `aliased = true`.
 pub(crate) fn expand_result(r: &RegressionResult, keep: &[usize], p: usize) -> RegressionResult {
