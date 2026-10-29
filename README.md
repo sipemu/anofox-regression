@@ -106,7 +106,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-anofox-regression = "0.5"
+anofox-regression = "0.6"
 ```
 
 ## Examples

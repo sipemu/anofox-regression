@@ -3,7 +3,7 @@
 //!
 //! A [`Design`] stacks [`Basis`] blocks (e.g. from [`crate::splines`]) into a
 //! design matrix (no intercept column) and records a [`TermMap`] alongside.
-//! The term map is what [`crate::inference::anova`] needs for the
+//! The term map is what [`mod@crate::inference::anova`] needs for the
 //! `rms::anova.rms` table: the overall test of a predictor including its
 //! interactions, its nonlinear terms, the interaction tests and the pooled
 //! totals.
