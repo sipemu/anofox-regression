@@ -11,6 +11,7 @@ mod prediction;
 mod robust_covariance;
 mod variance_factor;
 mod wald;
+pub(crate) use prediction::compute_matrix_inverse;
 pub(crate) use variance_factor::expand_reduced_factor;
 pub(crate) use wald::{fill_wald_inference, WaldReference};
 

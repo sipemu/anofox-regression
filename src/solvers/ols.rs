@@ -243,7 +243,7 @@ impl OlsRegressor {
         Ok(FittedOls {
             options: self.options.clone(),
             result,
-            xtx_inverse: None,
+            xtx_inverse: LazyFactor::ready(None),
             aliased: vec![false; p],
         })
     }
@@ -266,7 +266,7 @@ impl OlsRegressor {
         Ok(FittedOls {
             options: self.options.clone(),
             result: fit.result,
-            xtx_inverse: fit.reduced_factor,
+            xtx_inverse: LazyFactor::ready(fit.reduced_factor),
             aliased: fit.aliased,
         })
     }
@@ -432,28 +432,35 @@ impl Regressor for OlsRegressor {
                 residuals[i] = y[i] - pred;
             }
 
-            // Compute statistics
+            // (X_aug'X_aug)⁻¹ over the non-aliased columns: computed once and
+            // shared by the standard errors and the prediction intervals when
+            // inference is requested, deferred (from the small Gram matrix)
+            // otherwise (#129).
+            let xtx_inverse = if self.options.compute_inference {
+                LazyFactor::ready(compute_xtx_inverse_augmented_reduced(x, &aliased).ok())
+            } else {
+                LazyFactor::deferred(reduced_gram(x, &aliased, true))
+            };
+
             let n_params = rank + 1; // +1 for intercept
             let result = self.compute_statistics(
                 x,
                 y,
-                &coefficients,
+                coefficients,
                 Some(intercept),
-                &residuals,
-                &fitted_values,
+                residuals,
+                fitted_values,
                 &aliased,
                 rank,
                 n_params,
+                xtx_inverse.computed(),
             )?;
-
-            // Compute (X_aug'X_aug)⁻¹ for prediction intervals (using non-aliased columns)
-            let xtx_inverse = compute_xtx_inverse_augmented_reduced(x, &aliased).ok();
 
             Ok(FittedOls {
                 options: self.options.clone(),
                 result,
                 xtx_inverse,
-                aliased: aliased.clone(),
+                aliased,
             })
         } else {
             // No intercept case
@@ -486,23 +493,28 @@ impl Regressor for OlsRegressor {
             let result = self.compute_statistics(
                 x,
                 y,
-                &coefficients,
+                coefficients,
                 None,
-                &residuals,
-                &fitted_values,
+                residuals,
+                fitted_values,
                 &aliased,
                 rank,
                 n_params,
+                None,
             )?;
 
-            // Compute (X'X)⁻¹ for prediction intervals (using non-aliased columns)
-            let xtx_inverse = compute_xtx_inverse_reduced(x, &aliased).ok();
+            // (X'X)⁻¹ for prediction intervals, deferred unless inference is on.
+            let xtx_inverse = if self.options.compute_inference {
+                LazyFactor::ready(compute_xtx_inverse_reduced(x, &aliased).ok())
+            } else {
+                LazyFactor::deferred(reduced_gram(x, &aliased, false))
+            };
 
             Ok(FittedOls {
                 options: self.options.clone(),
                 result,
                 xtx_inverse,
-                aliased: aliased.clone(),
+                aliased,
             })
         }
     }
@@ -734,31 +746,32 @@ impl OlsRegressor {
         &self,
         x: &Mat<f64>,
         y: &Col<f64>,
-        coefficients: &Col<f64>,
+        coefficients: Col<f64>,
         intercept: Option<f64>,
-        residuals: &Col<f64>,
-        fitted_values: &Col<f64>,
+        residuals: Col<f64>,
+        fitted_values: Col<f64>,
         aliased: &[bool],
         rank: usize,
         n_params: usize,
+        xtx_inverse: Option<&Mat<f64>>,
     ) -> Result<RegressionResult, RegressionError> {
         let n = y.nrows();
-        let n_features = x.ncols();
 
         let stats = super::fit_stats::linear_fit_stats(
             y,
-            residuals,
+            &residuals,
             None,
             intercept.is_some(),
             n_params,
             false,
         );
 
-        let mut result = RegressionResult::empty(n_features, n);
-        result.coefficients = coefficients.clone();
+        // Empty vectors are not allocated; the fields are moved in below.
+        let mut result = RegressionResult::empty(0, 0);
+        result.coefficients = coefficients;
         result.intercept = intercept;
-        result.residuals = residuals.clone();
-        result.fitted_values = fitted_values.clone();
+        result.residuals = residuals;
+        result.fitted_values = fitted_values;
         result.rank = rank;
         result.n_parameters = n_params;
         result.n_observations = n;
@@ -769,17 +782,19 @@ impl OlsRegressor {
 
         // Compute inference statistics if requested
         if self.options.compute_inference {
-            self.compute_inference(x, &mut result)?;
+            self.compute_inference(x, &mut result, xtx_inverse)?;
         }
 
         Ok(result)
     }
 
     /// Compute inference statistics (standard errors, t-stats, p-values, CIs).
+    /// `xtx_inverse` is the reduced augmented inverse when already computed.
     fn compute_inference(
         &self,
         x: &Mat<f64>,
         result: &mut RegressionResult,
+        xtx_inverse: Option<&Mat<f64>>,
     ) -> Result<(), RegressionError> {
         let df = result.residual_df() as f64;
 
@@ -790,11 +805,19 @@ impl OlsRegressor {
         // Use the augmented design matrix method for models with intercept
         // This computes SE for both intercept and coefficients correctly
         if let Some(intercept) = result.intercept {
-            match CoefficientInference::standard_errors_with_intercept(
-                x,
-                result.mse,
-                &result.aliased,
-            ) {
+            let se = match xtx_inverse {
+                Some(inv) => Ok(CoefficientInference::expand_augmented_se(
+                    inv,
+                    result.mse,
+                    &result.aliased,
+                )),
+                None => CoefficientInference::standard_errors_with_intercept(
+                    x,
+                    result.mse,
+                    &result.aliased,
+                ),
+            };
+            match se {
                 Ok((se, se_int)) => {
                     // t-statistics
                     let t_stats = CoefficientInference::t_statistics(&result.coefficients, &se);
@@ -879,13 +902,78 @@ impl OlsRegressor {
     }
 }
 
+/// The reduced `(X'X)⁻¹` of a fit: computed during the fit, or deferred
+/// and inverted from the small Gram matrix on first use (#129).
+#[derive(Debug, Clone)]
+pub(crate) struct LazyFactor {
+    gram: Option<Mat<f64>>,
+    inverse: std::sync::OnceLock<Option<Mat<f64>>>,
+}
+
+impl LazyFactor {
+    pub(crate) fn ready(inverse: Option<Mat<f64>>) -> Self {
+        Self {
+            gram: None,
+            inverse: std::sync::OnceLock::from(inverse),
+        }
+    }
+
+    pub(crate) fn deferred(gram: Mat<f64>) -> Self {
+        Self {
+            gram: Some(gram),
+            inverse: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// The inverse if it was computed during the fit.
+    fn computed(&self) -> Option<&Mat<f64>> {
+        self.inverse.get().and_then(Option::as_ref)
+    }
+
+    /// The inverse, computing it on first use.
+    pub(crate) fn get(&self) -> Option<&Mat<f64>> {
+        self.inverse
+            .get_or_init(|| {
+                self.gram
+                    .as_ref()
+                    .and_then(|g| crate::inference::compute_matrix_inverse(g).ok())
+            })
+            .as_ref()
+    }
+}
+
+/// Gram matrix of the non-aliased columns of `x`, with a leading column of
+/// ones when `augmented`, without materialising the reduced design.
+pub(crate) fn reduced_gram(x: &Mat<f64>, aliased: &[bool], augmented: bool) -> Mat<f64> {
+    let kept: Vec<usize> = (0..x.ncols()).filter(|&j| !aliased[j]).collect();
+    let off = usize::from(augmented);
+    let k = kept.len() + off;
+    let n = x.nrows();
+    let mut g = Mat::<f64>::zeros(k, k);
+    for i in 0..n {
+        for a in 0..k {
+            let va = if a < off { 1.0 } else { x[(i, kept[a - off])] };
+            for b in a..k {
+                let vb = if b < off { 1.0 } else { x[(i, kept[b - off])] };
+                g[(a, b)] += va * vb;
+            }
+        }
+    }
+    for a in 0..k {
+        for b in 0..a {
+            g[(a, b)] = g[(b, a)];
+        }
+    }
+    g
+}
+
 /// A fitted OLS regression model.
 #[derive(Debug, Clone)]
 pub struct FittedOls {
     options: RegressionOptions,
     result: RegressionResult,
     /// (X'X)⁻¹ or (X_aug'X_aug)⁻¹ for prediction intervals (reduced to non-aliased columns)
-    xtx_inverse: Option<Mat<f64>>,
+    xtx_inverse: LazyFactor,
     /// Which columns are aliased (collinear or constant)
     aliased: Vec<bool>,
 }
@@ -903,7 +991,7 @@ impl FittedOls {
     /// `p` without; rows/columns of aliased columns are zero. `None` if the
     /// matrix could not be computed (e.g. a fit from moments).
     pub fn variance_factor(&self) -> Option<Mat<f64>> {
-        self.xtx_inverse.as_ref().map(|m| {
+        self.xtx_inverse.get().map(|m| {
             crate::inference::expand_reduced_factor(
                 m,
                 &self.aliased,
@@ -993,7 +1081,7 @@ impl FittedRegressor for FittedOls {
             None => PredictionResult::point_only(predictions),
             Some(interval_type) => {
                 // Need xtx_inverse to compute intervals
-                match &self.xtx_inverse {
+                match self.xtx_inverse.get() {
                     Some(xtx_inv) => {
                         let df = self.result.residual_df() as f64;
                         let has_intercept = self.result.intercept.is_some();

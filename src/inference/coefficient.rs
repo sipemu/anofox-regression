@@ -155,7 +155,11 @@ impl CoefficientInference {
 
     /// Map the diagonal of a reduced augmented inverse (intercept first, then
     /// the non-aliased columns in order) to `(coefficient_SE, intercept_SE)`.
-    fn expand_augmented_se(inv: &Mat<f64>, mse: f64, aliased: &[bool]) -> (Col<f64>, f64) {
+    pub(crate) fn expand_augmented_se(
+        inv: &Mat<f64>,
+        mse: f64,
+        aliased: &[bool],
+    ) -> (Col<f64>, f64) {
         let sd = |v: f64| {
             let var = mse * v;
             if var >= 0.0 {
