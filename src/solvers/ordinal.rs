@@ -151,6 +151,7 @@ pub struct OrdinalRegressor {
     link: OrdinalLink,
     weights: Option<Col<f64>>,
     offset: Option<Col<f64>>,
+    penalty: Option<OrdinalPenalty>,
     max_iterations: usize,
     tolerance: f64,
 }
@@ -168,6 +169,7 @@ impl Default for OrdinalRegressorBuilder {
                 link: OrdinalLink::Logistic,
                 weights: None,
                 offset: None,
+                penalty: None,
                 max_iterations: 100,
                 tolerance: 1e-10,
             },
@@ -194,6 +196,20 @@ impl OrdinalRegressorBuilder {
         self
     }
 
+    /// Quadratic penalty `λ · diag(var(x_j))` on the slopes (`orm` / `lrm`'s
+    /// `penalty = λ` for simple numeric predictors; sample variances).
+    pub fn penalty(mut self, lambda: f64) -> Self {
+        self.inner.penalty = Some(OrdinalPenalty::Scale(lambda));
+        self
+    }
+
+    /// Quadratic penalty `½ βᵀPβ` with a given `p × p` matrix `P`
+    /// (`penalty.matrix`).
+    pub fn penalty_matrix(mut self, penalty: Mat<f64>) -> Self {
+        self.inner.penalty = Some(OrdinalPenalty::Matrix(penalty));
+        self
+    }
+
     /// Maximum Newton iterations (default 100).
     pub fn max_iterations(mut self, n: usize) -> Self {
         self.inner.max_iterations = n;
@@ -211,6 +227,15 @@ impl OrdinalRegressorBuilder {
     pub fn build(self) -> OrdinalRegressor {
         self.inner
     }
+}
+
+/// A quadratic penalty on the slopes.
+#[derive(Debug, Clone)]
+enum OrdinalPenalty {
+    /// `λ · diag(var(x_j))`.
+    Scale(f64),
+    /// A given matrix.
+    Matrix(Mat<f64>),
 }
 
 /// The observed information `[[A, B], [Bᵀ, D]]` at the estimate: `A` the
@@ -329,6 +354,7 @@ pub struct FittedOrdinal {
     intercepts: Col<f64>,
     coefficients: Col<f64>,
     log_likelihood: f64,
+    penalized_log_likelihood: f64,
     null_log_likelihood: f64,
     iterations: usize,
     converged: bool,
@@ -336,6 +362,7 @@ pub struct FittedOrdinal {
     information: Information,
     weights: Option<Col<f64>>,
     offset: Option<Col<f64>>,
+    penalty: Option<Mat<f64>>,
 }
 
 /// Data shared by the likelihood evaluations.
@@ -346,9 +373,25 @@ struct Problem<'a> {
     weights: Vec<f64>,
     offset: Vec<f64>,
     k: usize,
+    penalty: Option<Mat<f64>>,
 }
 
 impl Problem<'_> {
+    /// `½ βᵀPβ`.
+    fn penalty_value(&self, beta: &[f64]) -> f64 {
+        self.penalty.as_ref().map_or(0.0, |pm| {
+            let p = beta.len();
+            0.5 * (0..p)
+                .map(|r| (0..p).map(|c| beta[r] * pm[(r, c)] * beta[c]).sum::<f64>())
+                .sum::<f64>()
+        })
+    }
+
+    /// The maximised objective: the log-likelihood minus the penalty.
+    fn objective(&self, alpha: &[f64], beta: &[f64]) -> f64 {
+        self.log_likelihood(alpha, beta) - self.penalty_value(beta)
+    }
+
     fn eta(&self, beta: &[f64]) -> Vec<f64> {
         let (n, p) = (self.x.nrows(), self.x.ncols());
         (0..n)
@@ -451,6 +494,14 @@ impl Problem<'_> {
                 info.d[(s, r)] = info.d[(r, s)];
             }
         }
+        if let Some(pm) = &self.penalty {
+            for r in 0..p {
+                g_b[r] -= (0..p).map(|c| pm[(r, c)] * beta[c]).sum::<f64>();
+                for c in 0..p {
+                    info.d[(r, c)] += pm[(r, c)];
+                }
+            }
+        }
         (g_a, g_b, info)
     }
 }
@@ -530,6 +581,27 @@ impl OrdinalRegressor {
             ));
         }
 
+        let penalty = match &self.penalty {
+            None => None,
+            Some(OrdinalPenalty::Matrix(pm)) => {
+                if pm.nrows() != p || pm.ncols() != p {
+                    return Err(RegressionError::NumericalError(format!(
+                        "the penalty matrix is {}×{}, expected {p}×{p}",
+                        pm.nrows(),
+                        pm.ncols()
+                    )));
+                }
+                Some(pm.clone())
+            }
+            Some(OrdinalPenalty::Scale(lambda)) => Some(Mat::from_fn(p, p, |r, c| {
+                if r != c || n < 2 {
+                    return 0.0;
+                }
+                let mean = (0..n).map(|i| x[(i, r)]).sum::<f64>() / n as f64;
+                let ss: f64 = (0..n).map(|i| (x[(i, r)] - mean).powi(2)).sum();
+                lambda * ss / (n - 1) as f64
+            })),
+        };
         let problem = Problem {
             link: self.link,
             x,
@@ -537,6 +609,7 @@ impl OrdinalRegressor {
             weights,
             offset,
             k,
+            penalty,
         };
 
         // Start: the intercept-only MLE, α_j = F⁻¹(P̂(Y ≥ y_{j+1})), β = 0.
@@ -547,11 +620,15 @@ impl OrdinalRegressor {
         // The intercept-only model: closed form, or (with an offset) its own
         // fit, as rms's model LR χ² compares against intercepts + offset.
         let null_ll: f64 = if self.offset.is_some() && p > 0 {
-            self.fit(&Mat::zeros(n, 0), y)?.log_likelihood
+            let intercepts_only = OrdinalRegressor {
+                penalty: None,
+                ..self.clone()
+            };
+            intercepts_only.fit(&Mat::zeros(n, 0), y)?.log_likelihood
         } else {
             counts.iter().map(|&c| c * (c / total).ln()).sum()
         };
-        let mut ll = problem.log_likelihood(&alpha, &beta);
+        let mut ll = problem.objective(&alpha, &beta);
         if !ll.is_finite() {
             return Err(RegressionError::NumericalError(
                 "the starting values have zero likelihood (check the offset)".to_string(),
@@ -580,7 +657,7 @@ impl OrdinalRegressor {
                 let alpha_new: Vec<f64> =
                     alpha.iter().zip(&da).map(|(a, d)| a + step * d).collect();
                 let beta_new: Vec<f64> = beta.iter().zip(&db).map(|(b, d)| b + step * d).collect();
-                let ll_new = problem.log_likelihood(&alpha_new, &beta_new);
+                let ll_new = problem.objective(&alpha_new, &beta_new);
                 if ll_new.is_finite() && ll_new >= ll - 1e-12 * ll.abs().max(1.0) {
                     alpha = alpha_new;
                     beta = beta_new;
@@ -611,7 +688,8 @@ impl OrdinalRegressor {
             counts,
             intercepts: Col::from_fn(k - 1, |j| alpha[j]),
             coefficients: Col::from_fn(p, |j| beta[j]),
-            log_likelihood: ll,
+            log_likelihood: problem.log_likelihood(&alpha, &beta),
+            penalized_log_likelihood: ll,
             null_log_likelihood: null_ll,
             iterations,
             converged,
@@ -619,6 +697,7 @@ impl OrdinalRegressor {
             information: info,
             weights: self.weights.clone(),
             offset: self.offset.clone(),
+            penalty: problem.penalty,
         })
     }
 }
@@ -649,9 +728,42 @@ impl FittedOrdinal {
         &self.coefficients
     }
 
-    /// Maximised log-likelihood.
+    /// Log-likelihood at the estimate (unpenalized, also for a penalized
+    /// fit).
     pub fn log_likelihood(&self) -> f64 {
         self.log_likelihood
+    }
+
+    /// The maximised objective `ℓ − ½ βᵀPβ` (the log-likelihood without a
+    /// penalty); `orm`'s model deviance is `−2` times it.
+    pub fn penalized_log_likelihood(&self) -> f64 {
+        self.penalized_log_likelihood
+    }
+
+    /// The penalty matrix `P` of a penalized fit.
+    pub fn penalty_matrix(&self) -> Option<&Mat<f64>> {
+        self.penalty.as_ref()
+    }
+
+    /// Effective degrees of freedom of the slopes, `diag(V I_unpenalized)`
+    /// with `V` the penalized covariance (`orm`'s `effective.df.diagonal`
+    /// without the intercepts, which are 1): `1 − (V_ββ P)_jj`; 1 each
+    /// without a penalty.
+    pub fn effective_df_diagonal(&self) -> Col<f64> {
+        let p = self.coefficients.nrows();
+        match &self.penalty {
+            None => Col::from_fn(p, |_| 1.0),
+            Some(pm) => {
+                let vp = self.vcov_slopes() * pm;
+                Col::from_fn(p, |j| 1.0 - vp[(j, j)])
+            }
+        }
+    }
+
+    /// Total effective degrees of freedom of the slopes (the d.f. of
+    /// [`Self::lr_chisq`] for a penalized fit).
+    pub fn effective_df(&self) -> f64 {
+        self.effective_df_diagonal().iter().sum()
     }
 
     /// Log-likelihood of the intercept-only model (with the offset, if any).
@@ -664,24 +776,24 @@ impl FittedOrdinal {
         2.0 * (self.log_likelihood - self.null_log_likelihood)
     }
 
-    /// Its degrees of freedom (the number of slopes).
+    /// The number of slopes (the d.f. of [`Self::lr_chisq`] without a
+    /// penalty; see [`Self::effective_df`]).
     pub fn lr_df(&self) -> usize {
         self.coefficients.nrows()
     }
 
-    /// p-value of [`Self::lr_chisq`].
+    /// p-value of [`Self::lr_chisq`] on [`Self::effective_df`] d.f.
     pub fn lr_p_value(&self) -> f64 {
-        let df = self.lr_df();
-        if df == 0 {
+        let df = self.effective_df();
+        if df.is_nan() || df <= 0.0 {
             return f64::NAN;
         }
-        ChiSquared::new(df as f64).map_or(f64::NAN, |d| d.sf(self.lr_chisq()))
+        ChiSquared::new(df).map_or(f64::NAN, |d| d.sf(self.lr_chisq()))
     }
 
-    /// AIC `−2ℓ + 2(k − 1 + p)`.
+    /// AIC `−2ℓ + 2(k − 1 + d.f.)` with the effective d.f. of the slopes.
     pub fn aic(&self) -> f64 {
-        -2.0 * self.log_likelihood
-            + 2.0 * (self.intercepts.nrows() + self.coefficients.nrows()) as f64
+        -2.0 * self.log_likelihood + 2.0 * (self.intercepts.nrows() as f64 + self.effective_df())
     }
 
     /// Newton iterations used.
@@ -703,7 +815,8 @@ impl FittedOrdinal {
         InformationFactor::new(&self.information).expect("positive definite at the fit")
     }
 
-    /// Covariance of the slopes (inverse observed information), without
+    /// Covariance of the slopes (inverse observed information, penalized for a
+    /// penalized fit: `orm`'s `var.penalty = "simple"`), without
     /// forming the intercept block: O(k·p²).
     pub fn vcov_slopes(&self) -> Mat<f64> {
         self.factor().s_inv.clone()
