@@ -122,6 +122,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `predict_grid` is `Predict`: a 200-point grid between the prediction limits, or given values, with pointwise CIs.
   - Validated in `tests/r_validation_effects.rs` (generator `tests/r_scripts/generate_effects_validation.R`) against `datadist`, `summary` (with odds ratios), `contrast` (single, double, factor levels) and `Predict` for `ols` and `lrm` with an rcs × linear interaction and a three-level factor.
 
+### Changed
+
+- **Fewer allocations and less work per OLS fit (#129).** For many small per-group fits, 100K fits of 20×3 (`examples/many_small_fits.rs`) go from 58 to 32 allocations per fit (−45%) and from 6.3 to 4.4 µs without inference, and from 76 to 48 allocations and from 11.3 to 9.2 µs with inference.
+  - With `compute_inference(true)`, `(XᵀX)⁻¹` is computed once and shared by the standard errors and the prediction-interval factor; it used to be computed twice.
+  - With `compute_inference(false)`, the factor is deferred: the fit keeps the small Gram matrix of the kept columns and inverts it on first use (`predict_with_interval`, `variance_factor`, `vcov`). Results agree with the eager factor to 1e-12.
+  - `lm_alias_columns` keeps its orthonormal basis in one flat buffer, with the same arithmetic.
+  - Fit results are moved into the `RegressionResult` instead of allocated and cloned.
+
 ### Fixed
 
 - `compute_hc_standard_errors` (and the `hc_*` methods built on it) returns an error instead of panicking when the residuals do not have one entry per row of `x`.
