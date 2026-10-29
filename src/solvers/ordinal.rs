@@ -850,6 +850,22 @@ impl FittedOrdinal {
         v
     }
 
+    /// Full covariance of a penalized fit by the sandwich `V I V` with `V`
+    /// the penalized inverse information and `I` the unpenalized information
+    /// (`orm` / `lrm`'s `var.penalty = "sandwich"`): `V − V_{·β} P V_{β·}`.
+    /// Equal to [`Self::vcov`] without a penalty. Dense, O(k²) memory.
+    pub fn vcov_sandwich(&self) -> Mat<f64> {
+        let v = self.vcov();
+        let Some(pm) = &self.penalty else {
+            return v;
+        };
+        let (m, p) = (self.intercepts.nrows(), self.coefficients.nrows());
+        let d = m + p;
+        let v_b = Mat::from_fn(d, p, |r, c| v[(r, m + c)]);
+        let correction = &v_b * pm * v_b.transpose();
+        Mat::from_fn(d, d, |r, c| v[(r, c)] - correction[(r, c)])
+    }
+
     /// `xᵀβ` for each row of `x` (no intercept, no offset).
     pub fn linear_predictor(&self, x: &Mat<f64>) -> Col<f64> {
         x * &self.coefficients

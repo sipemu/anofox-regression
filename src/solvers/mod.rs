@@ -29,6 +29,7 @@ pub mod ordinal;
 mod passive_aggressive;
 pub mod path;
 pub mod penalized_glm;
+pub mod pentrace;
 mod pls;
 mod poisson;
 mod pspline;
@@ -82,6 +83,11 @@ pub use ordinal::{
 pub use passive_aggressive::{
     FittedPassiveAggressive, PaLoss, PaState, PassiveAggressiveRegressor,
     PassiveAggressiveRegressorBuilder,
+};
+pub use pentrace::{
+    base_penalty_matrix, effective_df_by_term, penalized_ols, penalty_grid, penalty_matrix,
+    penalty_multipliers, pentrace, pentrace_ols, PenalizedOls, PenaltySpec, Pentrace,
+    PentraceCriterion, PentraceRow,
 };
 pub use pls::{FittedPls, PlsRegressor};
 pub use poisson::{FittedPoisson, PoissonRegressor};
