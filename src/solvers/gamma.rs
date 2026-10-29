@@ -68,6 +68,12 @@ impl HasModelInfo for FittedGamma {
 }
 
 impl FittedGamma {
+    /// Estimated covariance of the coefficients (R's `vcov(glm)`); see
+    /// the inner fit's `vcov`.
+    pub fn vcov(&self) -> Option<faer::Mat<f64>> {
+        self.inner.vcov()
+    }
+
     /// Mean predictions on the response scale (i.e. `exp(η)` for the log link).
     pub fn predict_mu(&self, x: &Mat<f64>) -> Col<f64> {
         self.inner.predict_mu(x)
