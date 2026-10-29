@@ -21,7 +21,10 @@
 //! calibration intercept and slope, Emax, D, U, Q, Brier, g, gp / R², MSE,
 //! g, intercept, slope), and [`calibrate_lrm`] / [`calibrate_ols`] the
 //! bootstrap overfitting-corrected calibration curve with its mean and 0.9
-//! quantile absolute error.
+//! quantile absolute error. [`bootcov`] gives the bootstrap covariance of
+//! any fit (ordinary or cluster bootstrap) with percentile intervals for
+//! coefficients and contrasts, and [`rank_intervals`] bootstrap intervals
+//! for the ranks of predictor importance.
 
 use crate::diagnostics::accuracy::{
     approx_ties_mean, binomial_deviance, gini_md, logistic_recalibration, lrm_stats, plogis,
@@ -676,6 +679,146 @@ pub fn calibrate_ols(
     )
 }
 
+/// Bootstrap replicates of a fit's coefficients (`rms::bootcov`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BootCov {
+    /// Coefficients of each successful replicate (`replicates × k`).
+    pub replicates: Mat<f64>,
+    /// Mean of the replicates.
+    pub mean: Vec<f64>,
+    /// Bootstrap covariance (divisor `B − 1`), usable as `V̂` in Wald tests,
+    /// `anova` and `effects::contrast`.
+    pub vcov: Mat<f64>,
+    /// Replicates whose fit failed (skipped).
+    pub failed: usize,
+}
+
+impl BootCov {
+    /// Percentile intervals (R type-7 quantiles) of every coefficient.
+    pub fn percentile_ci(&self, level: f64) -> Vec<(f64, f64)> {
+        (0..self.replicates.ncols())
+            .map(|j| {
+                let col: Vec<f64> = (0..self.replicates.nrows())
+                    .map(|b| self.replicates[(b, j)])
+                    .collect();
+                percentile(col, level)
+            })
+            .collect()
+    }
+
+    /// Percentile interval of the linear combination `cᵀβ` (a contrast or a
+    /// prediction).
+    pub fn linear_combination_ci(&self, c: &[f64], level: f64) -> (f64, f64) {
+        let vals = (0..self.replicates.nrows())
+            .map(|b| (0..c.len()).map(|j| c[j] * self.replicates[(b, j)]).sum())
+            .collect();
+        percentile(vals, level)
+    }
+}
+
+fn percentile(mut v: Vec<f64>, level: f64) -> (f64, f64) {
+    v.sort_by(|a, b| a.total_cmp(b));
+    let a = (1.0 - level) / 2.0;
+    (quantile7(&v, a), quantile7(&v, 1.0 - a))
+}
+
+/// Bootstrap covariance of any fit: `fit(rows)` returns the coefficient
+/// vector of the model refitted on the resampled rows (`None` = failure,
+/// skipped), for each resample in `samples` (from [`bootstrap_rows`],
+/// [`cluster_bootstrap_rows`] or given explicitly).
+pub fn bootcov(
+    samples: &[Vec<usize>],
+    mut fit: impl FnMut(&[usize]) -> Option<Vec<f64>>,
+) -> Result<BootCov, ValidationError> {
+    let reps: Vec<Vec<f64>> = samples.iter().filter_map(|s| fit(s)).collect();
+    let failed = samples.len() - reps.len();
+    if reps.len() < 2 {
+        return Err(ValidationError::Resamples(
+            "fewer than two successful replicates".into(),
+        ));
+    }
+    let (b, k) = (reps.len(), reps[0].len());
+    let replicates = Mat::from_fn(b, k, |i, j| reps[i][j]);
+    let mean: Vec<f64> = (0..k)
+        .map(|j| reps.iter().map(|r| r[j]).sum::<f64>() / b as f64)
+        .collect();
+    let vcov = Mat::from_fn(k, k, |a, c| {
+        reps.iter()
+            .map(|r| (r[a] - mean[a]) * (r[c] - mean[c]))
+            .sum::<f64>()
+            / (b - 1) as f64
+    });
+    Ok(BootCov {
+        replicates,
+        mean,
+        vcov,
+        failed,
+    })
+}
+
+/// `b` seeded ordinary bootstrap samples of `n` rows.
+pub fn bootstrap_rows(n: usize, b: usize, seed: u64) -> Vec<Vec<usize>> {
+    draw(n, b, seed)
+}
+
+/// `b` seeded cluster (block) bootstrap samples: draw as many clusters as
+/// there are, with replacement, and take all rows of each drawn cluster
+/// (repeated measures, RMS Ch 7). `clusters` holds a cluster code per row.
+pub fn cluster_bootstrap_rows(clusters: &[usize], b: usize, seed: u64) -> Vec<Vec<usize>> {
+    let mut ids: Vec<usize> = clusters.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    let members: Vec<Vec<usize>> = ids
+        .iter()
+        .map(|&c| (0..clusters.len()).filter(|&i| clusters[i] == c).collect())
+        .collect();
+    let mut rng = Rng(seed);
+    (0..b)
+        .map(|_| {
+            (0..ids.len())
+                .flat_map(|_| members[rng.below(ids.len())].iter().copied())
+                .collect()
+        })
+        .collect()
+}
+
+/// Bootstrap intervals for the ranks of predictor importance (RMS §5.4):
+/// `original` holds one importance statistic per predictor (e.g. partial
+/// χ² − d.f. from `inference::anova`) and `replicates` the same statistics
+/// per bootstrap fit (`B × m`). Ranks are R's `rank` (1 = least important,
+/// ties averaged); returns `(rank, lower, upper)` per predictor.
+pub fn rank_intervals(original: &[f64], replicates: &Mat<f64>, level: f64) -> Vec<(f64, f64, f64)> {
+    let m = original.len();
+    let orig = average_ranks(original);
+    let ranks: Vec<Vec<f64>> = (0..replicates.nrows())
+        .map(|b| average_ranks(&(0..m).map(|j| replicates[(b, j)]).collect::<Vec<_>>()))
+        .collect();
+    (0..m)
+        .map(|j| {
+            let (lo, hi) = percentile(ranks.iter().map(|r| r[j]).collect(), level);
+            (orig[j], lo, hi)
+        })
+        .collect()
+}
+
+fn average_ranks(v: &[f64]) -> Vec<f64> {
+    let mut idx: Vec<usize> = (0..v.len()).collect();
+    idx.sort_by(|&a, &b| v[a].total_cmp(&v[b]));
+    let mut r = vec![0.0; v.len()];
+    let mut a = 0;
+    while a < idx.len() {
+        let mut b = a;
+        while b < idx.len() && v[idx[b]] == v[idx[a]] {
+            b += 1;
+        }
+        for &i in &idx[a..b] {
+            r[i] = (a + b + 1) as f64 / 2.0;
+        }
+        a = b;
+    }
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -704,6 +847,24 @@ mod tests {
         let r = Resamples::point632_seeded(30, 60, 7).unwrap();
         assert!((r.weights.iter().sum::<f64>() - 1.0).abs() < 1e-12);
         assert!(Resamples::point632(3, vec![vec![0, 1, 2]]).is_err());
+    }
+
+    #[test]
+    fn ranks_and_cluster_rows() {
+        assert_eq!(
+            average_ranks(&[3.0, 1.0, 3.0, 2.0]),
+            vec![3.5, 1.0, 3.5, 2.0]
+        );
+        let rows = cluster_bootstrap_rows(&[0, 0, 1, 1, 1, 2], 5, 3);
+        for r in &rows {
+            // Whole clusters only: each cluster contributes all of its rows.
+            let count = |c: &[usize]| r.iter().filter(|i| c.contains(i)).count();
+            assert_eq!(count(&[0, 1]) % 2, 0);
+            assert_eq!(count(&[2, 3, 4]) % 3, 0);
+        }
+        let reps = Mat::from_fn(4, 2, |b, j| (b + j) as f64);
+        let r = rank_intervals(&[1.0, 2.0], &reps, 0.9);
+        assert_eq!(r[1], (2.0, 2.0, 2.0));
     }
 
     #[test]
