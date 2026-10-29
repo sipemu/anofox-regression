@@ -29,6 +29,29 @@ This library provides sklearn-style regression estimators with full statistical 
   - Ridge / elastic-net regularisation paths and `cv.glmnet`-style CV (`solvers::path`),
     with group, leave-one-group-out, stratified, stratified-group and time-series
     (rolling-origin) folds, CV on explicit train / test splits and nested CV (`solvers::cv`)
+  - **Regression splines** (`splines`): restricted cubic splines with Harrell's
+    default knots (`rms::rcs`), linear splines (`rms::lsp`), restricted
+    interactions (`%ia%`) and the algebraic form of a fitted spline
+    (`rcspline.restate`), as design-matrix columns for any model
+  - **Multi-d.f. Wald tests and the `rms` ANOVA table** (`inference::anova`,
+    `wald_test`): chunk tests of predictors, nonlinearity and interactions from
+    one fit with any (model, robust or bootstrap) covariance, on a `design::Design`
+    that records its terms
+  - **Predictive accuracy indexes** (`diagnostics::accuracy`): C / Dxy / γ / τ-a,
+    Harrell's C for censored data, Brier, Nagelkerke and adjusted R², g-indexes,
+    the `lrm` stats vector and `val.prob` calibration (intercept, slope, Emax, …)
+  - **Cluster-robust covariance** (`inference::cluster`): one- and multi-way
+    clustered sandwich (CR0 / CR1 / CR2 / CR3 as `sandwich::vcovCL`, `rms::robcov`)
+    for OLS / WLS, any GLM family and AFT
+  - **Nonparametric survival** (`survival`): Kaplan–Meier with Greenwood CIs,
+    Nelson–Aalen / Fleming–Harrington hazards, median and restricted mean,
+    strata, weights, left truncation, and log-rank / G-ρ tests (`survfit`, `survdiff`)
+  - **Cox proportional hazards** (`survival::cox`): Efron / Breslow ties, weights,
+    offsets, strata, time-dependent covariates, ridge, robust variance and predicted
+    survival curves (`coxph`, `survfit.coxph`, `cph`)
+  - **Model validation** (`validation`): optimism bootstrap, cross-validation and
+    .632 validation of any modelling process, and overfitting-corrected calibration
+    curves (`rms::validate`, `rms::calibrate`)
   - **Incremental and distributed fits** via `SufficientStats` — a mergeable,
     serializable (versioned bytes) state of weighted means and centred
     co-moments. `OlsRegressor`, `WlsRegressor` and `RidgeRegressor::fit_from_state`
@@ -83,7 +106,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-anofox-regression = "0.5"
+anofox-regression = "0.6"
 ```
 
 ## Examples

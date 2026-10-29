@@ -1,20 +1,36 @@
 //! Statistical inference (standard errors, p-values, confidence intervals).
 
+pub mod anova;
 mod anova_table;
+pub mod cluster;
 mod coefficient;
+pub mod likelihood;
 mod nested_f;
 mod predict_se;
 mod prediction;
 mod robust_covariance;
+pub mod stepdown;
 mod variance_factor;
 mod wald;
+pub(crate) use prediction::compute_matrix_inverse;
 pub(crate) use variance_factor::expand_reduced_factor;
 pub(crate) use wald::{fill_wald_inference, WaldReference};
 
+pub use anova::{
+    anova, drop_intercept, wald_chunk, wald_test, AnovaOptions, AnovaRow, AnovaRowKind,
+    WaldAnovaTable, WaldDistribution, WaldError, WaldTest,
+};
 pub use anova_table::{
     anova_table, AnovaTable, AnovaTableError, AnovaTableOptions, AnovaTerm, AnovaType,
 };
+pub use cluster::{
+    cluster_sandwich, glm_cluster_vcov, lm_cluster_vcov, ClusterError, ClusterOptions, ClusterType,
+};
 pub use coefficient::CoefficientInference;
+pub use likelihood::{
+    fit_glm, glm_score_test, lr_test, model_lr_test, profile_confint, ChiSqTest, Dispersion,
+    GlmData, GlmFit, LikelihoodError, LikelihoodFit, ScoreTest,
+};
 pub use nested_f::{
     nested_f_test, nested_f_test_indices, NestedFTest, NestedFTestError, NestedFTestOptions,
 };
@@ -30,6 +46,7 @@ pub use robust_covariance::{
     compute_hc_inference, compute_hc_standard_errors, HcInference, HcInterceptInference, HcResult,
     HcType,
 };
+pub use stepdown::{fastbw, StepDeletion, StepDown, StepRule, StepType};
 pub use variance_factor::{
     compute_ridge_variance_factor, compute_variance_factor, intervals_from_variance_factor,
     leverage_new,

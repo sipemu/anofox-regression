@@ -204,14 +204,23 @@ pub fn lm_alias_columns(
 ) -> Vec<bool> {
     let n = x.nrows();
     let p = x.ncols();
-    let mut basis: Vec<Vec<f64>> = Vec::with_capacity(p + 1);
+    if n == 0 {
+        return vec![true; p];
+    }
+    // The orthonormal basis lives in one flat buffer (column k at
+    // `k*n..(k+1)*n`) and `v` is reused across columns, so the test
+    // allocates a fixed handful of buffers regardless of p (#129).
+    let mut basis: Vec<f64> = Vec::with_capacity((p + 1) * n);
+    let mut v: Vec<f64> = vec![0.0; n];
     let norm = |v: &[f64]| v.iter().map(|a| a * a).sum::<f64>().sqrt();
 
     if let Some(ic) = intercept {
-        let v: Vec<f64> = (0..n).map(|i| ic[i]).collect();
+        for (i, vi) in v.iter_mut().enumerate() {
+            *vi = ic[i];
+        }
         let nv = norm(&v);
         if nv > 0.0 {
-            basis.push(v.iter().map(|a| a / nv).collect());
+            basis.extend(v.iter().map(|a| a / nv));
         }
     }
 
@@ -221,14 +230,16 @@ pub fn lm_alias_columns(
             aliased[j] = true;
             continue;
         }
-        let mut v: Vec<f64> = (0..n).map(|i| x[(i, j)]).collect();
+        for (i, vi) in v.iter_mut().enumerate() {
+            *vi = x[(i, j)];
+        }
         let original = norm(&v);
         if original == 0.0 || !original.is_finite() {
             aliased[j] = true;
             continue;
         }
         for _ in 0..2 {
-            for q in &basis {
+            for q in basis.chunks_exact(n) {
                 let d: f64 = q.iter().zip(&v).map(|(a, b)| a * b).sum();
                 for (vi, qi) in v.iter_mut().zip(q) {
                     *vi -= d * qi;
@@ -239,7 +250,7 @@ pub fn lm_alias_columns(
         if residual < tol * original {
             aliased[j] = true;
         } else {
-            basis.push(v.iter().map(|a| a / residual).collect());
+            basis.extend(v.iter().map(|a| a / residual));
         }
     }
     aliased

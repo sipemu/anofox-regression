@@ -5,6 +5,140 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-29
+
+### Added
+
+- **Conditioning-aware λ for ridge (DataZooDE/anofox-forecast#258).** Opt-in `RidgeRegressorBuilder::conditioning_aware(lambda_small, cond_threshold)` (or `RidgeRegressor::with_conditioning(ConditioningLambda { .. })`): `fit` measures the condition number `κ(XᵀX)` of the design it penalises (`X` centered when an intercept is fitted) via `gram_condition_number`, and uses `lambda_small` when `κ ≤ cond_threshold`, the configured λ otherwise. A fixed λ = 1.0 shrinks a seasonal-dummy spike amplitude by ~20% on a well-conditioned 4-cycle fold; with `DEFAULT_LAMBDA_SMALL` (0.1) and `DEFAULT_CONDITION_THRESHOLD` (1000) the amplitude stays within 3% of the unpenalised fit, while an ill-conditioned design keeps λ = 1.0. `RidgeRegressor::select_lambda(x)` returns the λ a fit would use and `FittedRidge::lambda()` the λ it used. Without the option nothing changes. Applies to `fit`; `fit_from_moments` / `fit_from_accumulator` are unchanged.
+- **Regression-spline bases for ordinary design matrices: `splines` (#99, RMS §2.4).**
+  - **`Rcs`**: a restricted (natural) cubic spline in Harrell's truncated-power parametrisation (`Hmisc::rcspline.eval` / `rms::rcs`). With `k` knots it has `k − 1` columns, `x, x', x'', …`, and is linear beyond the outer knots. Normalisation is `RcsNorm::{None, LastInterval, Range}` (`norm = 0, 1, 2`), with `Range`, i.e. `(t_k − t₁)²`, as the default. `Rcs::new(knots)` takes user knots; `Rcs::from_data(x, nk)` places the defaults. Keep the `Rcs` value to rebuild the basis on new data. `Rcs::restate` returns the unrestricted truncated-power coefficients of a fitted spline (`rcspline.restate`, including the two implied by the linearity restriction), and `RcsRestated::eval` evaluates them.
+  - **Default knots**, `rcs_default_knots(x, nk)` / `rcs_default_knots_with(x, nk, fractied)`, port `rcspline.eval`:
+    - the quantiles of RMS Table 2.3 (`default_knot_quantiles`, R type-7 quantiles);
+    - outer knots moved to the 5th smallest / largest value when `n < 100`;
+    - separate handling of extremes tied in at least `fractied` of the rows;
+    - interior distinct values when there are few distinct values;
+    - the alternate algorithm when the quantiles are not distinct.
+  - **`Lsp`**: a linear spline `x, (x − t₁)₊, …` (`rms::lsp`).
+  - **`restricted_interaction(a, b)`**: `rms::%ia%` (RMS §2.7.2), the products of two bases without doubly nonlinear terms, in the rms order.
+  - Each basis is a `Basis` with rms column names and per-column `nonlinear` flags (`nonlinear_columns()` gives the chunk for a test of linearity).
+  - Validated in `tests/r_validation_rcs.rs` (generator `tests/r_scripts/generate_rcs_validation.R`) against Hmisc 5 / rms 8: default knots for 3–7 knots on six data sets (small n, large n, ties at one or both extremes, few distinct values, integers), the basis for every normalisation, `rms::rcs`, `rcspline.restate`, `rms::lsp` and `%ia%`.
+- **Term-aware Wald tests and the `rms::anova.rms` table (#100, RMS §2.6, §4).** Everything works from `β̂` and `V̂` alone, so any fit qualifies, and robust or bootstrap covariances can be passed in.
+  - **`inference::wald_test(beta, vcov, C, r, dist)`** tests `H₀: Cβ = r` with `W = (Cβ̂ − r)ᵀ(CV̂Cᵀ)⁻¹(Cβ̂ − r)` against `χ²(q)`, or as `F = W/q` against `F(q, df)` when the dispersion is estimated (`WaldDistribution::{ChiSquare, F}`). `wald_chunk(beta, vcov, columns, dist)` is the chunk test. `WaldTest::chi_square_minus_df` gives the RMS importance measure. `drop_intercept` splits off the intercept.
+  - **`design::TermMap` / `design::Design`** record which slope columns belong to which predictor, which are nonlinear, and which are interactions. `Design` stacks `splines::Basis` blocks (`Basis::linear`, `Basis::new` for factor dummies) into the design matrix. Two-way interactions come in both rms forms: `add_interaction` is the full tensor product of `a * b` (first factor fastest); `add_restricted_interaction` is `%ia%`.
+  - **`inference::anova(beta, vcov, &terms, &AnovaOptions) -> WaldAnovaTable`** ports `anova.rms` row by row, with the same labels, the same columns tested and the same rules:
+    - each predictor with its higher-order factors, `All Interactions` and `Nonlinear`;
+    - each interaction with `Nonlinear`, `Nonlinear Interaction : f(A,B) vs. AB`, `f(A,B) vs. Af(B) + Bg(A)` and the single-factor nonlinear-interaction rows;
+    - `TOTAL NONLINEAR`, `TOTAL INTERACTION`, `TOTAL NONLINEAR + INTERACTION` and `TOTAL`.
+
+    With σ² and an F reference it adds partial sums of squares and the `ERROR` row (`ss = TRUE`).
+  - `FittedOls::vcov`, `FittedWls::vcov` and `FittedRidge::vcov` return `σ̂² · M`, intercept first.
+  - Validated in `tests/r_validation_anova.rs` (generator `tests/r_scripts/generate_anova_validation.R`) against `rms::anova.rms` for four models: OLS with an rcs × linear interaction (χ², F and partial SS), the same design as `lrm`, an rcs × rcs tensor interaction plus a second interaction, and `%ia%`. It also checks the nested-model F test (`anova(lm, lm)`), a two-row general linear hypothesis with `r ≠ 0`, and an end-to-end Rust design → OLS → `vcov` → ANOVA run that reproduces rms. Statistics agree to 1e-9; p-values agree to statrs' tail accuracy (1e-5 relative near p = 1e-11).
+- `splines::Basis::new` / `Basis::linear` constructors and `SplineError::Length`.
+- **Predictive accuracy indexes: `diagnostics::accuracy` (#102, RMS §4.5, §10.8).** These are free functions over `(y, prediction, [weights])`, so they apply to any model.
+  - `concordance(x, y, w)`: weighted concordant / discordant / tied pair counts (`survival::concordancefit`), with `c()`, `dxy()`, `gamma()` and `tau_a()` (the rank statistics of `rms::lrm`). O(n log n), using a Fenwick tree.
+  - `somers2(p, y, w)`: ROC area and Somers' Dxy (`Hmisc::somers2`, case weights).
+  - `rcorr_cens(x, time, event)`: Harrell's C for right-censored data, matching `Hmisc::rcorr.cens`. It gives C, Dxy, the S.D. of Dxy (`sqrt(Σ(cᵢ − dᵢ − Dxy·rᵢ)²)/R`), and the relevant / concordant / uncertain ordered-pair counts. O(n log n).
+  - `brier_score`, `gini_md` (`Hmisc::GiniMd`, the g-index) and `nagelkerke_r2`. `r2_measures(lr, p, n, ess)` is `Hmisc::R2Measures`: R²(n), R²(p,n) and the effective-sample-size variants of RMS 2nd ed. §4.5. `effective_sample_size(n, freqs)` is `n(1 − ΣP³)`.
+  - `lrm_stats(y, lp, w, df)`: the binary `rms::lrm` stats vector from the linear predictor — model LR, P, C, Dxy, γ, τ-a, Nagelkerke R², R2Measures, Brier, g, gr, gp.
+  - `val_prob(p, y)`: `rms::val.prob` external validation — Dxy, C, R², D, U, Q (with χ² and p), Brier, the logistic calibration intercept and slope, Emax / E90 / Eavg from `lowess(p, y, iter = 0)`, and Spiegelhalter's z.
+  - Validated in `tests/r_validation_accuracy.rs` (generator `tests/r_scripts/generate_accuracy_validation.R`) against `concordancefit` (with ties and weights), `somers2` (with and without weights), the `lrm` stats (with and without weights), `rcorr.cens` (censored and uncensored, with ties), `R2Measures` and `val.prob`; values agree to 1e-8 or better.
+- **Cluster-robust (Huber–White) sandwich covariance: `inference::cluster` (#105, RMS §9.5).** It computes `V = A (Σ_g s_g s_gᵀ) A`, as `sandwich::vcovCL` and `rms::robcov` do, with one or more clustering dimensions. Several dimensions are combined by inclusion–exclusion (Cameron, Gelbach & Miller), e.g. `V₁ + V₂ − V₁∩₂` for two-way clustering.
+  - `ClusterOptions { kind: ClusterType::{HC0, HC1, HC2, HC3}, cadjust }` follows `vcovCL(type, cadjust)`:
+    - `cadjust` multiplies each dimension by `G/(G−1)`;
+    - HC1 multiplies by `(n−1)/(n−k)`;
+    - HC2 is Bell–McCaffrey bias-reduced linearization and HC3 is jackknife-like, with per-cluster `(I − H_gg)^{−½}` / `(I − H_gg)^{−1}`. These are for linear models only, weighted ones included.
+    - Presets: `ClusterOptions::cr1()` is Stata's CR1 and the default; `::hc0()` is `vcovCL`'s GLM default; `::robcov()` applies no correction, as `rms::robcov` and `survreg(cluster =)`.
+  - `cluster_sandwich(bread, scores, clusters, opts)` works for any model from its inverse information and per-observation scores.
+  - `lm_cluster_vcov`, plus `FittedOls::cluster_vcov` / `FittedWls::cluster_vcov`, for linear models (aliased columns get zero rows and columns).
+  - `glm_cluster_vcov(family, x, …, mu, prior_weights, …)` for GLMs of any `GlmFamily` (scores `p(y − μ)/(V g′) x`, bread `(XᵀWX)⁻¹`).
+  - `FittedAft::score_contributions` and `FittedAft::cluster_vcov` for AFT models (all parameters including `log σ`).
+  - The result is a covariance matrix, intercept first, ready for `inference::wald_test` / `anova`.
+  - Validated in `tests/r_validation_cluster.rs` (generator `tests/r_scripts/generate_cluster_validation.R`):
+    - against `vcovCL` for OLS with HC0–HC3, with and without `cadjust`, and for two-way clustering;
+    - for WLS with HC0–HC3 and for a model without an intercept;
+    - against `rms::robcov`;
+    - for Poisson, logit, probit and Gamma(log) GLMs, plus two-way and prior-weighted Poisson;
+    - against `survreg(..., cluster = id)` for a Weibull AFT.
+- `compute_hc_standard_errors` already refuses fits without residuals; `lm_cluster_vcov` does the same (e.g. fits from `SufficientStats`).
+- **Nonparametric survival analysis: `survival` (#113, RMS Ch 17).**
+  - **`survfit(&SurvInput, strata, &SurvfitOptions)`** is `survival::survfit`. Per stratum and at every distinct time it returns n.risk, n.event, n.censor, the Kaplan–Meier survival, the Greenwood `std.err` of `−log S`, confidence limits (`ConfType::{Log, LogLog, Plain}`, any level), and the cumulative hazard with its standard error (`HazardType::NelsonAalen`, or the tie-corrected `FlemingHarrington` of `ctype = 2`).
+    - `SurvInput` takes case weights and left truncation (counting-process `(entry, stop]` data).
+    - `timefix` (on by default) merges times that differ by floating-point noise, as `Surv(..., timefix = TRUE)` / `aeqSurv` does.
+    - `kaplan_meier(time, event, opts)` is the one-curve shortcut.
+  - **`SurvCurve` methods:**
+    - `median()` — the median with its confidence limits, including the midpoint rule when S = 0.5 over an interval;
+    - `restricted_mean(τ)` — the restricted mean and its standard error;
+    - `summary(τ)` — the `summary(survfit)$table` row;
+    - `survival_at(t)`.
+  - **`survdiff(time, event, group, strata, rho)`** is `survival::survdiff`: the k-sample log-rank test (`ρ = 0`) and the G-ρ family (`ρ = 1`, Peto–Peto), optionally stratified, with observed, expected, variance matrix, χ², d.f. and p.
+  - Validated in `tests/r_validation_survival.rs` (generator `tests/r_scripts/generate_survival_validation.R`) on `survival::lung`:
+    - KM with every CI type and Fleming–Harrington;
+    - sex strata and the summary tables (RMST, median and its limits);
+    - case weights (with `robust = FALSE`; for non-integer weights R defaults to a robust variance that this does not implement);
+    - left-truncated data;
+    - the median midpoint rule;
+    - two- and four-group log-rank, Peto–Peto and stratified log-rank.
+- **Cox proportional hazards regression: `survival::cox` (#114, RMS Ch 20).** `coxph(x, &CoxInput, &CoxOptions)` maximises the partial likelihood by Newton–Raphson with step halving, as `survival::coxph`.
+  - **Tie handling:** Efron (default) or Breslow.
+  - **Inputs:** case weights, offsets, strata, and counting-process `(entry, stop]` data for left truncation and time-dependent covariates. Risk sets are kept in one descending sweep that adds rows at their stop time and removes them at their entry time.
+  - **Options:** an optional ridge penalty `λ/2 Σβ²` (`ridge(..., theta = λ, scale = FALSE)`), and R's `timefix`.
+  - **`CoxFit` returns:** coefficients, covariance, SEs, z and p-values; the log partial likelihoods at 0 and at the estimate; the LR, Wald and score tests; `concordance()` (Harrell's C within strata), `dxy()` and `r2()` (as `rms::cph`); and `linear_predictors()`.
+  - **Residuals and robust variance:** `score_residuals()` (Efron-corrected, `residuals(type = "score")`) and `robust_vcov(clusters)` (`coxph(..., cluster = id)`, via `inference::cluster_sandwich`).
+  - **Prediction:** `predict_survival(x0, stratum)` is `survfit(fit, newdata)` — the Efron / Breslow cumulative hazard for the covariates, its standard error including the uncertainty of β̂, and log-scale confidence limits.
+  - Validated in `tests/r_validation_cox.rs` (generator `tests/r_scripts/generate_cox_validation.R`) against coxph on `lung`:
+    - Efron, Breslow, weights with an offset, strata and ridge;
+    - score residuals and the robust variance (Efron, Breslow, weighted);
+    - predicted survival with SEs and CIs (Efron, Breslow);
+    - `cph`'s LR, R² and Dxy;
+    - counting-process data with a time-dependent covariate (`heart`), with Efron, Breslow and the robust variance.
+- **Cox and AFT model diagnostics (#115, RMS §18.3, §20.6–20.8).**
+  - **Residuals on `CoxFit`:** `martingale_residuals`, `deviance_residuals`, `schoenfeld_residuals(scaled)` (event rows by stratum and time, Efron-averaged over tied deaths; scaled = `β̂ + n_d V r`), `dfbeta` (weighted, as survival ≥ 3) and `dfbetas`, as `residuals.coxph`.
+  - **`CoxFit::cox_zph(transform, terms)`** is the Grambsch–Therneau proportional-hazards test of survival ≥ 3. It is the score test at `(β̂, 0)` for adding `g(t)·x`, per term and global, with `ZphTransform::{Km, Rank, Identity, Log}`. It also returns the transformed times and the scaled Schoenfeld residuals for plotting β(t).
+  - **AFT:** `FittedAft::standardized_residuals` (`(log t − η)/σ`) and `cox_snell_residuals` (`−log S(t | x)`), for checking the error distribution against a Kaplan–Meier curve.
+  - Validated in `tests/r_validation_coxdiag.rs` (generator `tests/r_scripts/generate_coxdiag_validation.R`) against `residuals.coxph` and `cox.zph` (all four transforms and the plotting data), for Efron, Breslow, weighted, stratified and counting-process (`heart`) fits, and against `survreg` for the AFT residuals.
+- **Resampling model validation and calibration: `validation` (#103, RMS §5.3, §10.11).**
+  - **`predab_resample(resamples, names, fit, measure)`** is the generic engine of `rms:::predab.resample`. The `fit` closure replays the whole modelling process (variable selection included) on each training sample, and `measure` evaluates any vector of indexes on the training rows (apparent) and on the test rows. It reports apparent, training, test, optimism and corrected values, with the number of resamples used per index.
+  - **`Resamples`:**
+    - `bootstrap` — Efron–Gong optimism;
+    - `crossvalidation` — B-fold, with rms's group boundaries;
+    - `point632` — Efron's .632, with rms's omission weights;
+    - each from explicit indices (e.g. to replay R's draws) or seeded (`*_seeded`).
+  - **`validate_lrm` / `validate_ols`** are `validate.lrm` / `validate.ols`: Dxy, R², calibration intercept and slope, Emax, D, U, Q, Brier, g, gp / R², MSE, g, intercept, slope.
+  - **`calibrate_lrm` / `calibrate_ols`** are `calibrate`: the lowess calibration curve on a 50-point grid, its bootstrap overfitting correction, and the mean absolute error, mean squared error and 0.9 quantile absolute error of the corrected curve.
+  - Validated in `tests/r_validation_validate.rs` (generator `tests/r_scripts/generate_validate_validation.R`). R's resamples are replayed exactly, and the tests cover `validate` for `lrm` and `ols` with bootstrap, 10-fold crossvalidation and .632, plus `calibrate` for `lrm` and `ols`.
+- **Likelihood-ratio and score tests for nested models, and profile-likelihood CIs: `inference::likelihood` (#101, RMS Ch 9).**
+  - **`LikelihoodFit` trait** (`−2 log L`, the null value, the dispersion the difference is scaled by, and the parameter count). It is implemented for `FittedBinomial`, `FittedPoisson`, `FittedNegativeBinomial` (via `−2 log L`, since the deviance depends on θ), `FittedTweedie`, `FittedGamma`, `FittedAft` and `CoxFit`.
+  - **`lr_test(reduced, full)`** is `anova(fit0, fit1, test = "LRT")`, with the difference scaled by the larger model's dispersion. **`model_lr_test(fit)`** is the model LR χ² against the null model with its d.f.
+  - **`fit_glm(family, &GlmData, Dispersion)`** is a compact IRLS fit of any `GlmFamily`, with prior weights, offsets, the R-style null deviance and the fixed or Pearson-estimated dispersion.
+  - **`glm_score_test(family, reduced, x_add, φ)`** is Rao's score test for adding predictors, evaluated at the reduced fit only: the joint `Uᵀ S⁻¹ U / φ` of `anova(..., test = "Rao")`, plus the per-column z of `statmod::glm.scoretest`.
+  - **`profile_confint(family, data, dispersion, level)`** reproduces `confint.glm` (R ≥ 4.4 / MASS): the same profiling grid, a port of R's FMM `spline()`, and `approx` inversion.
+  - Validated in `tests/r_validation_likelihood.rs` (generator `tests/r_scripts/generate_likelihood_validation.R`) against `glm`, `anova` LRT / Rao, `glm.scoretest` and `confint` (95% and 90%), for binomial, weighted Poisson with an offset, and Gamma(log) with estimated dispersion. It also checks the trait on the crate's binomial and Gamma regressors.
+- **Partial effects and contrasts on the covariate scale: `effects` (#116, RMS §5.1).** A `ModelSpec` records how each predictor enters the design — `linear`, `rcs`, `lsp`, or `categorical` with treatment contrasts — and the interactions (tensor or `%ia%`). It carries `datadist`-style `Limits`: quartiles for effects; the median (or the mode for categorical predictors) to adjust to; the `10/max(n, 200)` quantiles for prediction grids; and rms's rules for few distinct values. `design(columns)` builds the design, and `row(setting)` builds a design row with the other predictors at their adjust-to values.
+  - `summary(beta, vcov, …)` is `summary.rms`: inter-quartile-range effects for numeric predictors, and each level against the adjust-to level for categorical ones, with CIs (t for OLS, normal otherwise). `exp` gives odds / hazard / time ratios.
+  - `contrast` and `double_contrast` are `contrast.rms`, single and double difference, with any covariance (model, robust or bootstrap).
+  - `predict_grid` is `Predict`: a 200-point grid between the prediction limits, or given values, with pointwise CIs.
+  - Validated in `tests/r_validation_effects.rs` (generator `tests/r_scripts/generate_effects_validation.R`) against `datadist`, `summary` (with odds ratios), `contrast` (single, double, factor levels) and `Predict` for `ols` and `lrm` with an rcs × linear interaction and a three-level factor.
+
+- **Bootstrap covariance for any fit: `validation::bootcov` (#104, RMS §5.2, §5.4).**
+  - `bootcov(samples, fit)` refits any model (a closure returning its coefficients) on each resample. It returns the replicates, their mean and the bootstrap covariance (divisor B − 1, as `rms::bootcov`), which is usable as `V̂` in `wald_test`, `anova` and `effects` contrasts.
+  - `percentile_ci(level)` gives percentile intervals; `linear_combination_ci(c, level)` gives them for contrasts and predictions.
+  - `bootstrap_rows` draws ordinary resamples; `cluster_bootstrap_rows` draws cluster (block) resamples of whole clusters.
+  - `rank_intervals(original, replicates, level)` gives bootstrap intervals for the ranks of predictor importance, e.g. from partial χ² − d.f. (RMS §5.4).
+  - Validated in `tests/r_validation_bootcov.rs` (generator `tests/r_scripts/generate_bootcov_validation.R`) against `bootcov` replicates, covariance and percentiles, with ordinary and cluster bootstrap, replaying R's resamples.
+
+- **Fast backward step-down: `inference::fastbw` (#108, RMS §5.5.2).** `fastbw(beta, vcov, n_intercepts, &terms, rule, type)` is `rms::fastbw`.
+  - It uses only `β̂` and `V̂`, deleting whole terms by Wald χ² with `StepRule::Aic { k, threshold }` or `StepRule::P { sls }`, applied to the residual or the individual test.
+  - It reports each step's χ², d.f., p, residual χ², d.f., p and AIC, plus the kept terms and the approximate reduced-model coefficients `β_in − V_io V_oo⁻¹ β_out`.
+  - Validated in `tests/r_validation_fastbw.rs` (generator `tests/r_scripts/generate_fastbw_validation.R`) against `fastbw` on an `lrm` with a spline and a factor, for all four rule / type combinations.
+
+### Changed
+
+- **Fewer allocations and less work per OLS fit (#129).** For many small per-group fits, 100K fits of 20×3 (`examples/many_small_fits.rs`) go from 58 to 32 allocations per fit (−45%) and from 6.3 to 4.4 µs without inference, and from 76 to 48 allocations and from 11.3 to 9.2 µs with inference.
+  - With `compute_inference(true)`, `(XᵀX)⁻¹` is computed once and shared by the standard errors and the prediction-interval factor; it used to be computed twice.
+  - With `compute_inference(false)`, the factor is deferred: the fit keeps the small Gram matrix of the kept columns and inverts it on first use (`predict_with_interval`, `variance_factor`, `vcov`). Results agree with the eager factor to 1e-12.
+  - `lm_alias_columns` keeps its orthonormal basis in one flat buffer, with the same arithmetic.
+  - Fit results are moved into the `RegressionResult` instead of allocated and cloned.
+
 ## [0.5.38] - 2026-10-29
 
 ### Added

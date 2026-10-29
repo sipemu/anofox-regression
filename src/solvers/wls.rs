@@ -776,6 +776,15 @@ impl FittedWls {
         })
     }
 
+    /// Estimated covariance of the coefficients, `σ̂² · M` with `M` from
+    /// [`Self::variance_factor`]: intercept first when fitted, zero rows and
+    /// columns for aliased coefficients. `None` without a variance factor.
+    pub fn vcov(&self) -> Option<Mat<f64>> {
+        let mse = self.result.mse;
+        self.variance_factor()
+            .map(|m| Mat::from_fn(m.nrows(), m.ncols(), |i, j| mse * m[(i, j)]))
+    }
+
     /// Leverage `x₀' M x₀` of new rows (`x_new` has one column per feature;
     /// aliased columns are ignored). NaN if no variance factor is available.
     pub fn leverage_new(&self, x_new: &Mat<f64>) -> Col<f64> {
@@ -788,6 +797,26 @@ impl FittedWls {
     /// Get the options used to fit this model.
     pub fn options(&self) -> &RegressionOptions {
         &self.options
+    }
+
+    /// Cluster-robust covariance (`sandwich::vcovCL`), intercept first, from
+    /// the design `x` used in the fit and one code vector per clustering
+    /// dimension. See [`crate::inference::cluster`].
+    pub fn cluster_vcov(
+        &self,
+        x: &Mat<f64>,
+        clusters: &[&[usize]],
+        options: &crate::inference::ClusterOptions,
+    ) -> Result<Mat<f64>, crate::inference::ClusterError> {
+        crate::inference::lm_cluster_vcov(
+            x,
+            &self.result.residuals,
+            (self.weights.nrows() > 0).then_some(&self.weights),
+            self.result.intercept.is_some(),
+            &self.aliased,
+            clusters,
+            options,
+        )
     }
 
     /// Get the weights used for fitting.
