@@ -167,6 +167,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - REML (default) or ML, in nlme's parameterisations and from its starting values; L-BFGS on the profiled log-likelihood, with a Nelder–Mead restart when the first line search fails.
   - `FittedGls`: coefficients, `vcov`, SEs, t / p / CIs on `N − p` d.f., σ̂, logLik, AIC, BIC, the natural correlation and variance parameters, and `var_cov_intervals()` (`intervals(fit, which = "var-cov")`, from the Hessian of the full log-likelihood in `(θ, log σ)`). Also response / Pearson / normalized residuals, `predict_with_se`, and `variogram(time, kind, nint)` (nlme's `Variogram` with `collapse = "quantiles"`).
   - Validated in `tests/r_validation_gls.rs` (generator `tests/r_scripts/generate_gls_validation.R`) against nlme on 40 subjects with irregular visits, for every structure and variance function above, REML and ML. The interval tolerance is 2e-3; it is 1e-2 for the 16-parameter unstructured model, where nlme's `fdHess` is about 1% off (checked against `numDeriv::hessian` of nlme's own objective). From its default start nlme stops `corLin` at a local optimum; the fixture starts it at range 4, where both reach the maximum.
+- **Box–Cox and smearing back-transformation: `transform` (#112, RMS Ch 16).**
+  - `box_cox(x, y, &BoxCoxOptions)` is `MASS::boxcox(lm(y ~ x))`: the profile log-likelihood `−n/2 log RSS(λ)` of the geometric-mean-scaled transform on a λ grid (default `seq(-2, 2, 0.1)`), using MASS's series for `|λ| ≤ 1/50`. It also returns the maximising `λ̂` and the likelihood-ratio interval `ℓ(λ) ≥ ℓ(λ̂) − χ²₁(0.95)/2`, each limit `None` when the profile does not cross the cut within the grid.
+  - `box_cox_transform` / `box_cox_inverse`.
+  - `smearing_estimate(lp, residuals, inverse, Smearing)` is `Hmisc::smearingEst`: Duan's smearing estimate of the mean (`mean_i g⁻¹(lp + r_i)`), the median or a quantile (`g⁻¹(lp + quantile(r))`), or the naive back-transform.
+  - Validated in `tests/r_validation_transform.rs` (generator `tests/r_scripts/generate_transform_validation.R`) against MASS and Hmisc: the grid profile, the small-λ series, a design without an intercept, `λ̂` and the interval (`optimize` / `uniroot` on the same profile), and smearing for square-root, log and Box–Cox models.
 
 ### Changed
 

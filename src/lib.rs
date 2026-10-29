@@ -33,6 +33,7 @@ pub mod inference;
 pub mod solvers;
 pub mod splines;
 pub mod survival;
+pub mod transform;
 pub mod utils;
 pub mod validation;
 
