@@ -99,6 +99,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`CoxFit::cox_zph(transform, terms)`** is the Grambsch–Therneau proportional-hazards test of survival ≥ 3. It is the score test at `(β̂, 0)` for adding `g(t)·x`, per term and global, with `ZphTransform::{Km, Rank, Identity, Log}`. It also returns the transformed times and the scaled Schoenfeld residuals for plotting β(t).
   - **AFT:** `FittedAft::standardized_residuals` (`(log t − η)/σ`) and `cox_snell_residuals` (`−log S(t | x)`), for checking the error distribution against a Kaplan–Meier curve.
   - Validated in `tests/r_validation_coxdiag.rs` (generator `tests/r_scripts/generate_coxdiag_validation.R`) against `residuals.coxph` and `cox.zph` (all four transforms and the plotting data), for Efron, Breslow, weighted, stratified and counting-process (`heart`) fits, and against `survreg` for the AFT residuals.
+- **Resampling model validation and calibration: `validation` (#103, RMS §5.3, §10.11).**
+  - **`predab_resample(resamples, names, fit, measure)`** is the generic engine of `rms:::predab.resample`. The `fit` closure replays the whole modelling process (variable selection included) on each training sample, and `measure` evaluates any vector of indexes on the training rows (apparent) and on the test rows. It reports apparent, training, test, optimism and corrected values, with the number of resamples used per index.
+  - **`Resamples`:**
+    - `bootstrap` — Efron–Gong optimism;
+    - `crossvalidation` — B-fold, with rms's group boundaries;
+    - `point632` — Efron's .632, with rms's omission weights;
+    - each from explicit indices (e.g. to replay R's draws) or seeded (`*_seeded`).
+  - **`validate_lrm` / `validate_ols`** are `validate.lrm` / `validate.ols`: Dxy, R², calibration intercept and slope, Emax, D, U, Q, Brier, g, gp / R², MSE, g, intercept, slope.
+  - **`calibrate_lrm` / `calibrate_ols`** are `calibrate`: the lowess calibration curve on a 50-point grid, its bootstrap overfitting correction, and the mean absolute error, mean squared error and 0.9 quantile absolute error of the corrected curve.
+  - Validated in `tests/r_validation_validate.rs` (generator `tests/r_scripts/generate_validate_validation.R`). R's resamples are replayed exactly, and the tests cover `validate` for `lrm` and `ols` with bootstrap, 10-fold crossvalidation and .632, plus `calibrate` for `lrm` and `ols`.
+- **Likelihood-ratio and score tests for nested models, and profile-likelihood CIs: `inference::likelihood` (#101, RMS Ch 9).**
+  - **`LikelihoodFit` trait** (`−2 log L`, the null value, the dispersion the difference is scaled by, and the parameter count). It is implemented for `FittedBinomial`, `FittedPoisson`, `FittedNegativeBinomial` (via `−2 log L`, since the deviance depends on θ), `FittedTweedie`, `FittedGamma`, `FittedAft` and `CoxFit`.
+  - **`lr_test(reduced, full)`** is `anova(fit0, fit1, test = "LRT")`, with the difference scaled by the larger model's dispersion. **`model_lr_test(fit)`** is the model LR χ² against the null model with its d.f.
+  - **`fit_glm(family, &GlmData, Dispersion)`** is a compact IRLS fit of any `GlmFamily`, with prior weights, offsets, the R-style null deviance and the fixed or Pearson-estimated dispersion.
+  - **`glm_score_test(family, reduced, x_add, φ)`** is Rao's score test for adding predictors, evaluated at the reduced fit only: the joint `Uᵀ S⁻¹ U / φ` of `anova(..., test = "Rao")`, plus the per-column z of `statmod::glm.scoretest`.
+  - **`profile_confint(family, data, dispersion, level)`** reproduces `confint.glm` (R ≥ 4.4 / MASS): the same profiling grid, a port of R's FMM `spline()`, and `approx` inversion.
+  - Validated in `tests/r_validation_likelihood.rs` (generator `tests/r_scripts/generate_likelihood_validation.R`) against `glm`, `anova` LRT / Rao, `glm.scoretest` and `confint` (95% and 90%), for binomial, weighted Poisson with an offset, and Gamma(log) with estimated dispersion. It also checks the trait on the crate's binomial and Gamma regressors.
 
 ### Fixed
 

@@ -3,6 +3,7 @@
 pub mod anova;
 pub mod cluster;
 mod coefficient;
+pub mod likelihood;
 mod predict_se;
 mod prediction;
 mod robust_covariance;
@@ -19,6 +20,10 @@ pub use cluster::{
     cluster_sandwich, glm_cluster_vcov, lm_cluster_vcov, ClusterError, ClusterOptions, ClusterType,
 };
 pub use coefficient::CoefficientInference;
+pub use likelihood::{
+    fit_glm, glm_score_test, lr_test, model_lr_test, profile_confint, ChiSqTest, Dispersion,
+    GlmData, GlmFit, LikelihoodError, LikelihoodFit, ScoreTest,
+};
 pub(crate) use predict_se::{glm_prediction, quadratic_se};
 pub use predict_se::{PredictSeError, PredictSeOptions, PredictWithSe, PredictionSe};
 pub use prediction::{
