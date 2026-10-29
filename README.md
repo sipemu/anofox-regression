@@ -295,7 +295,7 @@ All 499+ test cases ensure numerical agreement with the chosen oracle within app
 
 - [faer](https://crates.io/crates/faer) - High-performance linear algebra
 - [statrs](https://crates.io/crates/statrs) - Statistical distributions
-- [argmin](https://crates.io/crates/argmin) - Numerical optimization (L-BFGS)
+- [basin](https://crates.io/crates/basin) - Numerical optimization (L-BFGS)
 
 ## Attribution
 
@@ -303,7 +303,7 @@ This library includes Rust implementations of algorithms from several open-sourc
 
 Key attributions:
 - **greybox** - ALM distributions and AID classifier methodology (independent implementation)
-- **argmin** (MIT/Apache-2.0) - L-BFGS optimization
+- **basin** (MIT/Apache-2.0) - L-BFGS optimization
 - **faer** (MIT) - Linear algebra operations
 - **statrs** (MIT) - Statistical distributions
 

@@ -52,9 +52,7 @@ use crate::core::{
 };
 use crate::inference::CoefficientInference;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
-use argmin::core::{CostFunction, Executor, Gradient, State};
-use argmin::solver::linesearch::MoreThuenteLineSearch;
-use argmin::solver::quasinewton::LBFGS;
+use basin::{CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 use statrs::function::gamma::ln_gamma;
@@ -765,13 +763,13 @@ pub fn log_likelihood(
 }
 
 // ============================================================================
-// Numerical Optimization Cost Function for argmin
+// Numerical Optimization Cost Function for basin
 // ============================================================================
 
 /// Negative log-likelihood cost function for numerical optimization.
 ///
 /// This struct holds references to the data and distribution parameters,
-/// implementing the `CostFunction` and `Gradient` traits for argmin.
+/// implementing basin's `CostFunction` and `Gradient` traits.
 #[derive(Clone)]
 struct NegLogLikelihoodCost<'a> {
     x: &'a Mat<f64>,
@@ -862,8 +860,9 @@ impl<'a> NegLogLikelihoodCost<'a> {
 impl CostFunction for NegLogLikelihoodCost<'_> {
     type Param = Vec<f64>;
     type Output = f64;
+    type Error = std::convert::Infallible;
 
-    fn cost(&self, params: &Self::Param) -> Result<Self::Output, argmin::core::Error> {
+    fn cost(&self, params: &Self::Param) -> Result<Self::Output, Self::Error> {
         let mu = self.compute_mu_from_params(params);
         let scale = self.estimate_scale_from_mu(&mu);
 
@@ -879,10 +878,9 @@ impl CostFunction for NegLogLikelihoodCost<'_> {
 }
 
 impl Gradient for NegLogLikelihoodCost<'_> {
-    type Param = Vec<f64>;
     type Gradient = Vec<f64>;
 
-    fn gradient(&self, params: &Self::Param) -> Result<Self::Gradient, argmin::core::Error> {
+    fn gradient(&self, params: &Self::Param) -> Result<Self::Gradient, Self::Error> {
         // Numerical gradient using central differences
         let eps = 1e-7;
         let mut grad = vec![0.0; params.len()];
@@ -1382,7 +1380,7 @@ impl AlmRegressor {
 
     /// Fit the model using L-BFGS numerical optimization.
     ///
-    /// This method directly maximizes the log-likelihood using argmin's L-BFGS
+    /// This method directly maximizes the log-likelihood using basin's L-BFGS
     /// optimizer. It's used for distributions where IRLS doesn't work well
     /// (e.g., FoldedNormal, RectifiedNormal, S distribution, Beta).
     fn fit_numerical(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedAlm, RegressionError> {
@@ -1412,29 +1410,24 @@ impl AlmRegressor {
         let starting_points = self.generate_starting_points(x, y, n_params)?;
 
         for init_params in starting_points {
-            // Set up L-BFGS optimizer
-            let linesearch = MoreThuenteLineSearch::new();
-            let solver = LBFGS::new(linesearch, 7);
-
-            // Run optimizer (clone cost function for each run)
-            let result = Executor::new(cost.clone(), solver)
-                .configure(|state| {
-                    state
-                        .param(init_params.clone())
-                        .max_iters(self.max_iterations as u64)
-                        .target_cost(f64::NEG_INFINITY)
-                })
+            // argmin's L-BFGS settings: memory 7, Moré–Thuente with c₁ = 1e-4,
+            // stop on ‖∇f‖ ≤ √ε or |Δf| ≤ ε
+            let solver = Lbfgs::with_line_search(
+                MoreThuente::new().with_sufficient_decrease_coefficient(1e-4),
+            )
+            .unbounded()
+            .with_m_capacity(7)
+            .with_absolute_gradient_tolerance(f64::EPSILON.sqrt())
+            .with_absolute_cost_change_tolerance(f64::EPSILON);
+            let state = FirstOrderState::new(init_params);
+            let Ok(res) = Executor::new(cost.clone(), solver, state)
+                .max_iter(self.max_iterations as u64)
                 .run();
-
-            if let Ok(res) = result {
-                if let Some(params) = res.state().get_best_param() {
-                    if let Ok(cost_val) = cost.cost(params) {
-                        if cost_val < best_cost {
-                            best_cost = cost_val;
-                            best_params = Some(params.clone());
-                        }
-                    }
-                }
+            let params = res.best_param();
+            let Ok(cost_val) = cost.cost(params);
+            if cost_val < best_cost {
+                best_cost = cost_val;
+                best_params = Some(params.clone());
             }
         }
 

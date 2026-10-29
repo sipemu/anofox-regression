@@ -12,9 +12,7 @@ use crate::inference::{
 use crate::solvers::ridge::RidgeRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::utils::{center_columns, center_vector, detect_constant_columns};
-use argmin::core::{CostFunction, Executor, Gradient, State};
-use argmin::solver::linesearch::MoreThuenteLineSearch;
-use argmin::solver::quasinewton::LBFGS;
+use basin::{CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente};
 use faer::{Col, Mat};
 
 /// Elastic Net regression estimator using L-BFGS optimization.
@@ -72,7 +70,7 @@ impl ElasticNetRegressor {
     }
 }
 
-/// Cost function for Elastic Net optimization using argmin.
+/// Cost function for Elastic Net optimization with basin's L-BFGS.
 /// Computes the smooth part of the objective: ||y - Xβ||² + λ(1-α)||β||₂²
 #[derive(Clone)]
 struct ElasticNetCost<'a> {
@@ -99,8 +97,9 @@ impl ElasticNetCost<'_> {
 impl CostFunction for ElasticNetCost<'_> {
     type Param = Vec<f64>;
     type Output = f64;
+    type Error = std::convert::Infallible;
 
-    fn cost(&self, beta: &Self::Param) -> Result<Self::Output, argmin::core::Error> {
+    fn cost(&self, beta: &Self::Param) -> Result<Self::Output, Self::Error> {
         // ||y - Xβ||² + λ(1-α)||β||₂²
         let residuals = self.compute_residuals(beta);
         let rss: f64 = residuals.iter().map(|r| r * r).sum();
@@ -110,10 +109,9 @@ impl CostFunction for ElasticNetCost<'_> {
 }
 
 impl Gradient for ElasticNetCost<'_> {
-    type Param = Vec<f64>;
     type Gradient = Vec<f64>;
 
-    fn gradient(&self, beta: &Self::Param) -> Result<Self::Gradient, argmin::core::Error> {
+    fn gradient(&self, beta: &Self::Param) -> Result<Self::Gradient, Self::Error> {
         // ∇f = -2X'(y - Xβ) + 2λ(1-α)β
         let residuals = self.compute_residuals(beta);
         let p = self.x.ncols();
@@ -357,31 +355,19 @@ impl ElasticNetRegressor {
             alpha,
         };
 
-        // Set up L-BFGS solver
-        let linesearch = MoreThuenteLineSearch::new();
-        let solver = LBFGS::new(linesearch, 7);
-
-        // Initialize coefficients to zero
-        let init = vec![0.0; n_features];
-
-        // Run optimization
-        let result = Executor::new(cost, solver)
-            .configure(|state| {
-                state
-                    .param(init)
-                    .max_iters(self.options.max_iterations as u64)
-            })
-            .run()
-            .map_err(|e| RegressionError::NumericalError(format!("L-BFGS failed: {}", e)))?;
-
-        // Get optimized coefficients
-        let beta_smooth = result
-            .state()
-            .get_best_param()
-            .ok_or_else(|| {
-                RegressionError::NumericalError("L-BFGS did not return parameters".to_string())
-            })?
-            .clone();
+        // L-BFGS from zero with argmin's settings: memory 7, Moré–Thuente with
+        // c₁ = 1e-4, stop on ‖∇f‖ ≤ √ε or |Δf| ≤ ε
+        let solver =
+            Lbfgs::with_line_search(MoreThuente::new().with_sufficient_decrease_coefficient(1e-4))
+                .unbounded()
+                .with_m_capacity(7)
+                .with_absolute_gradient_tolerance(f64::EPSILON.sqrt())
+                .with_absolute_cost_change_tolerance(f64::EPSILON);
+        let state = FirstOrderState::new(vec![0.0; n_features]);
+        let Ok(result) = Executor::new(cost, solver, state)
+            .max_iter(self.options.max_iterations as u64)
+            .run();
+        let beta_smooth = result.best_param();
 
         // Apply soft thresholding for L1 penalty (proximal step)
         let l1_threshold = lambda * alpha;

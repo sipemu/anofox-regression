@@ -228,7 +228,7 @@ Validates maximum likelihood estimation for 21 distribution families against R's
 
 **Optimizer Notes**:
 - **IRLS**: Iteratively Reweighted Least Squares - fast, reliable for standard GLM-like distributions
-- **L-BFGS**: Limited-memory BFGS optimization via argmin crate - used for distributions with complex likelihood surfaces (FoldedNormal, S, Beta, BoxCoxNormal, RectifiedNormal)
+- **L-BFGS**: Limited-memory BFGS optimization via the basin crate - used for distributions with complex likelihood surfaces (FoldedNormal, S, Beta, BoxCoxNormal, RectifiedNormal)
 
 **Test cases**:
 - Each distribution with n=50 observations
@@ -897,7 +897,7 @@ The tight tolerance reflects that these are deterministic calculations.
 
 ALM (Augmented Linear Model) uses a **hybrid optimization approach**:
 - **IRLS** (Iteratively Reweighted Least Squares): For standard GLM-like distributions (Normal, Laplace, Poisson, etc.)
-- **L-BFGS** (via argmin crate): For distributions with complex likelihood surfaces (FoldedNormal, RectifiedNormal, S, Beta, BoxCoxNormal)
+- **L-BFGS** (via the basin crate): For distributions with complex likelihood surfaces (FoldedNormal, RectifiedNormal, S, Beta, BoxCoxNormal)
 
 1. **Distribution diversity**: 24 distributions with varying complexity (Normal to BoxCoxNormal)
 2. **Optimizer choices**: R's `greybox::alm()` uses `nloptr` (BOBYQA); this library uses IRLS or L-BFGS depending on distribution

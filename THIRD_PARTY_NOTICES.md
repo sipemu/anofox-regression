@@ -17,16 +17,16 @@ The Augmented Linear Model (ALM) methodology is inspired by the greybox R packag
 
 Our implementation is an independent clean-room Rust implementation validated against R's output, not a derivative work of greybox's source code.
 
-## argmin (MIT/Apache-2.0)
+## basin (MIT/Apache-2.0)
 
-**Repository**: https://github.com/argmin-rs/argmin
+**Repository**: https://github.com/jolars/basin
 
 Used for numerical optimization:
 - L-BFGS optimization for ALM and Elastic Net
 - More-Thuente line search
 
 ```
-Copyright (c) argmin developers
+Copyright (c) 2026 Johan Larsson and basin contributors
 License: MIT OR Apache-2.0
 ```
 
