@@ -76,7 +76,8 @@ pub use moments::MomentAccumulator;
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
 pub use ols::{FittedOls, OlsRegressor, OlsRegressorBuilder};
 pub use ordinal::{
-    FittedOrdinal, OrdinalLink, OrdinalQuantileMethod, OrdinalRegressor, OrdinalRegressorBuilder,
+    xmean_ordinaly, FittedOrdinal, OrdinalLink, OrdinalQuantileMethod, OrdinalRegressor,
+    OrdinalRegressorBuilder, XmeanOrdinaly,
 };
 pub use passive_aggressive::{
     FittedPassiveAggressive, PaLoss, PaState, PassiveAggressiveRegressor,

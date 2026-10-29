@@ -334,6 +334,8 @@ pub struct FittedOrdinal {
     converged: bool,
     n_observations: usize,
     information: Information,
+    weights: Option<Col<f64>>,
+    offset: Option<Col<f64>>,
 }
 
 /// Data shared by the likelihood evaluations.
@@ -615,6 +617,8 @@ impl OrdinalRegressor {
             converged,
             n_observations: n,
             information: info,
+            weights: self.weights.clone(),
+            offset: self.offset.clone(),
         })
     }
 }
@@ -802,6 +806,133 @@ impl FittedOrdinal {
         (mean, se)
     }
 
+    /// Score test of proportional odds (parallel slopes) for the predictor
+    /// columns `columns` (all columns if empty), RMS §13.3.
+    ///
+    /// The alternative is the partial proportional-odds model in which each
+    /// tested column has its own slope at every cut-point,
+    /// `P(Y ≥ y_{j+1} | x) = F(α_j + x_tᵀβ_{t,j} + x_uᵀβ_u)`; under the null
+    /// all `β_{t,j}` are equal and the fitted model is its MLE. The score `U`
+    /// and observed information `I` of the alternative at this fit give
+    /// `S = Uᵀ I⁻¹ U` on `|columns| · (k − 2)` d.f. `x` and `y` must be the
+    /// data of the fit (its weights and offset are reused). The information is
+    /// dense in `k`, so this is meant for a modest number of categories.
+    pub fn proportional_odds_score_test(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        columns: &[usize],
+    ) -> Result<crate::inference::ChiSqTest, RegressionError> {
+        let (n, p) = (x.nrows(), x.ncols());
+        let m = self.intercepts.nrows();
+        if p != self.coefficients.nrows() || y.nrows() != n || n != self.n_observations {
+            return Err(RegressionError::DimensionMismatch {
+                x_rows: n,
+                y_len: y.nrows(),
+            });
+        }
+        let tested: Vec<usize> = if columns.is_empty() {
+            (0..p).collect()
+        } else {
+            columns.to_vec()
+        };
+        if tested.iter().any(|&c| c >= p) {
+            return Err(RegressionError::NumericalError(
+                "tested column out of range".to_string(),
+            ));
+        }
+        let untested: Vec<usize> = (0..p).filter(|c| !tested.contains(c)).collect();
+        let s = tested.len();
+        // parameters: α_1..α_m, β_{t,j} (j-major), β_u
+        let q = m + m * s + untested.len();
+        let lp = self.linear_predictor(x);
+        let mut u = vec![0.0; q];
+        let mut info = Mat::<f64>::zeros(q, q);
+        let gradient_of_bound = |i: usize, j: usize| -> Vec<(usize, f64)> {
+            let mut g = vec![(j, 1.0)];
+            g.extend(
+                tested
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &c)| (m + j * s + k, x[(i, c)])),
+            );
+            g.extend(
+                untested
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &c)| (m + m * s + k, x[(i, c)])),
+            );
+            g
+        };
+        let link = self.link;
+        for i in 0..n {
+            let c = self.levels.partition_point(|l| *l < y[i]);
+            if c >= self.levels.len() || self.levels[c] != y[i] {
+                return Err(RegressionError::NumericalError(
+                    "y has a value that is not a level of the fit".to_string(),
+                ));
+            }
+            let w = self.weights.as_ref().map_or(1.0, |w| w[i]);
+            let eta = lp[i] + self.offset.as_ref().map_or(0.0, |o| o[i]);
+            let a = if c == 0 {
+                f64::INFINITY
+            } else {
+                self.intercepts[c - 1] + eta
+            };
+            let b = if c == m {
+                f64::NEG_INFINITY
+            } else {
+                self.intercepts[c] + eta
+            };
+            let pr = link.prob_between(a, b);
+            let fin = |v: f64, f: &dyn Fn(f64) -> f64| if v.is_finite() { f(v) } else { 0.0 };
+            let (fa, fb) = (fin(a, &|v| link.pdf(v)), fin(b, &|v| link.pdf(v)));
+            let (dfa, dfb) = (fin(a, &|v| link.dpdf(v)), fin(b, &|v| link.dpdf(v)));
+            let haa = dfa / pr - fa * fa / pr / pr;
+            let hbb = -dfb / pr - fb * fb / pr / pr;
+            let hab = fa * fb / pr / pr;
+            let ja = (c > 0).then(|| gradient_of_bound(i, c - 1));
+            let jb = (c < m).then(|| gradient_of_bound(i, c));
+            for (g, score, h) in [(&ja, fa / pr, haa), (&jb, -fb / pr, hbb)] {
+                if let Some(g) = g {
+                    for &(r, v) in g {
+                        u[r] += w * score * v;
+                        for &(t, z) in g {
+                            info[(r, t)] -= w * h * v * z;
+                        }
+                    }
+                }
+            }
+            if let (Some(ga), Some(gb)) = (&ja, &jb) {
+                for &(r, v) in ga {
+                    for &(t, z) in gb {
+                        info[(r, t)] -= w * hab * v * z;
+                        info[(t, r)] -= w * hab * v * z;
+                    }
+                }
+            }
+        }
+        let llt = info.llt(Side::Lower).map_err(|_| {
+            RegressionError::NumericalError(
+                "the information of the alternative is not positive definite".to_string(),
+            )
+        })?;
+        let uc = Col::from_fn(q, |r| u[r]);
+        let z = llt.solve(&uc);
+        let statistic = (0..q).map(|r| uc[r] * z[r]).sum::<f64>();
+        let df = s * (m - 1);
+        let p_value = if df == 0 {
+            f64::NAN
+        } else {
+            ChiSquared::new(df as f64).map_or(f64::NAN, |d| d.sf(statistic))
+        };
+        Ok(crate::inference::ChiSqTest {
+            statistic,
+            df,
+            p_value,
+        })
+    }
+
     /// Predicted `q`-quantile of `Y` (`rms::Quantile.orm`).
     pub fn predict_quantile(
         &self,
@@ -845,6 +976,66 @@ impl FittedOrdinal {
             }
         })
     }
+}
+
+/// Observed and model-expected means of a predictor within each response
+/// level ([`xmean_ordinaly`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct XmeanOrdinaly {
+    /// The distinct response values.
+    pub levels: Vec<f64>,
+    /// `mean(x | Y = y_j)`.
+    pub observed: Vec<f64>,
+    /// `E(x | Y = y_j)` under the proportional odds model `lrm(y ~ x)`.
+    pub expected_po: Vec<f64>,
+    /// `E(x | Y = y_j)` under the continuation-ratio model (when requested).
+    pub expected_cr: Option<Vec<f64>>,
+}
+
+/// The numbers of `rms::plot.xmean.ordinaly` (RMS §13.3.3): for one
+/// predictor `x`, the observed mean of `x` at each level of `y` and its
+/// expectation `Σᵢ xᵢ P̂(Y = y_j | xᵢ) / n_j` under the univariable
+/// proportional odds model and, with `cr`, the continuation-ratio model.
+/// Systematic gaps between the observed and expected curves indicate that
+/// the model's assumption does not hold for `x`.
+pub fn xmean_ordinaly(
+    x: &Col<f64>,
+    y: &Col<f64>,
+    cr: bool,
+) -> Result<XmeanOrdinaly, RegressionError> {
+    let n = x.nrows();
+    let xm = Mat::from_fn(n, 1, |i, _| x[i]);
+    let po = OrdinalRegressor::builder().build().fit(&xm, y)?;
+    let levels = po.levels().to_vec();
+    let k = levels.len();
+    let counts = po.counts().to_vec();
+    let mut observed = vec![0.0; k];
+    for i in 0..n {
+        observed[levels.partition_point(|l| *l < y[i])] += x[i];
+    }
+    for (o, c) in observed.iter_mut().zip(&counts) {
+        *o /= c;
+    }
+    let expected = |p: &Mat<f64>| -> Vec<f64> {
+        (0..k)
+            .map(|j| (0..n).map(|i| x[i] * p[(i, j)]).sum::<f64>() / counts[j])
+            .collect()
+    };
+    let expected_po = expected(&po.category_probabilities(&xm));
+    let expected_cr = if cr {
+        let f = crate::solvers::ContinuationRatioRegressor::builder()
+            .build()
+            .fit(&xm, y)?;
+        Some(expected(&f.category_probabilities(&xm)))
+    } else {
+        None
+    };
+    Ok(XmeanOrdinaly {
+        levels,
+        observed,
+        expected_po,
+        expected_cr,
+    })
 }
 
 /// `approx(xs, ys, xout, rule = 2)` for `xs` in decreasing order: tied `xs`
