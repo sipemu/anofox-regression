@@ -200,6 +200,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validated in `tests/r_validation_glmm_nagq.rs` (generator `tests/r_scripts/generate_glmm_nagq_validation.R`) against `glmer` with Poisson and binomial random intercepts at `nAGQ = 1` and 7, and a Poisson random slope at `nAGQ = 1`. Checked: fixed effects, vcov, θ, conditional modes and log-likelihood.
     - lme4 evaluates `log|L|²` with the factor of the previous PIRLS step rather than at the final mode. Our criterion is the exact Laplace value, so the Poisson Laplace optimum moves by under 1% of a standard error, with a log-likelihood at least lme4's.
     - lme4's Hessian-based standard errors for those fits differ from ours by about 3%. Ours agree with lme4's AGQ Hessian.
+- **Survival calibration at a horizon: `validation::calibrate_cph` (#115, RMS §20.10).** `calibrate_cph(x, time, event, u, &resamples, m, cuts, &CoxOptions)` ports `rms::calibrate.cph(cmethod = "KM")`.
+  - It computes each subject's predicted survival at `u` from a Cox fit, `S₀(u)^exp(xβ − x̄β)`, and groups subjects by quantiles of predicted survival (about `m` per group, or the given `cuts`, as `cut2` intervals).
+  - For each group it compares the Kaplan–Meier estimate at `u` (with its Greenwood standard error) with the mean prediction, then corrects the difference for overfitting by refitting on every resample with `predab_resample`.
+  - It returns `index.orig`, `training`, `test`, `mean.optimism`, `mean.corrected`, `n`, `mean.predicted`, `KM`, `KM.corrected` and `std.err`.
+  - Validated in `tests/r_validation_calibrate_cph.rs` (generator `tests/r_scripts/generate_calibrate_cph_validation.R`) against rms, replaying its bootstrap resamples, at 1e-9 with cph's convergence settings (`eps = 1e-4`, 10 iterations, also used in its refits).
 
 ### Changed
 

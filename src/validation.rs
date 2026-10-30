@@ -24,7 +24,9 @@
 //! quantile absolute error. [`bootcov`] gives the bootstrap covariance of
 //! any fit (ordinary or cluster bootstrap) with percentile intervals for
 //! coefficients and contrasts, and [`rank_intervals`] bootstrap intervals
-//! for the ranks of predictor importance.
+//! for the ranks of predictor importance. [`calibrate_cph`] is
+//! `calibrate.cph(cmethod = "KM")`: predicted survival at a horizon against
+//! Kaplan–Meier estimates in groups of predicted survival.
 
 use crate::diagnostics::accuracy::{
     approx_ties_mean, binomial_deviance, gini_md, logistic_recalibration, lrm_stats, plogis,
@@ -32,6 +34,8 @@ use crate::diagnostics::accuracy::{
 };
 use crate::solvers::lowess::{lowess, LowessOptions};
 use crate::solvers::{FittedRegressor, LogisticRegression, OlsRegressor, Regressor};
+use crate::survival::cox::{coxph, CoxFit, CoxInput, CoxOptions};
+use crate::survival::{kaplan_meier, SurvfitOptions};
 use faer::{Col, Mat};
 use thiserror::Error;
 
@@ -677,6 +681,219 @@ pub fn calibrate_ols(
         y,
         |v| v,
     )
+}
+
+/// Survival calibration at a horizon ([`calibrate_cph`]), one row per
+/// group of predicted survival.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SurvivalCalibration {
+    /// Predicted survival at `u` of every subject from the original fit.
+    pub predicted: Vec<f64>,
+    /// Group boundaries on the predicted-survival scale (`cuts`).
+    pub cuts: Vec<f64>,
+    /// Kaplan–Meier minus mean predicted survival, original fit
+    /// (`index.orig`).
+    pub index_orig: Vec<f64>,
+    /// Mean apparent difference over resamples (`training`).
+    pub training: Vec<f64>,
+    /// Mean difference on the test rows (`test`).
+    pub test: Vec<f64>,
+    /// `training − test` (`mean.optimism`).
+    pub optimism: Vec<f64>,
+    /// `index_orig − optimism` (`mean.corrected`).
+    pub corrected: Vec<f64>,
+    /// Resamples contributing to each group.
+    pub n: Vec<usize>,
+    /// Mean predicted survival in each group (`mean.predicted`).
+    pub mean_predicted: Vec<f64>,
+    /// Kaplan–Meier survival at `u` in each group (`KM`).
+    pub km: Vec<f64>,
+    /// `KM − optimism` (`KM.corrected`).
+    pub km_corrected: Vec<f64>,
+    /// Standard error of `log KM` (Greenwood, `std.err`).
+    pub std_err: Vec<f64>,
+}
+
+/// Survival at `u` of a curve given as step values at `times`.
+fn step_at(times: &[f64], surv: &[f64], u: f64) -> f64 {
+    let k = times.partition_point(|t| *t <= u + 1e-6);
+    if k == 0 {
+        1.0
+    } else {
+        surv[k - 1]
+    }
+}
+
+/// A Cox fit on `rows`, as `(β, means, S₀(u) at the means)`.
+fn fit_cox_at(
+    x: &Mat<f64>,
+    time: &[f64],
+    event: &[bool],
+    rows: &[usize],
+    u: f64,
+    options: &CoxOptions,
+) -> Option<(Vec<f64>, Vec<f64>, f64)> {
+    if rows.iter().filter(|&&i| event[i]).count() < 5 {
+        return None;
+    }
+    let xr = rows_of(x, rows);
+    let (tr, er): (Vec<f64>, Vec<bool>) = rows.iter().map(|&i| (time[i], event[i])).unzip();
+    let fit: CoxFit = coxph(&xr, &CoxInput::new(&tr, &er), options).ok()?;
+    let beta: Vec<f64> = fit.coefficients.to_vec();
+    let p = x.ncols();
+    let means: Vec<f64> = (0..p)
+        .map(|j| rows.iter().map(|&i| x[(i, j)]).sum::<f64>() / rows.len() as f64)
+        .collect();
+    let curve = fit.predict_survival(&means, None).ok()?;
+    Some((beta, means, step_at(&curve.time, &curve.surv, u)))
+}
+
+/// Predicted survival at `u` for `rows` from a fit of [`fit_cox_at`].
+fn cox_survival(x: &Mat<f64>, fit: &(Vec<f64>, Vec<f64>, f64), rows: &[usize]) -> Vec<f64> {
+    let (beta, means, s0) = fit;
+    rows.iter()
+        .map(|&i| {
+            let lp: f64 = (0..beta.len())
+                .map(|j| (x[(i, j)] - means[j]) * beta[j])
+                .sum();
+            s0.powf(lp.exp())
+        })
+        .collect()
+}
+
+/// One group of `groupkm`: mean prediction, KM at `u` and its standard
+/// error, or `None` with fewer than two rows.
+fn group_km(pred: &[f64], time: &[f64], event: &[bool], u: f64) -> Option<(f64, f64, f64)> {
+    if pred.len() < 2 {
+        return None;
+    }
+    let km = kaplan_meier(time, event, &SurvfitOptions::default()).ok()?;
+    let k = km.time.partition_point(|t| *t <= u + 1e-6);
+    let (s, se) = if k == 0 {
+        (1.0, 0.0)
+    } else {
+        (km.surv[k - 1], km.std_err[k - 1])
+    };
+    Some((pred.iter().sum::<f64>() / pred.len() as f64, s, se))
+}
+
+/// `groupkm(pred, Surv(time, event), u, cuts)`: groups are `cut2` intervals
+/// `[c_k, c_{k+1})`, the last closed.
+fn groupkm(
+    pred: &[f64],
+    time: &[f64],
+    event: &[bool],
+    u: f64,
+    cuts: &[f64],
+) -> Vec<Option<(f64, f64, f64)>> {
+    let g = cuts.len() - 1;
+    let mut members: Vec<Vec<usize>> = vec![Vec::new(); g];
+    for (i, &v) in pred.iter().enumerate() {
+        let v = if v.abs() < 1e-10 { 0.0 } else { v };
+        let k = cuts
+            .partition_point(|c| *c <= v)
+            .saturating_sub(1)
+            .min(g - 1);
+        if v >= cuts[0] && v <= cuts[g] {
+            members[k].push(i);
+        }
+    }
+    members
+        .iter()
+        .map(|m| {
+            let pick = |v: &[f64]| m.iter().map(|&i| v[i]).collect::<Vec<f64>>();
+            let ev: Vec<bool> = m.iter().map(|&i| event[i]).collect();
+            group_km(&pick(pred), &pick(time), &ev, u)
+        })
+        .collect()
+}
+
+/// `rms::calibrate.cph(cmethod = "KM")`: calibration of a Cox model's
+/// predicted survival at time `u`. Subjects are grouped by quantiles of
+/// predicted survival (about `m` per group, or the given `cuts`), and each
+/// group's Kaplan–Meier estimate at `u` is compared with its mean
+/// prediction; the difference is corrected for overfitting by refitting
+/// the Cox model on every resample. Fits with fewer than five events are
+/// skipped. `options` controls the Cox fits; `rms::cph` stops at
+/// `eps = 1e-4` and 10 iterations, `coxph` (the default) at 1e-9 and 20.
+#[allow(clippy::too_many_arguments)]
+pub fn calibrate_cph(
+    x: &Mat<f64>,
+    time: &[f64],
+    event: &[bool],
+    u: f64,
+    resamples: &Resamples,
+    m: usize,
+    cuts: Option<Vec<f64>>,
+    options: &CoxOptions,
+) -> Result<SurvivalCalibration, ValidationError> {
+    let n = time.len();
+    if x.nrows() != n || event.len() != n {
+        return Err(ValidationError::Data(
+            "x, time and event lengths differ".into(),
+        ));
+    }
+    let all: Vec<usize> = (0..n).collect();
+    let orig = fit_cox_at(x, time, event, &all, u, options).ok_or(ValidationError::OriginalFit)?;
+    let predicted = cox_survival(x, &orig, &all);
+    let cuts = match cuts {
+        Some(c) => c,
+        None => {
+            let g = (n / m.max(1)).max(1);
+            let mut v = predicted.clone();
+            v.extend([0.0, 1.0]);
+            v.sort_by(f64::total_cmp);
+            let mut c: Vec<f64> = (0..=g)
+                .map(|k| quantile7(&v, k as f64 / g as f64))
+                .collect();
+            c.dedup();
+            c
+        }
+    };
+    if cuts.len() < 2 {
+        return Err(ValidationError::Data("need two or more cuts".into()));
+    }
+    let g = cuts.len() - 1;
+    let names: Vec<String> = (0..g).map(|k| k.to_string()).collect();
+    let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let table = predab_resample(
+        resamples,
+        &name_refs,
+        |rows| fit_cox_at(x, time, event, rows, u, options),
+        |fit, rows, _| {
+            if rows.iter().filter(|&&i| event[i]).count() < 5 {
+                return vec![f64::NAN; g];
+            }
+            let pred = cox_survival(x, fit, rows);
+            let (t, e): (Vec<f64>, Vec<bool>) = rows.iter().map(|&i| (time[i], event[i])).unzip();
+            groupkm(&pred, &t, &e, u, &cuts)
+                .into_iter()
+                .map(|r| r.map_or(f64::NAN, |(mp, km, _)| km - mp))
+                .collect()
+        },
+    )?;
+    let orig_groups = groupkm(&predicted, time, event, u, &cuts);
+    let col = |f: fn(&(f64, f64, f64)) -> f64| -> Vec<f64> {
+        orig_groups
+            .iter()
+            .map(|r| r.as_ref().map_or(f64::NAN, f))
+            .collect()
+    };
+    let km = col(|r| r.1);
+    Ok(SurvivalCalibration {
+        mean_predicted: col(|r| r.0),
+        km_corrected: km.iter().zip(&table.optimism).map(|(k, o)| k - o).collect(),
+        km,
+        std_err: col(|r| r.2),
+        predicted,
+        cuts,
+        index_orig: table.index_orig,
+        training: table.training,
+        test: table.test,
+        optimism: table.optimism,
+        corrected: table.corrected,
+        n: table.n,
+    })
 }
 
 /// Bootstrap replicates of a fit's coefficients (`rms::bootcov`).
