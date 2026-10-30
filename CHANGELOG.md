@@ -225,6 +225,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The critical value is computed deterministically. The combinations are reduced to unit directions in ℝʳ (`r` = rank of their correlation matrix), and `P(max|aᵢᵀZ| ≤ c) = E_U[F((c / maxᵢ|aᵢᵀU|)²)]` over the unit sphere, with `F` the χ²ᵣ or `r·F(r, ν)` CDF.
   - The expectation is exact for `r = 1`, uses an angular rule for `r = 2` and a Halton rule above, and is solved for `c` by bisection. R uses mvtnorm's randomised algorithm instead.
   - Validated in `tests/r_validation_simultaneous.rs` (generator `tests/r_scripts/generate_simultaneous_validation.R`) for an `lrm` spline grid (rank 4), an `ols` linear grid with a t reference (rank 2) and a binary predictor. Critical values are within 2e-4 of a tight mvtnorm run and within 2e-3 of `Predict`; bands within 2e-3.
+- **Multiple imputation: `imputation::areg_impute` (#106, RMS §3.7).** Ports `Hmisc::aregImpute`: chained-equations imputation by additive regression with optimal transformations (`areg`, splines with `nk` knots, dummies for categorical variables), the bootstrap and predictive mean matching.
+  - Donors are drawn with tricube weights (`match = "weighted"`, `fweighted`) or as the closest prediction (`"closest"`).
+  - Options: `burnin`, `tlinear`, numeric / linear / categorical variables.
+  - `AregImpute::complete(x, m)` gives completed data set `m`; combine fits with `pool_rubin`.
+  - Random numbers come from R's generator: the new `utils::RRng` is R's Mersenne-Twister with `set.seed` and `R_unif_index` rejection sampling. With the same seed the imputations equal R's exactly.
+  - `areg` now accepts a categorical response (dummy-coded, no inverse).
+  - Validated in `tests/r_validation_aregimpute.rs` (generator `tests/r_scripts/generate_aregimpute_validation.R`) against `set.seed(s); aregImpute(...)` with missing values in a spline variable, a second numeric variable and a three-level factor, for weighted and closest matching. Every imputed value matches.
+  - Not included: `group`, `constraint`, `type = "regression"` / `"normpmm"`, `pmmtype = 2/3` and `nk` vectors.
 
 ### Changed
 

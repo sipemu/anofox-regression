@@ -29,6 +29,7 @@ pub mod design;
 pub mod diagnostics;
 pub mod distributions;
 pub mod effects;
+pub mod imputation;
 pub mod inference;
 pub mod reduction;
 pub mod solvers;

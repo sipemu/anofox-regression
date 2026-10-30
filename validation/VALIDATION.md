@@ -51,6 +51,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_survfit_robust_validation.R` | Validates the robust (infinitesimal-jackknife) `survfit` variance against `survival::survfit` |
 | `tests/r_scripts/generate_quantile_orm_validation.R` | Validates `FittedOrdinal::predict_quantile_ci` against `rms::Quantile.orm(conf.int = )` |
 | `tests/r_scripts/generate_pool_validation.R` | Validates `inference::pool` (Rubin's rules, Barnard–Rubin d.f., D1) against `Hmisc::fit.mult.impute` and the `mice::pool` formulas |
+| `tests/r_scripts/generate_aregimpute_validation.R` | Validates `imputation::areg_impute` against `Hmisc::aregImpute` (exact replay with R's RNG) |
 | `tests/r_scripts/generate_calibrate_cph_validation.R` | Validates `validation::calibrate_cph` against `rms::calibrate.cph(cmethod = "KM")` |
 | `tests/r_scripts/generate_areg_validation.R` | Validates `transform::areg` (spline / linear / categorical bases, inverse transform, bootstrap optimism) against `Hmisc::areg` |
 | `tests/r_scripts/generate_reduction_validation.R` | Validates `reduction` (`spearman2`, `hoeffding_d`, `varclus`, `hclust` for all linkages) against Hmisc and `stats::hclust` |
