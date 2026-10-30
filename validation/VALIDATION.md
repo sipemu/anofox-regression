@@ -43,6 +43,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_pls_validation.R` | Validates PLS regression |
 | `tests/r_scripts/generate_glmm_validation.R` | Validates `GlmmRegressor` (random intercept, slopes, crossed/nested) against `lme4::lmer` / `glmer(nAGQ=0)` |
 | `tests/r_scripts/generate_glmm_satterthwaite_validation.R` | Validates GLMM `vcov`, Satterthwaite df (`lmerTest`), BLUP conditional SEs and fitted values / residuals |
+| `tests/r_scripts/generate_glmm_nagq_validation.R` | Validates `GlmmRegressorBuilder::n_agq` (Laplace `nAGQ = 1`, adaptive Gauss–Hermite `nAGQ = 7`) against `lme4::glmer` |
 | `tests/r_scripts/generate_gls_validation.R` | Validates `GlsRegressor` (correlation structures, variance functions, REML/ML, var-cov intervals, variogram) against `nlme::gls` |
 | `tests/r_scripts/generate_transform_validation.R` | Validates `transform::box_cox` against `MASS::boxcox` and `smearing_estimate` against `Hmisc::smearingEst` |
 | `tests/r_scripts/generate_pool_validation.R` | Validates `inference::pool` (Rubin's rules, Barnard–Rubin d.f., D1) against `Hmisc::fit.mult.impute` and the `mice::pool` formulas |
