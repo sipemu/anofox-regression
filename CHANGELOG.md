@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-30
+
+### Added
+
+- **Multiple imputation: `imputation::areg_impute` (#106, RMS §3.7).** Ports `Hmisc::aregImpute`: chained-equations imputation by additive regression with optimal transformations (`areg`, splines with `nk` knots, dummies for categorical variables), the bootstrap and predictive mean matching.
+  - Donors are drawn with tricube weights (`match = "weighted"`, `fweighted`) or as the closest prediction (`"closest"`).
+  - Options: `burnin`, `tlinear`, numeric / linear / categorical variables.
+  - `AregImpute::complete(x, m)` gives completed data set `m`; combine fits with `pool_rubin`.
+  - Random numbers come from R's generator: the new `utils::RRng` is R's Mersenne-Twister with `set.seed` and `R_unif_index` rejection sampling. With the same seed the imputations equal R's exactly.
+  - `areg` now accepts a categorical response (dummy-coded, no inverse).
+  - Validated in `tests/r_validation_aregimpute.rs` (generator `tests/r_scripts/generate_aregimpute_validation.R`) against `set.seed(s); aregImpute(...)` with missing values in a spline variable, a second numeric variable and a three-level factor, for weighted and closest matching. Every imputed value matches.
+  - Not included: `group`, `constraint`, `type = "regression"` / `"normpmm"`, `pmmtype = 2/3` and `nk` vectors.
+- **Optimal transformations: `reduction::transcan` (#107, RMS §4.7.3, §8.4).** `transcan(x, categorical, &TranscanOptions)` ports `Hmisc::transcan(method = "canonical")`.
+  - Each variable is expanded into a restricted cubic spline basis (Hmisc's default knots) or dummies. Alternating canonical correlations find the transformations under which each variable is best predicted from the others, until they change by less than `eps`; the final sweep uses the previous iteration's values, as Hmisc.
+  - Missing values start at the median (mode) and are predicted on the transformed scale, curtailed to the observed range.
+  - It returns the transformed matrix, R² and adjusted R². The transformations can be used as predictors or reduced with `principal_components`.
+  - Validated in `tests/r_validation_transcan.rs` (generator `tests/r_scripts/generate_transcan_validation.R`) against Hmisc, with and without missing values.
+  - Not included: imputation on the original scale (`imputed`, `n.impute`), `asis`, `shrink`, `method = "pc"`.
+
+### Notes
+
+- **`LmDynamicRegressor` vs OLS (#171).** On anofox-forecast's design (an intercept column, a trend and Fourier pairs) with the noise-free series `y = 2t + 10 sin(2πt/7) + 5`, the dynamic fit and OLS forecast the same. That is correct: several candidate models fit exactly. Before 0.5.13 they differed only because OLS returned wrong coefficients (the column-pivot unpermute bug fixed in 0.5.13, with forecasts off by up to 18.7). `tests/issue171_lm_dynamic.rs` pins this: both forecast the truth on the exact series, and the dynamic fit differs from OLS on a noisy one. No code change.
+
 ## [0.6.0] - 2026-10-29
 
 ### Added
@@ -225,22 +248,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The critical value is computed deterministically. The combinations are reduced to unit directions in ℝʳ (`r` = rank of their correlation matrix), and `P(max|aᵢᵀZ| ≤ c) = E_U[F((c / maxᵢ|aᵢᵀU|)²)]` over the unit sphere, with `F` the χ²ᵣ or `r·F(r, ν)` CDF.
   - The expectation is exact for `r = 1`, uses an angular rule for `r = 2` and a Halton rule above, and is solved for `c` by bisection. R uses mvtnorm's randomised algorithm instead.
   - Validated in `tests/r_validation_simultaneous.rs` (generator `tests/r_scripts/generate_simultaneous_validation.R`) for an `lrm` spline grid (rank 4), an `ols` linear grid with a t reference (rank 2) and a binary predictor. Critical values are within 2e-4 of a tight mvtnorm run and within 2e-3 of `Predict`; bands within 2e-3.
-- **Multiple imputation: `imputation::areg_impute` (#106, RMS §3.7).** Ports `Hmisc::aregImpute`: chained-equations imputation by additive regression with optimal transformations (`areg`, splines with `nk` knots, dummies for categorical variables), the bootstrap and predictive mean matching.
-  - Donors are drawn with tricube weights (`match = "weighted"`, `fweighted`) or as the closest prediction (`"closest"`).
-  - Options: `burnin`, `tlinear`, numeric / linear / categorical variables.
-  - `AregImpute::complete(x, m)` gives completed data set `m`; combine fits with `pool_rubin`.
-  - Random numbers come from R's generator: the new `utils::RRng` is R's Mersenne-Twister with `set.seed` and `R_unif_index` rejection sampling. With the same seed the imputations equal R's exactly.
-  - `areg` now accepts a categorical response (dummy-coded, no inverse).
-  - Validated in `tests/r_validation_aregimpute.rs` (generator `tests/r_scripts/generate_aregimpute_validation.R`) against `set.seed(s); aregImpute(...)` with missing values in a spline variable, a second numeric variable and a three-level factor, for weighted and closest matching. Every imputed value matches.
-  - Not included: `group`, `constraint`, `type = "regression"` / `"normpmm"`, `pmmtype = 2/3` and `nk` vectors.
-- **Optimal transformations: `reduction::transcan` (#107, RMS §4.7.3, §8.4).** `transcan(x, categorical, &TranscanOptions)` ports `Hmisc::transcan(method = "canonical")`.
-  - Each variable is expanded into a restricted cubic spline basis (Hmisc's default knots) or dummies. Alternating canonical correlations find the transformations under which each variable is best predicted from the others, until they change by less than `eps`; the final sweep uses the previous iteration's values, as Hmisc.
-  - Missing values start at the median (mode) and are predicted on the transformed scale, curtailed to the observed range.
-  - It returns the transformed matrix, R² and adjusted R². The transformations can be used as predictors or reduced with `principal_components`.
-  - Validated in `tests/r_validation_transcan.rs` (generator `tests/r_scripts/generate_transcan_validation.R`) against Hmisc, with and without missing values.
-  - Not included: imputation on the original scale (`imputed`, `n.impute`), `asis`, `shrink`, `method = "pc"`.
-- **`LmDynamicRegressor` vs OLS (#171).** On anofox-forecast's design (an intercept column, a trend and Fourier pairs) with the noise-free series `y = 2t + 10 sin(2πt/7) + 5`, the dynamic fit and OLS forecast the same. That is correct: several candidate models fit exactly. Before 0.5.13 they differed only because OLS returned wrong coefficients (the column-pivot unpermute bug fixed in 0.5.13, with forecasts off by up to 18.7). `tests/issue171_lm_dynamic.rs` pins this: both forecast the truth on the exact series, and the dynamic fit differs from OLS on a noisy one. No code change.
-
 ### Changed
 
 - **argmin replaced by [basin](https://crates.io/crates/basin) 3.1 (#139).** The L-BFGS fits of `ElasticNetRegressor` and the numerically optimised `AlmRegressor` distributions (FoldedNormal, RectifiedNormal, S, LogS, BoxCoxNormal, Beta) use basin's unbounded L-BFGS with argmin's settings: memory 7, Moré–Thuente line search with c₁ = 1e-4 and c₂ = 0.9, stopping on ‖∇f‖ ≤ √ε or |Δf| ≤ ε, and the same iteration limit. Elastic-net coefficients agree with the argmin fits to ≤ 1e-9; ALM FoldedNormal / Beta / BoxCoxNormal agree to ≤ 3e-4 in the coefficients and 3e-6 in the log-likelihood. On the non-smooth S / LogS likelihoods the two optimisers can stop at different local optima from the same starts (in one check LogS improved by 1.8 log-likelihood units and S got worse by 0.7). An elastic-net line-search failure now returns the best iterate instead of `NumericalError`. This removes the `argmin` / `argmin-math` dependencies, including argmin 0.11's use of `is_multiple_of`, which needed Rust ≥ 1.87 or a patched fork downstream; basin itself needs Rust 1.87. basin has no default features, no BLAS/LAPACK and no threads, and builds for wasm32.
