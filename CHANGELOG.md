@@ -233,6 +233,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `areg` now accepts a categorical response (dummy-coded, no inverse).
   - Validated in `tests/r_validation_aregimpute.rs` (generator `tests/r_scripts/generate_aregimpute_validation.R`) against `set.seed(s); aregImpute(...)` with missing values in a spline variable, a second numeric variable and a three-level factor, for weighted and closest matching. Every imputed value matches.
   - Not included: `group`, `constraint`, `type = "regression"` / `"normpmm"`, `pmmtype = 2/3` and `nk` vectors.
+- **Optimal transformations: `reduction::transcan` (#107, RMS §4.7.3, §8.4).** `transcan(x, categorical, &TranscanOptions)` ports `Hmisc::transcan(method = "canonical")`.
+  - Each variable is expanded into a restricted cubic spline basis (Hmisc's default knots) or dummies. Alternating canonical correlations find the transformations under which each variable is best predicted from the others, until they change by less than `eps`; the final sweep uses the previous iteration's values, as Hmisc.
+  - Missing values start at the median (mode) and are predicted on the transformed scale, curtailed to the observed range.
+  - It returns the transformed matrix, R² and adjusted R². The transformations can be used as predictors or reduced with `principal_components`.
+  - Validated in `tests/r_validation_transcan.rs` (generator `tests/r_scripts/generate_transcan_validation.R`) against Hmisc, with and without missing values.
+  - Not included: imputation on the original scale (`imputed`, `n.impute`), `asis`, `shrink`, `method = "pc"`.
 
 ### Changed
 

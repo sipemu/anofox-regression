@@ -57,6 +57,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_reduction_validation.R` | Validates `reduction` (`spearman2`, `hoeffding_d`, `varclus`, `hclust` for all linkages) against Hmisc and `stats::hclust` |
 | `tests/r_scripts/generate_redun_validation.R` | Validates `reduction::redun` (redundancy analysis, all option sets) against `Hmisc::redun` |
 | `tests/r_scripts/generate_pca_validation.R` | Validates `reduction::principal_components` / `cluster_scores` against `stats::prcomp` |
+| `tests/r_scripts/generate_transcan_validation.R` | Validates `reduction::transcan` against `Hmisc::transcan(method = "canonical")` |
 
 #### scikit-learn-based oracles (Python, `validation/python/`)
 
