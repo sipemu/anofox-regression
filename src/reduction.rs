@@ -954,3 +954,211 @@ pub fn cluster_scores(
     }
     Ok(out)
 }
+
+// ================================================================= transcan ==
+
+/// Options of [`transcan`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TranscanOptions {
+    /// Spline knots; `None` is Hmisc's default (3, 4 or 5 for `n < 30`,
+    /// `< 100`, `≥ 100`).
+    pub nk: Option<usize>,
+    /// Maximum iterations (`iter.max`, default 50).
+    pub iter_max: usize,
+    /// Convergence: largest change of a transformation (`eps`, default 0.1).
+    pub eps: f64,
+    /// Keep transformed values of missing entries within the observed range
+    /// (`curtail`, default `true`).
+    pub curtail: bool,
+}
+
+impl Default for TranscanOptions {
+    fn default() -> Self {
+        Self {
+            nk: None,
+            iter_max: 50,
+            eps: 0.1,
+            curtail: true,
+        }
+    }
+}
+
+/// Result of [`transcan`].
+#[derive(Debug, Clone)]
+pub struct Transcan {
+    /// Transformed variables (`n × p`); missing entries hold the transformed
+    /// value predicted from the other variables. The sign of each
+    /// transformation is arbitrary (as in Hmisc).
+    pub transformed: Mat<f64>,
+    /// R² of each transformed variable from the others (`rsq`).
+    pub r_squared: Vec<f64>,
+    /// Adjusted R² (`rsq.adj`).
+    pub r_squared_adj: Vec<f64>,
+    /// Iterations used.
+    pub iterations: usize,
+}
+
+/// `Hmisc::transcan(x, method = "canonical")` (RMS §4.7.3, §8.4): optimal
+/// transformations of every variable (restricted cubic splines, or dummies
+/// for `categorical` columns) so that each is best predicted from the
+/// current transformations of all others, found by alternating canonical
+/// correlations until the transformations change by less than `eps`. Use
+/// the transformations as predictors in place of the originals, or reduce
+/// them further with [`principal_components`] (`transcan`-based scoring).
+/// Missing values (NaN) start at the median (the mode for categorical
+/// variables) and are then predicted on the transformed scale.
+pub fn transcan(
+    x: &Mat<f64>,
+    categorical: &[bool],
+    options: &TranscanOptions,
+) -> Result<Transcan, RegressionError> {
+    let (n, p) = (x.nrows(), x.ncols());
+    if categorical.len() != p || p < 2 || n < 3 {
+        return Err(invalid(
+            "transcan needs two or more columns and one flag per column",
+        ));
+    }
+    let nk = options.nk.unwrap_or(if n < 30 {
+        3
+    } else if n < 100 {
+        4
+    } else {
+        5
+    });
+    let missing: Vec<Vec<bool>> = (0..p)
+        .map(|j| (0..n).map(|i| x[(i, j)].is_nan()).collect())
+        .collect();
+    let (mut bases, mut nparm, mut fillin) = (Vec::new(), Vec::new(), Vec::new());
+    let mut xt = x.to_owned();
+    for j in 0..p {
+        let obs: Vec<f64> = (0..n)
+            .filter(|&i| !missing[j][i])
+            .map(|i| x[(i, j)])
+            .collect();
+        if obs.len() < 3 {
+            return Err(invalid("every column needs three or more observed values"));
+        }
+        let col: Vec<f64> = (0..n).map(|i| x[(i, j)]).collect();
+        if categorical[j] {
+            let levels = distinct_sorted(&obs);
+            let count = |l: f64| obs.iter().filter(|&&v| v == l).count();
+            let mode =
+                levels
+                    .iter()
+                    .copied()
+                    .fold(levels[0], |m, l| if count(l) > count(m) { l } else { m });
+            bases.push(Mat::from_fn(n, levels.len() - 1, |i, c| {
+                f64::from(u8::from(col[i] == levels[c + 1]))
+            }));
+            nparm.push(levels.len() - 1);
+            fillin.push(mode);
+            for i in (0..n).filter(|&i| !missing[j][i]) {
+                xt[(i, j)] = f64::from(u8::from(col[i] == mode));
+            }
+        } else {
+            let rcs =
+                crate::splines::Rcs::from_data(&obs, nk).map_err(|e| invalid(&e.to_string()))?;
+            bases.push(rcs.basis(&col, "x").columns);
+            nparm.push(rcs.n_columns());
+            let mut s = obs.clone();
+            s.sort_by(f64::total_cmp);
+            fillin.push(crate::diagnostics::accuracy::quantile7(&s, 0.5));
+        }
+    }
+    let varconst = ((n - 1) as f64).sqrt();
+    let (mut r2s, mut r2a) = (vec![0.0; p], vec![0.0; p]);
+    let mut last = false;
+    let mut xtl = xt.clone();
+    let mut iterations = 0;
+    let mut dmax: f64 = 0.0;
+    for iter in 1..=options.iter_max {
+        iterations = iter;
+        dmax = 0.0;
+        if last {
+            xtl = xt.clone();
+        }
+        for i in 0..p {
+            let others: Vec<usize> = (0..p).filter(|&c| c != i).collect();
+            let rows: Vec<usize> = (0..n).filter(|&r| !missing[i][r]).collect();
+            let nn = rows.len();
+            let xx = |r: usize, c: usize| -> f64 {
+                let v = xt[(r, others[c])];
+                if v.is_nan() {
+                    fillin[others[c]]
+                } else {
+                    v
+                }
+            };
+            let xs = Mat::from_fn(nn, p - 1, |r, c| xx(rows[r], c));
+            let ys = Mat::from_fn(nn, bases[i].ncols(), |r, c| bases[i][(rows[r], c)]);
+            let (xb, yb, r2) = crate::transform::canonical(&xs, &ys)?;
+            let adj = varconst / ((nn - 1) as f64).sqrt();
+            let affine = |coef: &Col<f64>, v: &dyn Fn(usize) -> f64, m: usize| {
+                coef[0] * adj + (0..m).map(|c| coef[c + 1] * adj * v(c)).sum::<f64>()
+            };
+            let mut newy: Vec<f64> = (0..n)
+                .map(|r| {
+                    if missing[i][r] {
+                        affine(&xb, &|c| xx(r, c), p - 1)
+                    } else {
+                        affine(&yb, &|c| bases[i][(r, c)], bases[i].ncols())
+                    }
+                })
+                .collect();
+            let k_other = others
+                .iter()
+                .map(|&c| nparm[c].saturating_sub(1))
+                .sum::<usize>() as f64
+                / (p - 1) as f64
+                + (p - 1) as f64;
+            let k = (nparm[i] - 1) as f64 + k_other;
+            r2s[i] = r2;
+            r2a[i] = (1.0 - (1.0 - r2) * (nn as f64 - 1.0) / (nn as f64 - k - 1.0)).max(0.0);
+            if options.curtail && nn < n {
+                let lo = rows.iter().map(|&r| newy[r]).fold(f64::INFINITY, f64::min);
+                let hi = rows
+                    .iter()
+                    .map(|&r| newy[r])
+                    .fold(f64::NEG_INFINITY, f64::max);
+                for r in (0..n).filter(|&r| missing[i][r]) {
+                    newy[r] = newy[r].clamp(lo, hi);
+                }
+            }
+            if iter > 1 {
+                let d = |s: f64| {
+                    (0..n)
+                        .map(|r| (s * xt[(r, i)] - newy[r]).abs())
+                        .fold(0.0, f64::max)
+                };
+                dmax = dmax.max(d(1.0).min(d(-1.0)));
+            }
+            for (r, v) in newy.into_iter().enumerate() {
+                if last {
+                    xtl[(r, i)] = v;
+                } else {
+                    xt[(r, i)] = v;
+                }
+            }
+        }
+        if last {
+            break;
+        }
+        last = iter == options.iter_max - 1 || (iter > 1 && dmax < options.eps);
+    }
+    if options.iter_max > 3 && iterations == options.iter_max && dmax >= options.eps {
+        return Err(RegressionError::ConvergenceFailed { iterations });
+    }
+    Ok(Transcan {
+        transformed: xtl,
+        r_squared: r2s,
+        r_squared_adj: r2a,
+        iterations,
+    })
+}
+
+fn distinct_sorted(v: &[f64]) -> Vec<f64> {
+    let mut d = v.to_vec();
+    d.sort_by(f64::total_cmp);
+    d.dedup();
+    d
+}
