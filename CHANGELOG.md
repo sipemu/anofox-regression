@@ -239,6 +239,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - It returns the transformed matrix, R² and adjusted R². The transformations can be used as predictors or reduced with `principal_components`.
   - Validated in `tests/r_validation_transcan.rs` (generator `tests/r_scripts/generate_transcan_validation.R`) against Hmisc, with and without missing values.
   - Not included: imputation on the original scale (`imputed`, `n.impute`), `asis`, `shrink`, `method = "pc"`.
+- **`LmDynamicRegressor` vs OLS (#171).** On anofox-forecast's design (an intercept column, a trend and Fourier pairs) with the noise-free series `y = 2t + 10 sin(2πt/7) + 5`, the dynamic fit and OLS forecast the same. That is correct: several candidate models fit exactly. Before 0.5.13 they differed only because OLS returned wrong coefficients (the column-pivot unpermute bug fixed in 0.5.13, with forecasts off by up to 18.7). `tests/issue171_lm_dynamic.rs` pins this: both forecast the truth on the exact series, and the dynamic fit differs from OLS on a noisy one. No code change.
 
 ### Changed
 
