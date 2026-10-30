@@ -135,7 +135,13 @@ pub struct AregBootstrap {
     pub med_corrected: f64,
 }
 
-/// `Hmisc::areg(x, y, xtype, ytype, nk)`: see the [module docs](self).
+/// `Hmisc::areg(x, y, xtype, ytype, nk)`: additive regression with optimal
+/// transformations of both sides. Each predictor and the response are
+/// expanded into a restricted cubic spline basis (or kept linear, or
+/// dummy-coded), and the first canonical correlation between the two bases
+/// gives the transformation of `y` and the additive transformations of the
+/// predictors that maximise R². With a linear `y` the fit is ordinary least
+/// squares on the predictor bases.
 pub fn areg(x: &Mat<f64>, y: &[f64], options: &AregOptions) -> Result<Areg, RegressionError> {
     let (n, p) = (x.nrows(), x.ncols());
     if y.len() != n {
