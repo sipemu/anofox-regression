@@ -122,3 +122,67 @@ fn continuation_ratio_rejects_bad_input() {
     assert_eq!(f.n_features(), 3);
     assert!(f.logistic().result().intercept.is_some());
 }
+
+#[test]
+fn case_weights_match_weighted_lrm_and_glm() {
+    use anofox_regression::solvers::{BinomialRegressor, Regressor};
+    let x = Mat::from_fn(N, 3, |i, j| X[i * 3 + j]);
+    let y = Col::from_fn(N, |i| Y_CAT[i]);
+    let f = ContinuationRatioRegressor::builder()
+        .weights(&W)
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    let k = WEQUAL_COEF.len();
+    let coef = f.coefficients();
+    let v = f.vcov();
+    for a in 0..k {
+        close(&format!("coef {a}"), coef[a], WEQUAL_COEF[a], 1e-9);
+        assert!((coef[a] - GLMW_COEF[a]).abs() < 1e-9);
+        for b in 0..k {
+            close(
+                &format!("vcov {a},{b}"),
+                v[(a, b)],
+                WEQUAL_VCOV[b * k + a],
+                1e-8,
+            );
+            close(
+                &format!("glm vcov {a},{b}"),
+                v[(a, b)],
+                GLMW_VCOV[b * k + a],
+                1e-8,
+            );
+        }
+    }
+    close("loglik", f.log_likelihood(), WEQUAL_LL[0], 1e-10);
+    close("deviance", f.logistic().deviance, GLMW_DEV[0], 1e-10);
+    close(
+        "null deviance",
+        f.logistic().null_deviance,
+        GLMW_DEV[1],
+        1e-10,
+    );
+
+    // weights of the wrong length, and negative weights
+    assert!(ContinuationRatioRegressor::builder()
+        .weights(&W[..10])
+        .build()
+        .fit(&x, &y)
+        .is_err());
+    let neg = BinomialRegressor::logistic()
+        .weights(Col::from_fn(N, |i| if i == 0 { -1.0 } else { 1.0 }))
+        .build()
+        .fit(
+            &x,
+            &Col::from_fn(N, |i| f64::from(u8::from(Y_CAT[i] > 2.0))),
+        );
+    assert!(neg.is_err());
+    let short = BinomialRegressor::logistic()
+        .weights(Col::from_fn(N - 1, |_| 1.0))
+        .build()
+        .fit(
+            &x,
+            &Col::from_fn(N, |i| f64::from(u8::from(Y_CAT[i] > 2.0))),
+        );
+    assert!(short.is_err());
+}

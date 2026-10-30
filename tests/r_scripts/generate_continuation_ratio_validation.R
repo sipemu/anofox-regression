@@ -44,3 +44,11 @@ for (id in names(fits)) {
                    x1 = rep(xnew[, 1], each = 4), x2 = rep(xnew[, 2], each = 4), x3 = rep(xnew[, 3], each = 4))
   emit(sprintf("%s_COND", id), plogis(predict(f, nd)))
 }
+
+# Case weights: lrm (and glm) on the cr.setup data with weights w[subs]
+set.seed(5); w <- round(runif(n, 0.5, 2), 3); emit("W", w)
+fw <- suppressWarnings(lrm(y ~ cohort + x1 + x2 + x3, data = d, weights = w[s$subs], tol = 1e-14, maxit = 100))
+emit("WEQUAL_COEF", coef(fw)); emit("WEQUAL_VCOV", vcov(fw)); emit("WEQUAL_LL", -fw$deviance[2] / 2)
+gw <- suppressWarnings(glm(y ~ cohort + x1 + x2 + x3, family = binomial, data = d, weights = w[s$subs],
+                           control = glm.control(epsilon = 1e-14, maxit = 100)))
+emit("GLMW_COEF", coef(gw)); emit("GLMW_VCOV", vcov(gw)); emit("GLMW_DEV", c(deviance(gw), gw$null.deviance))
