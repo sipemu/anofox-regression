@@ -212,6 +212,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validated in `tests/r_validation_survfit_robust.rs` (generator `tests/r_scripts/generate_survfit_robust_validation.R`) against survival for: weights (default), clusters, the Fleming–Harrington hazard, left truncation, forced `robust = TRUE` without weights, and Greenwood.
   - For the FH hazard, survival computes its intervals with `SE(S)` treated as a log-scale SE. Ours use `SE(S)/S` as for Nelson–Aalen; the test confirms R's formula.
 - **Confidence limits for predicted quantiles of ordinal models (#110 follow-up in #135).** `FittedOrdinal::predict_quantile_ci(x, q, method, level)` returns the estimate and pointwise limits of `rms::Quantile.orm(conf.int = )`. Each `α_j + xβ` is shifted by `± z·SE` (delta method from `vcov`), and the shifted exceedance curves are turned into quantiles as the estimate (interpolated or discrete). Validated in `tests/r_validation_quantile_orm.rs` (generator `tests/r_scripts/generate_quantile_orm_validation.R`) against rms, for logistic and probit links, q = 0.5 and 0.9, both methods.
+- **Parallel resampling (#103 follow-up in #135).** The optional `parallel` feature (rayon) adds `validation::predab_resample_par` and `validation::bootcov_par`. They fit the resamples on rayon's thread pool and combine them in resample order, so the results equal those of `predab_resample` / `bootcov` exactly. The closures must be `Fn + Sync`. Without the feature nothing changes, and there is no new dependency.
 
 ### Changed
 
