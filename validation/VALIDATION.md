@@ -47,6 +47,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_gls_validation.R` | Validates `GlsRegressor` (correlation structures, variance functions, REML/ML, var-cov intervals, variogram) against `nlme::gls` |
 | `tests/r_scripts/generate_transform_validation.R` | Validates `transform::box_cox` against `MASS::boxcox` and `smearing_estimate` against `Hmisc::smearingEst` |
 | `tests/r_scripts/generate_nomogram_validation.R` | Validates `ModelSpec::nomogram` (ticks, points, total-points / lp / risk axes) against `rms::nomogram` |
+| `tests/r_scripts/generate_simultaneous_validation.R` | Validates `effects::simultaneous_critical` / `predict_grid_simultaneous` against `rms::Predict(conf.type = "simultaneous")` and mvtnorm |
 | `tests/r_scripts/generate_survfit_robust_validation.R` | Validates the robust (infinitesimal-jackknife) `survfit` variance against `survival::survfit` |
 | `tests/r_scripts/generate_quantile_orm_validation.R` | Validates `FittedOrdinal::predict_quantile_ci` against `rms::Quantile.orm(conf.int = )` |
 | `tests/r_scripts/generate_pool_validation.R` | Validates `inference::pool` (Rubin's rules, Barnard–Rubin d.f., D1) against `Hmisc::fit.mult.impute` and the `mice::pool` formulas |
