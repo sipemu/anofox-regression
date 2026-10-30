@@ -590,3 +590,37 @@ mod tests {
         assert_eq!(NaAction::default(), NaAction::Omit);
     }
 }
+
+/// The complete rows of `x` and `y`.
+pub(crate) type CompleteCases = (Mat<f64>, Col<f64>);
+
+/// Applies `action` before a fit of `x` and `y`: `Ok(None)` when the data
+/// are fitted as given (no NaN, `Pass`, or mismatched lengths left for the
+/// estimator to report), `Ok(Some((x, y)))` with the complete cases for
+/// `Omit` / `Exclude`, and an error for `Fail`. With row-aligned extras
+/// (weights, an offset) rows cannot be dropped here, so NaN rows are an
+/// error.
+pub(crate) fn apply_na_action(
+    x: &Mat<f64>,
+    y: &Col<f64>,
+    action: NaAction,
+    has_row_extras: bool,
+) -> Result<Option<CompleteCases>, crate::solvers::RegressionError> {
+    use crate::solvers::RegressionError;
+    if action == NaAction::Pass
+        || x.nrows() != y.nrows()
+        || (!NaHandler::has_na_matrix(x) && !NaHandler::has_na_vector(y))
+    {
+        return Ok(None);
+    }
+    if has_row_extras && action != NaAction::Fail {
+        return Err(RegressionError::NumericalError(
+            "x or y contain NaN and the fit has row-aligned weights or an offset: \
+             drop the incomplete rows from all inputs first"
+                .to_string(),
+        ));
+    }
+    let r = NaHandler::process(x, y, action)
+        .map_err(|e| RegressionError::NumericalError(e.to_string()))?;
+    Ok(Some((r.x_clean, r.y_clean)))
+}

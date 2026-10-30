@@ -552,6 +552,9 @@ impl Regressor for LmDynamicRegressor {
     type Fitted = FittedLmDynamic;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        if let Some((xc, yc)) = crate::core::apply_na_action(x, y, self.options.na_action, false)? {
+            return self.fit(&xc, &yc);
+        }
         // Validate dimensions
         if x.nrows() != y.nrows() {
             return Err(RegressionError::DimensionMismatch {
