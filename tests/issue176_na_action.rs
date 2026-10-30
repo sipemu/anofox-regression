@@ -67,3 +67,65 @@ fn row_aligned_offsets_cannot_be_omitted() {
         .build();
     assert!(pois.fit(&xn, &yn).is_err());
 }
+
+/// Every estimator configured by `RegressionOptions` fits the complete
+/// cases under the default `Omit` (same fit as the hand-cleaned data).
+#[test]
+fn every_options_estimator_omits_incomplete_rows() {
+    use anofox_regression::solvers::lm_dynamic::LmDynamicRegressor;
+    use anofox_regression::solvers::{
+        AlmRegressor, BlsRegressor, ElasticNetRegressor, NegativeBinomialRegressor, RlsRegressor,
+        TweedieRegressor, WlsRegressor,
+    };
+    let (xn, yn, xc, yc) = data();
+    // counts shifted to be positive for Tweedie / Gamma-type fits
+    let shift = |y: &Col<f64>| Col::from_fn(y.nrows(), |i| y[i] + 1.0);
+    fn check<R: Regressor>(r: R, xn: &Mat<f64>, yn: &Col<f64>, xc: &Mat<f64>, yc: &Col<f64>) {
+        let a = r.fit(xn, yn).unwrap();
+        let b = r.fit(xc, yc).unwrap();
+        assert_eq!(a.result().n_observations, b.result().n_observations);
+        same(&a.result().coefficients, &b.result().coefficients);
+    }
+    check(WlsRegressor::builder().build(), &xn, &yn, &xc, &yc);
+    check(BlsRegressor::builder().build(), &xn, &yn, &xc, &yc);
+    check(
+        ElasticNetRegressor::builder().lambda(0.1).build(),
+        &xn,
+        &yn,
+        &xc,
+        &yc,
+    );
+    check(RlsRegressor::builder().build(), &xn, &yn, &xc, &yc);
+    check(
+        NegativeBinomialRegressor::builder().build(),
+        &xn,
+        &yn,
+        &xc,
+        &yc,
+    );
+    check(
+        TweedieRegressor::gamma().build(),
+        &xn,
+        &shift(&yn),
+        &xc,
+        &shift(&yc),
+    );
+    check(AlmRegressor::builder().build(), &xn, &yn, &xc, &yc);
+    check(LmDynamicRegressor::builder().build(), &xn, &yn, &xc, &yc);
+}
+
+#[test]
+fn fail_errors_and_weights_cannot_be_omitted() {
+    use anofox_regression::core::{NaAction, RegressionOptionsBuilder};
+    use anofox_regression::solvers::WlsRegressor;
+    let (xn, yn, _, _) = data();
+    let fail = RegressionOptionsBuilder::default()
+        .na_action(NaAction::Fail)
+        .build()
+        .unwrap();
+    assert!(OlsRegressor::new(fail).fit(&xn, &yn).is_err());
+    let w = WlsRegressor::builder()
+        .weights(Col::from_fn(yn.nrows(), |_| 1.0))
+        .build();
+    assert!(w.fit(&xn, &yn).is_err());
+}
