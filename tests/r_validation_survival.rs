@@ -205,12 +205,13 @@ fn strata_and_summary_table() {
 #[test]
 fn case_weights_match_survfit() {
     let ev = events();
-    let c = &survfit(
-        &SurvInput::new(&TIME, &ev).weights(&W),
-        None,
-        &SurvfitOptions::default(),
-    )
-    .unwrap()[0];
+    // the reference is survfit(robust = FALSE); robust is the default for
+    // non-integer weights (see r_validation_survfit_robust.rs)
+    let greenwood = SurvfitOptions {
+        robust: Some(false),
+        ..Default::default()
+    };
+    let c = &survfit(&SurvInput::new(&TIME, &ev).weights(&W), None, &greenwood).unwrap()[0];
     check_curve(
         "W",
         c,

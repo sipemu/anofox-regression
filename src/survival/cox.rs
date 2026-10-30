@@ -175,6 +175,7 @@ impl Data {
             event: input.event,
             entry: input.entry,
             weights: input.weights,
+            cluster: None,
         }
         .validate()?;
         for (len, v) in [
@@ -839,6 +840,7 @@ impl CoxFit {
                     event: &d.event,
                     entry: d.entry.as_deref(),
                     weights: None,
+                    cluster: None,
                 };
                 let opts = super::SurvfitOptions {
                     timefix: false,

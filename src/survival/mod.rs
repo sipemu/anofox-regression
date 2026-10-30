@@ -81,6 +81,10 @@ pub struct SurvfitOptions {
     /// Merge times that differ only by floating-point noise, as R's
     /// `Surv(..., timefix = TRUE)` (`aeqSurv`) does by default.
     pub timefix: bool,
+    /// Infinitesimal-jackknife (robust) standard errors (`robust =`).
+    /// `None` follows `survfit`: robust when the weights are not all
+    /// integers or a cluster is given, Greenwood otherwise.
+    pub robust: Option<bool>,
 }
 
 impl Default for SurvfitOptions {
@@ -90,6 +94,7 @@ impl Default for SurvfitOptions {
             conf_type: ConfType::Log,
             hazard: HazardType::NelsonAalen,
             timefix: true,
+            robust: None,
         }
     }
 }
@@ -106,6 +111,9 @@ pub struct SurvInput<'a> {
     pub entry: Option<&'a [f64]>,
     /// Case weights.
     pub weights: Option<&'a [f64]>,
+    /// Cluster (subject) id of each row: the robust variance sums the
+    /// influence of a cluster's rows (`survfit(id = )` / `cluster =`).
+    pub cluster: Option<&'a [usize]>,
 }
 
 impl<'a> SurvInput<'a> {
@@ -116,6 +124,7 @@ impl<'a> SurvInput<'a> {
             event,
             entry: None,
             weights: None,
+            cluster: None,
         }
     }
     /// Add entry times (counting-process data).
@@ -128,11 +137,21 @@ impl<'a> SurvInput<'a> {
         self.weights = Some(weights);
         self
     }
+    /// Add cluster ids for the robust variance.
+    pub fn cluster(mut self, cluster: &'a [usize]) -> Self {
+        self.cluster = Some(cluster);
+        self
+    }
 
     fn validate(&self) -> Result<(), SurvivalError> {
         let n = self.time.len();
         if self.event.len() != n {
             return Err(SurvivalError::Length(n, self.event.len()));
+        }
+        if let Some(c) = self.cluster {
+            if c.len() != n {
+                return Err(SurvivalError::Length(n, c.len()));
+            }
         }
         if n == 0 {
             return Err(SurvivalError::Empty);
@@ -213,9 +232,11 @@ pub struct SurvCurve {
     pub n_censor: Vec<f64>,
     /// Kaplan–Meier survival.
     pub surv: Vec<f64>,
-    /// Greenwood standard error of `−log S` (`std.err` of `survfit` with
-    /// `robust = FALSE`; for non-integer weights R defaults to a robust
-    /// variance).
+    /// Standard error of `−log S`: Greenwood (`std.err` of `survfit` with
+    /// `robust = FALSE`) or, with the robust variance, the
+    /// infinitesimal-jackknife SE of `S` divided by `S` (R reports the SE of
+    /// `S` itself then, `logse = FALSE`, and converts it the same way for
+    /// the confidence limits).
     pub std_err: Vec<f64>,
     /// Lower confidence limit of `S`.
     pub lower: Vec<f64>,
@@ -223,7 +244,8 @@ pub struct SurvCurve {
     pub upper: Vec<f64>,
     /// Cumulative hazard.
     pub cumhaz: Vec<f64>,
-    /// Standard error of the cumulative hazard.
+    /// Standard error of the cumulative hazard (Greenwood-type or
+    /// infinitesimal jackknife).
     pub std_chaz: Vec<f64>,
     /// Smallest entry / stop time (start of the curve for the restricted mean).
     min_time: f64,
@@ -416,6 +438,7 @@ pub fn survfit(
             event: input.event,
             entry: e.as_deref(),
             weights: input.weights,
+            cluster: input.cluster,
         },
         None => *input,
     };
@@ -520,15 +543,141 @@ fn one_curve(input: &SurvInput, rows: &[usize], options: &SurvfitOptions, z: f64
         out.std_err[k] = varhaz.sqrt();
         out.cumhaz[k] = h;
         out.std_chaz[k] = varh.sqrt();
-        let (lo, hi) = conf_limits(s, out.std_err[k], z, options.conf_type);
+    }
+    if use_robust(input, rows, options) {
+        let risk = |i: usize, t: f64| input.entry.is_none_or(|e| e[i] < t) && t <= input.time[i];
+        let (sd_s, sd_h) = robust_se(input, rows, &out, &n_ev_rows, options.hazard, &risk);
+        for k in 0..m {
+            // survfit_confint: se = ifelse(se == 0, 0, se / p)
+            out.std_err[k] = if sd_s[k] == 0.0 {
+                0.0
+            } else {
+                sd_s[k] / out.surv[k]
+            };
+            out.std_chaz[k] = sd_h[k];
+        }
+    }
+    for k in 0..m {
+        let (lo, hi) = conf_limits(out.surv[k], out.std_err[k], z, options.conf_type);
         out.lower[k] = lo;
         out.upper[k] = hi;
     }
     out
 }
 
+/// `survfit`'s default for `robust`.
+fn use_robust(input: &SurvInput, rows: &[usize], options: &SurvfitOptions) -> bool {
+    options.robust.unwrap_or_else(|| {
+        input.cluster.is_some()
+            || input
+                .weights
+                .is_some_and(|w| rows.iter().any(|&i| w[i].fract() != 0.0))
+    })
+}
+
+/// Infinitesimal-jackknife standard errors of `S` and of the cumulative
+/// hazard at every time of `curve`, summing the influence within clusters
+/// (survival's `survfitkm.c`, types 1 and 2).
+fn robust_se(
+    input: &SurvInput,
+    rows: &[usize],
+    curve: &SurvCurve,
+    n_ev_rows: &[usize],
+    hazard: HazardType,
+    at_risk: &dyn Fn(usize, f64) -> bool,
+) -> (Vec<f64>, Vec<f64>) {
+    let w = |i: usize| input.weights.map_or(1.0, |w| w[i]);
+    let ids: Vec<usize> = rows
+        .iter()
+        .map(|&i| input.cluster.map_or(i, |c| c[i]))
+        .collect();
+    let (cid, nc) = {
+        let mut map = std::collections::HashMap::new();
+        let v: Vec<usize> = ids
+            .iter()
+            .map(|&g| {
+                let next = map.len();
+                *map.entry(g).or_insert(next)
+            })
+            .collect();
+        (v, map.len())
+    };
+    let (mut inf1, mut inf2) = (vec![0.0; nc], vec![0.0; nc]);
+    let (mut v1, mut v2) = (0.0_f64, 0.0_f64);
+    let mut km = 1.0;
+    let m = curve.time.len();
+    let (mut sd_s, mut sd_h) = (vec![0.0; m], vec![0.0; m]);
+    for k in 0..m {
+        let (t, nr, d) = (curve.time[k], curve.n_risk[k], curve.n_event[k]);
+        if nr > 0.0 && d > 0.0 {
+            let mut gwt = vec![0.0; nc];
+            let mut gcount = vec![0usize; nc];
+            for (r, &i) in rows.iter().enumerate() {
+                if at_risk(i, t) {
+                    gwt[cid[r]] += w(i);
+                    gcount[cid[r]] += 1;
+                }
+            }
+            let haz = d / nr;
+            // Fleming–Harrington: average denominators over the tied deaths
+            let (dtemp, dtemp2, dtemp3) = match hazard {
+                HazardType::NelsonAalen => (0.0, 0.0, 0.0),
+                HazardType::FlemingHarrington => fh_terms(nr, d, n_ev_rows[k].max(1) as f64),
+            };
+            for c in 0..nc {
+                inf1[c] = inf1[c] * (1.0 - haz) + gwt[c] * km * haz / nr;
+                match hazard {
+                    HazardType::NelsonAalen => inf2[c] -= gwt[c] * haz / nr,
+                    HazardType::FlemingHarrington if gcount[c] > 0 => inf2[c] -= gwt[c] * dtemp3,
+                    HazardType::FlemingHarrington => {}
+                }
+            }
+            for (r, &i) in rows.iter().enumerate() {
+                if input.event[i] && input.time[i] == t {
+                    inf1[cid[r]] -= km * w(i) / nr;
+                    inf2[cid[r]] += match hazard {
+                        HazardType::NelsonAalen => w(i) / nr,
+                        HazardType::FlemingHarrington => w(i) * (dtemp + dtemp3 - dtemp2),
+                    };
+                }
+            }
+            km *= 1.0 - haz;
+            v1 = inf1.iter().map(|v| v * v).sum();
+            v2 = inf2.iter().map(|v| v * v).sum();
+        }
+        sd_s[k] = v1.sqrt();
+        sd_h[k] = v2.sqrt();
+    }
+    (sd_s, sd_h)
+}
+
+/// The averaged denominators of the Fleming–Harrington hazard at a time
+/// with weighted risk set `nr`, weighted deaths `d` and `nd` death rows.
+fn fh_terms(nr: f64, d: f64, nd: f64) -> (f64, f64, f64) {
+    let rest = nr - d;
+    let (mut a, mut b, mut c) = (0.0, 0.0, 0.0);
+    let mut k = nd;
+    while k > 0.0 {
+        let frac = k / nd;
+        let bt = 1.0 / (rest + frac * d);
+        a += bt;
+        b += bt * bt * frac;
+        c += bt * bt;
+        k -= 1.0;
+    }
+    a /= nd;
+    if d != nd {
+        b *= d / nd;
+        c *= d / nd;
+    }
+    (a, b, c)
+}
+
 /// `survfit_confint` of the survival package.
 fn conf_limits(p: f64, se: f64, z: f64, kind: ConfType) -> (f64, f64) {
+    if se == 0.0 {
+        return (p, p);
+    }
     match kind {
         ConfType::Plain => {
             let e = z * se * p;

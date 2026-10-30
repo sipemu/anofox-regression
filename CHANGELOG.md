@@ -205,6 +205,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - For each group it compares the Kaplan–Meier estimate at `u` (with its Greenwood standard error) with the mean prediction, then corrects the difference for overfitting by refitting on every resample with `predab_resample`.
   - It returns `index.orig`, `training`, `test`, `mean.optimism`, `mean.corrected`, `n`, `mean.predicted`, `KM`, `KM.corrected` and `std.err`.
   - Validated in `tests/r_validation_calibrate_cph.rs` (generator `tests/r_scripts/generate_calibrate_cph_validation.R`) against rms, replaying its bootstrap resamples, at 1e-9 with cph's convergence settings (`eps = 1e-4`, 10 iterations, also used in its refits).
+- **Robust (infinitesimal-jackknife) variance for `survfit` (#113, follow-up in #135).**
+  - `SurvfitOptions::robust` (`None` = survfit's default) and `SurvInput::cluster` give the IJ standard errors of the Kaplan–Meier survival and of the Nelson–Aalen or Fleming–Harrington cumulative hazard. Influences are summed within clusters (`survfit(id = )`), and left truncation works. The code ports survival's `survfitkm.c`.
+  - **Changed default:** with non-integer case weights or a cluster, `survfit` now uses the robust variance, as R does. Pass `robust: Some(false)` for Greenwood.
+  - `std_err` stays the SE of `−log S` (`SE(S)/S`; R reports `SE(S)` itself in that case). Confidence limits with a zero SE are the estimate, as `survfit_confint`.
+  - Validated in `tests/r_validation_survfit_robust.rs` (generator `tests/r_scripts/generate_survfit_robust_validation.R`) against survival for: weights (default), clusters, the Fleming–Harrington hazard, left truncation, forced `robust = TRUE` without weights, and Greenwood.
+  - For the FH hazard, survival computes its intervals with `SE(S)` treated as a log-scale SE. Ours use `SE(S)/S` as for Nelson–Aalen; the test confirms R's formula.
 
 ### Changed
 
