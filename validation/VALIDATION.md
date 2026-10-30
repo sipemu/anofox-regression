@@ -46,6 +46,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_glmm_nagq_validation.R` | Validates `GlmmRegressorBuilder::n_agq` (Laplace `nAGQ = 1`, adaptive Gauss–Hermite `nAGQ = 7`) against `lme4::glmer` |
 | `tests/r_scripts/generate_gls_validation.R` | Validates `GlsRegressor` (correlation structures, variance functions, REML/ML, var-cov intervals, variogram) against `nlme::gls` |
 | `tests/r_scripts/generate_transform_validation.R` | Validates `transform::box_cox` against `MASS::boxcox` and `smearing_estimate` against `Hmisc::smearingEst` |
+| `tests/r_scripts/generate_nomogram_validation.R` | Validates `ModelSpec::nomogram` (ticks, points, total-points / lp / risk axes) against `rms::nomogram` |
 | `tests/r_scripts/generate_survfit_robust_validation.R` | Validates the robust (infinitesimal-jackknife) `survfit` variance against `survival::survfit` |
 | `tests/r_scripts/generate_quantile_orm_validation.R` | Validates `FittedOrdinal::predict_quantile_ci` against `rms::Quantile.orm(conf.int = )` |
 | `tests/r_scripts/generate_pool_validation.R` | Validates `inference::pool` (Rubin's rules, Barnard–Rubin d.f., D1) against `Hmisc::fit.mult.impute` and the `mice::pool` formulas |
