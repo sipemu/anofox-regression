@@ -14,7 +14,10 @@
 //!   bootstrap sample, weighted; optimism = `0.632 (orig − Σ wᵢ testᵢ)`;
 //!
 //! the bias-corrected index is `original − optimism`. Resamples are drawn
-//! with a seed or given explicitly (e.g. to replay R's).
+//! with a seed or given explicitly (e.g. to replay R's). With the
+//! `parallel` feature, [`predab_resample_par`] and [`bootcov_par`] fit the
+//! resamples on rayon's thread pool, with results identical to the
+//! sequential ones.
 //!
 //! [`validate_lrm`] / [`validate_ols`] provide `validate.lrm` /
 //! `validate.ols` for binary logistic and linear models (Dxy, R², the
@@ -284,11 +287,48 @@ pub fn predab_resample<M>(
     mut fit: impl FnMut(&[usize]) -> Option<M>,
     mut measure: impl FnMut(&M, &[usize], bool) -> Vec<f64>,
 ) -> Result<ValidationTable, ValidationError> {
-    let n = resamples.n;
-    let k = names.len();
-    let all: Vec<usize> = (0..n).collect();
+    let all: Vec<usize> = (0..resamples.n).collect();
     let orig_fit = fit(&all).ok_or(ValidationError::OriginalFit)?;
     let index_orig = measure(&orig_fit, &all, true);
+    let results: Vec<Option<(Vec<f64>, Vec<f64>)>> = resamples
+        .splits
+        .iter()
+        .map(|(tr, te)| fit(tr).map(|m| (measure(&m, tr, true), measure(&m, te, false))))
+        .collect();
+    aggregate(resamples, names, index_orig, results)
+}
+
+/// [`predab_resample`] with the resamples fitted in parallel (rayon). The
+/// results are combined in resample order, so they equal the sequential
+/// ones exactly. Needs the `parallel` feature.
+#[cfg(feature = "parallel")]
+pub fn predab_resample_par<M: Send>(
+    resamples: &Resamples,
+    names: &[&str],
+    fit: impl Fn(&[usize]) -> Option<M> + Sync,
+    measure: impl Fn(&M, &[usize], bool) -> Vec<f64> + Sync,
+) -> Result<ValidationTable, ValidationError> {
+    use rayon::prelude::*;
+    let all: Vec<usize> = (0..resamples.n).collect();
+    let orig_fit = fit(&all).ok_or(ValidationError::OriginalFit)?;
+    let index_orig = measure(&orig_fit, &all, true);
+    let results: Vec<Option<(Vec<f64>, Vec<f64>)>> = resamples
+        .splits
+        .par_iter()
+        .map(|(tr, te)| fit(tr).map(|m| (measure(&m, tr, true), measure(&m, te, false))))
+        .collect();
+    aggregate(resamples, names, index_orig, results)
+}
+
+/// Combine the apparent and test indexes of every resample (`None` = failed
+/// fit) into the validation table.
+fn aggregate(
+    resamples: &Resamples,
+    names: &[&str],
+    index_orig: Vec<f64>,
+    results: Vec<Option<(Vec<f64>, Vec<f64>)>>,
+) -> Result<ValidationTable, ValidationError> {
+    let k = names.len();
     if index_orig.len() != k {
         return Err(ValidationError::Data(
             "measure returned the wrong number of indexes".into(),
@@ -296,13 +336,11 @@ pub fn predab_resample<M>(
     }
     let (mut train, mut test, mut num) = (vec![0.0; k], vec![0.0; k], vec![0usize; k]);
     let mut failed = 0;
-    for ((tr, te), &wt) in resamples.splits.iter().zip(&resamples.weights) {
-        let Some(m) = fit(tr) else {
+    for (res, &wt) in results.iter().zip(&resamples.weights) {
+        let Some((a, b)) = res else {
             failed += 1;
             continue;
         };
-        let a = measure(&m, tr, true);
-        let b = measure(&m, te, false);
         for j in 0..k {
             if a[j].is_finite() && b[j].is_finite() {
                 num[j] += 1;
@@ -948,7 +986,30 @@ pub fn bootcov(
     mut fit: impl FnMut(&[usize]) -> Option<Vec<f64>>,
 ) -> Result<BootCov, ValidationError> {
     let reps: Vec<Vec<f64>> = samples.iter().filter_map(|s| fit(s)).collect();
-    let failed = samples.len() - reps.len();
+    bootcov_from(samples.len(), reps)
+}
+
+/// [`bootcov`] with the replicates fitted in parallel (rayon), in sample
+/// order (identical to the sequential result). Needs the `parallel`
+/// feature.
+#[cfg(feature = "parallel")]
+pub fn bootcov_par(
+    samples: &[Vec<usize>],
+    fit: impl Fn(&[usize]) -> Option<Vec<f64>> + Sync,
+) -> Result<BootCov, ValidationError> {
+    use rayon::prelude::*;
+    let reps: Vec<Vec<f64>> = samples
+        .par_iter()
+        .map(|s| fit(s))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .flatten()
+        .collect();
+    bootcov_from(samples.len(), reps)
+}
+
+fn bootcov_from(n_samples: usize, reps: Vec<Vec<f64>>) -> Result<BootCov, ValidationError> {
+    let failed = n_samples - reps.len();
     if reps.len() < 2 {
         return Err(ValidationError::Resamples(
             "fewer than two successful replicates".into(),
@@ -1040,6 +1101,32 @@ pub(crate) fn average_ranks(v: &[f64]) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn parallel_resampling_equals_sequential() {
+        let n = 60;
+        let x = Mat::from_fn(n, 2, |i, j| ((i * (j + 3)) % 17) as f64 / 5.0);
+        let y: Vec<f64> = (0..n)
+            .map(|i| 1.0 + x[(i, 0)] - 0.5 * x[(i, 1)] + ((i * 7) % 11) as f64 / 10.0)
+            .collect();
+        let res = Resamples::bootstrap_seeded(n, 40, 11).unwrap();
+        let fit = |rows: &[usize]| fit_ols(&x, &y, rows);
+        let measure = |pred: &Vec<f64>, rows: &[usize], _: bool| {
+            let sse: f64 = rows.iter().map(|&i| (y[i] - pred[i]).powi(2)).sum();
+            vec![sse / rows.len() as f64]
+        };
+        let seq = predab_resample(&res, &["mse"], fit, measure).unwrap();
+        let par = predab_resample_par(&res, &["mse"], fit, measure).unwrap();
+        assert_eq!(seq, par);
+
+        let samples = bootstrap_rows(n, 30, 5);
+        let coef = |rows: &[usize]| fit_ols(&x, &y, rows).map(|p| vec![p[0], p[n - 1]]);
+        assert_eq!(
+            bootcov(&samples, coef).unwrap(),
+            bootcov_par(&samples, coef).unwrap()
+        );
+    }
 
     #[test]
     fn crossvalidation_groups_cover_every_row_once() {
