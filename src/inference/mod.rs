@@ -7,6 +7,7 @@ pub mod cluster;
 mod coefficient;
 pub mod likelihood;
 mod nested_f;
+pub mod pool;
 mod predict_se;
 mod prediction;
 mod robust_covariance;
