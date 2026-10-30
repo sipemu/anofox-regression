@@ -825,3 +825,132 @@ pub fn redun(
         too_few,
     })
 }
+
+// ===================================================== principal components ==
+
+/// Principal components of a data matrix ([`principal_components`],
+/// `stats::prcomp`).
+#[derive(Debug, Clone)]
+pub struct PrincipalComponents {
+    /// Column means subtracted.
+    pub center: Vec<f64>,
+    /// Column standard deviations divided by (`scale = TRUE`), if any.
+    pub scale: Option<Vec<f64>>,
+    /// Standard deviations of the components, decreasing.
+    pub sdev: Vec<f64>,
+    /// Loadings (`p × min(n, p)`), one column per component. Each column's
+    /// largest absolute loading is positive (`prcomp`'s signs are those of
+    /// LAPACK and arbitrary).
+    pub rotation: Mat<f64>,
+    /// Component scores of the rows (`n × min(n, p)`).
+    pub scores: Mat<f64>,
+}
+
+impl PrincipalComponents {
+    /// Proportion of the total variance carried by each component.
+    pub fn proportion_of_variance(&self) -> Vec<f64> {
+        let total: f64 = self.sdev.iter().map(|s| s * s).sum();
+        self.sdev.iter().map(|s| s * s / total).collect()
+    }
+
+    /// Scores of new rows on the first `k` components (`predict.prcomp`).
+    pub fn transform(&self, x: &Mat<f64>, k: usize) -> Mat<f64> {
+        let p = self.center.len();
+        let k = k.min(self.rotation.ncols());
+        Mat::from_fn(x.nrows(), k, |i, c| {
+            (0..p)
+                .map(|j| {
+                    let s = self.scale.as_ref().map_or(1.0, |s| s[j]);
+                    (x[(i, j)] - self.center[j]) / s * self.rotation[(j, c)]
+                })
+                .sum()
+        })
+    }
+}
+
+/// Principal components of the columns of `x` (`prcomp(x, scale. =
+/// scale)`): the SVD of the centered (and, with `scale`, standardised) data.
+pub fn principal_components(
+    x: &Mat<f64>,
+    scale: bool,
+) -> Result<PrincipalComponents, RegressionError> {
+    let (n, p) = (x.nrows(), x.ncols());
+    if n < 2 || p == 0 {
+        return Err(RegressionError::InsufficientObservations { needed: 2, got: n });
+    }
+    let center: Vec<f64> = (0..p)
+        .map(|j| (0..n).map(|i| x[(i, j)]).sum::<f64>() / n as f64)
+        .collect();
+    let sd: Vec<f64> = (0..p)
+        .map(|j| {
+            ((0..n).map(|i| (x[(i, j)] - center[j]).powi(2)).sum::<f64>() / (n - 1) as f64).sqrt()
+        })
+        .collect();
+    if scale && sd.iter().any(|s| s.is_nan() || *s <= 0.0) {
+        return Err(invalid("cannot scale a constant column"));
+    }
+    let z = Mat::from_fn(n, p, |i, j| {
+        (x[(i, j)] - center[j]) / if scale { sd[j] } else { 1.0 }
+    });
+    let svd = z.thin_svd().map_err(|_| invalid("SVD failed"))?;
+    let (s, v) = (svd.S().column_vector(), svd.V());
+    let k = s.nrows();
+    let mut order: Vec<usize> = (0..k).collect();
+    order.sort_by(|&a, &b| s[b].total_cmp(&s[a]));
+    let mut rotation = Mat::<f64>::zeros(p, k);
+    for (c, &o) in order.iter().enumerate() {
+        let big = (0..p)
+            .max_by(|&a, &b| v[(a, o)].abs().total_cmp(&v[(b, o)].abs()))
+            .unwrap_or(0);
+        let sign = if v[(big, o)] < 0.0 { -1.0 } else { 1.0 };
+        for j in 0..p {
+            rotation[(j, c)] = sign * v[(j, o)];
+        }
+    }
+    let scores = &z * &rotation;
+    Ok(PrincipalComponents {
+        center,
+        scale: scale.then_some(sd),
+        sdev: order
+            .iter()
+            .map(|&o| s[o] / ((n - 1) as f64).sqrt())
+            .collect(),
+        rotation,
+        scores,
+    })
+}
+
+/// Summary scores of variable clusters (RMS §4.7, Ch 8): for every cluster
+/// (column indices of `x`, e.g. from [`Hclust::cut_height`] on a
+/// [`varclus`]), the first `k` principal components of its standardised
+/// variables (fewer if the cluster has fewer variables), side by side in
+/// cluster order.
+pub fn cluster_scores(
+    x: &Mat<f64>,
+    clusters: &[Vec<usize>],
+    k: usize,
+) -> Result<Mat<f64>, RegressionError> {
+    let n = x.nrows();
+    let mut blocks = Vec::with_capacity(clusters.len());
+    for cl in clusters {
+        if cl.is_empty() || cl.iter().any(|&j| j >= x.ncols()) {
+            return Err(invalid("clusters must be non-empty and name columns of x"));
+        }
+        let sub = Mat::from_fn(n, cl.len(), |i, j| x[(i, cl[j])]);
+        let pc = principal_components(&sub, true)?;
+        let m = k.min(pc.scores.ncols());
+        blocks.push(Mat::from_fn(n, m, |i, c| pc.scores[(i, c)]));
+    }
+    let total: usize = blocks.iter().map(|b| b.ncols()).sum();
+    let mut out = Mat::<f64>::zeros(n, total);
+    let mut c0 = 0;
+    for b in &blocks {
+        for c in 0..b.ncols() {
+            for i in 0..n {
+                out[(i, c0 + c)] = b[(i, c)];
+            }
+        }
+        c0 += b.ncols();
+    }
+    Ok(out)
+}
