@@ -52,6 +52,8 @@ pub struct BinomialRegressor {
     options: RegressionOptions,
     family: BinomialFamily,
     offset: Option<Col<f64>>,
+    /// Prior (case) weights.
+    weights: Option<Col<f64>>,
     /// If `true` (the default), a fit that fails to converge within
     /// `max_iterations` returns `Err(ConvergenceFailed)`. If `false`, the last
     /// iterate is returned with `converged = false` on the fitted model.
@@ -65,7 +67,37 @@ impl BinomialRegressor {
             options,
             family,
             offset: None,
+            weights: None,
             error_on_non_convergence: true,
+        }
+    }
+
+    /// Prior weight of row `i` (1 without weights).
+    fn prior(&self, i: usize) -> f64 {
+        self.weights.as_ref().map_or(1.0, |w| w[i])
+    }
+
+    /// `Σ wᵢ d(yᵢ, μᵢ)`.
+    fn weighted_deviance(&self, y: &[f64], mu: &[f64]) -> f64 {
+        match &self.weights {
+            None => self.family.deviance(y, mu),
+            Some(w) => (0..y.len())
+                .map(|i| w[i] * self.family.unit_deviance(y[i], mu[i]))
+                .sum(),
+        }
+    }
+
+    /// Deviance of the weighted-mean model.
+    fn weighted_null_deviance(&self, y: &[f64]) -> f64 {
+        match &self.weights {
+            None => self.family.null_deviance(y),
+            Some(w) => {
+                let total: f64 = w.iter().sum();
+                let mean = (0..y.len()).map(|i| w[i] * y[i]).sum::<f64>() / total;
+                (0..y.len())
+                    .map(|i| w[i] * self.family.unit_deviance(y[i], mean))
+                    .sum()
+            }
         }
     }
 
@@ -140,7 +172,7 @@ impl BinomialRegressor {
         let mut iterations = 0;
 
         // Compute initial deviance for deviance-based convergence (following R's glm.fit)
-        let mut dev = self.family.deviance(&y_vec, &mu);
+        let mut dev = self.weighted_deviance(&y_vec, &mu);
         let mut dev_old: f64;
 
         // Maximum step halvings per iteration (following R's glm.control default)
@@ -176,7 +208,7 @@ impl BinomialRegressor {
             self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
             // Update deviance after μ update
-            dev = self.family.deviance(&y_vec, &mu);
+            dev = self.weighted_deviance(&y_vec, &mu);
 
             // Step-halving: if deviance increased, halve the step (following R's glm.fit)
             if dev.is_finite() && dev_old.is_finite() {
@@ -193,7 +225,7 @@ impl BinomialRegressor {
                     self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
                     // Recompute deviance
-                    dev = self.family.deviance(&y_vec, &mu);
+                    dev = self.weighted_deviance(&y_vec, &mu);
                 }
             }
 
@@ -239,7 +271,7 @@ impl BinomialRegressor {
         let mut z = vec![0.0; n];
 
         for i in 0..n {
-            weights[i] = self.family.irls_weight(mu[i]);
+            weights[i] = self.prior(i) * self.family.irls_weight(mu[i]);
             z[i] = self.family.working_response(y[i], mu[i], eta[i]);
         }
 
@@ -423,8 +455,8 @@ impl BinomialRegressor {
         let residuals = Col::from_fn(n_samples, |i| y[i] - mu[i]);
 
         let y_vec: Vec<f64> = (0..n_samples).map(|i| y[i]).collect();
-        let deviance = self.family.deviance(&y_vec, mu);
-        let null_deviance = self.family.null_deviance(&y_vec);
+        let deviance = self.weighted_deviance(&y_vec, mu);
+        let null_deviance = self.weighted_null_deviance(&y_vec);
 
         // For binomial, dispersion is typically fixed at 1
         let dispersion = 1.0;
@@ -547,7 +579,7 @@ impl BinomialRegressor {
 
         let mut xtwx: Mat<f64> = Mat::zeros(n_params, n_params);
         for i in 0..n_samples {
-            let w = self.family.irls_weight(mu[i]);
+            let w = self.prior(i) * self.family.irls_weight(mu[i]);
             for j in 0..n_params {
                 for k in 0..n_params {
                     xtwx[(j, k)] += w * x[(i, j)] * x[(i, k)];
@@ -628,6 +660,17 @@ impl Regressor for BinomialRegressor {
                     x_rows: n_samples,
                     y_len: offset.nrows(),
                 });
+            }
+        }
+        if let Some(w) = &self.weights {
+            if w.nrows() != n_samples {
+                return Err(RegressionError::DimensionMismatch {
+                    x_rows: n_samples,
+                    y_len: w.nrows(),
+                });
+            }
+            if w.iter().any(|v| !(v.is_finite() && *v >= 0.0)) {
+                return Err(RegressionError::InvalidWeights);
             }
         }
 
@@ -1014,6 +1057,7 @@ pub struct BinomialRegressorBuilder {
     options_builder: RegressionOptionsBuilder,
     link: BinomialLink,
     offset: Option<Col<f64>>,
+    weights: Option<Col<f64>>,
     /// When `true`, non-convergence is reported via `FittedBinomial::converged`
     /// instead of returning an error. Defaults to `false` (error), so the
     /// derived `Default` preserves the historical behaviour.
@@ -1079,6 +1123,15 @@ impl BinomialRegressorBuilder {
         self
     }
 
+    /// Prior (case) weights, as `glm(weights = )`: each row's contribution
+    /// to the IRLS weights, the deviance and the information is multiplied
+    /// by its weight. For 0/1 `y`, `log_likelihood = −deviance/2 = Σ wᵢ log
+    /// p̂ᵢ`, as `lrm(weights = )`. Residuals and fitted values stay per row.
+    pub fn weights(mut self, weights: Col<f64>) -> Self {
+        self.weights = Some(weights);
+        self
+    }
+
     /// Control what happens when IRLS fails to converge within
     /// `max_iterations`.
     ///
@@ -1096,6 +1149,7 @@ impl BinomialRegressorBuilder {
             options: self.options_builder.build_unchecked(),
             family: BinomialFamily::new(self.link),
             offset: self.offset,
+            weights: self.weights,
             error_on_non_convergence: !self.allow_non_convergence,
         }
     }

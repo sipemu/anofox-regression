@@ -92,6 +92,7 @@ pub fn cr_setup(y: &Col<f64>) -> Result<ContinuationRatioData, RegressionError> 
 #[derive(Debug, Clone, Default)]
 pub struct ContinuationRatioRegressor {
     cohort_specific: Vec<usize>,
+    weights: Option<Vec<f64>>,
 }
 
 /// Builder for [`ContinuationRatioRegressor`].
@@ -105,6 +106,14 @@ impl ContinuationRatioRegressorBuilder {
     /// interaction); the others have one slope for all cohorts.
     pub fn cohort_specific(mut self, columns: &[usize]) -> Self {
         self.inner.cohort_specific = columns.to_vec();
+        self
+    }
+
+    /// Case weights of the subjects; each subject's weight applies to all
+    /// its rows of the expanded data, as `lrm(..., weights = w[subs])` on
+    /// `cr.setup` data.
+    pub fn weights(mut self, weights: &[f64]) -> Self {
+        self.inner.weights = Some(weights.to_vec());
         self
     }
 
@@ -155,12 +164,20 @@ impl ContinuationRatioRegressor {
             data.levels.len() - 1,
             &self.cohort_specific,
         );
-        let logistic = BinomialRegressor::logistic()
+        let mut builder = BinomialRegressor::logistic()
             .with_intercept(true)
             .compute_inference(true)
-            .tolerance(1e-12)
-            .build()
-            .fit(&design, &data.y)?;
+            .tolerance(1e-12);
+        if let Some(w) = &self.weights {
+            if w.len() != y.nrows() {
+                return Err(RegressionError::DimensionMismatch {
+                    x_rows: y.nrows(),
+                    y_len: w.len(),
+                });
+            }
+            builder = builder.weights(Col::from_fn(data.subs.len(), |r| w[data.subs[r]]));
+        }
+        let logistic = builder.build().fit(&design, &data.y)?;
         Ok(FittedContinuationRatio {
             levels: data.levels,
             n_features: x.ncols(),
