@@ -30,6 +30,7 @@ pub mod diagnostics;
 pub mod distributions;
 pub mod effects;
 pub mod inference;
+pub mod reduction;
 pub mod solvers;
 pub mod splines;
 pub mod survival;
