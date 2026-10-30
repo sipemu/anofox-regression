@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`LmDynamicRegressor` considered only the first six predictors (#175).** Candidate models were cut off after `max_models` (default 64) bitmasks, and those only ever involve predictors 0–5, so later predictors were never candidates. All `2^p` subsets are now enumerated, as greybox does. Fitting errors when they exceed `max_models` (now 4096 by default, i.e. 12 predictors) or when `p > 30`, instead of dropping candidates. Code that relied on a small `max_models` to truncate the search now gets an error.
+
 ## [0.7.0] - 2026-10-30
 
 ### Added

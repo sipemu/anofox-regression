@@ -86,3 +86,37 @@ fn noisy_series_dynamic_differs_from_ols() {
         "dynamic collapsed to OLS on a noisy series: {diff}"
     );
 }
+
+/// #175: every predictor is a candidate; `max_models` below `2^p` errors
+/// instead of silently dropping the later predictors.
+#[test]
+fn every_predictor_is_considered() {
+    let n = 120;
+    // only the 8th predictor drives y
+    let x = Mat::from_fn(n, 8, |i, j| (((i * (j + 3) * 37) % 101) as f64) / 50.0);
+    let y = Col::from_fn(n, |i| 1.0 + 3.0 * x[(i, 7)] + 0.01 * ((i % 7) as f64));
+    let fit = LmDynamicRegressor::builder()
+        .with_intercept(true)
+        .no_smoothing()
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    assert_eq!(fit.model_specs().len(), 256);
+    let w = fit.model_weights();
+    let best = (0..w.ncols())
+        .max_by(|&a, &b| w[(0, a)].total_cmp(&w[(0, b)]))
+        .unwrap();
+    assert!(fit.model_specs()[best].included_vars.contains(&7));
+
+    let capped = LmDynamicRegressor::builder()
+        .max_models(64)
+        .build()
+        .fit(&x, &y);
+    assert!(capped.is_err());
+    let wide = Mat::from_fn(n, 31, |i, j| ((i * 31 + j * 17) % 97) as f64);
+    assert!(LmDynamicRegressor::builder()
+        .max_models(usize::MAX)
+        .build()
+        .fit(&wide, &y)
+        .is_err());
+}
