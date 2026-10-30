@@ -49,6 +49,9 @@ pub enum DesignError {
     /// The two factors of an interaction are the same term.
     #[error("an interaction needs two different terms")]
     SelfInteraction,
+    /// Other invalid input.
+    #[error("{0}")]
+    Invalid(String),
 }
 
 /// The two factors of a two-way interaction term.

@@ -39,6 +39,10 @@ pub struct Limits {
     pub low_prediction: f64,
     /// Upper end of the prediction grid (`High:prediction`).
     pub high_prediction: f64,
+    /// Smallest value (`Low`).
+    pub low: f64,
+    /// Largest value (`High`).
+    pub high: f64,
 }
 
 impl Limits {
@@ -78,6 +82,8 @@ impl Limits {
             high_effect: he,
             low_prediction: lp,
             high_prediction: hp,
+            low: lo,
+            high: hi,
         }
     }
 }
@@ -105,6 +111,9 @@ pub struct Predictor {
     pub kind: PredictorKind,
     /// `datadist` limits.
     pub limits: Limits,
+    /// The distinct values of a numeric predictor with at most 10 of them
+    /// (`datadist`'s `values`), used as its nomogram ticks.
+    pub distinct: Option<Vec<f64>>,
 }
 
 impl Predictor {
@@ -203,28 +212,45 @@ impl ModelSpec {
         Self::default()
     }
 
-    fn push(&mut self, name: &str, kind: PredictorKind, limits: Limits) -> usize {
+    fn push(
+        &mut self,
+        name: &str,
+        kind: PredictorKind,
+        limits: Limits,
+        distinct: Option<Vec<f64>>,
+    ) -> usize {
         self.predictors.push(Predictor {
             name: name.to_string(),
             kind,
             limits,
+            distinct,
         });
         self.predictors.len() - 1
     }
 
+    /// `push` for a numeric predictor: limits and (≤ 10) distinct values
+    /// from `x`.
+    fn push_numeric(&mut self, name: &str, kind: PredictorKind, x: &[f64]) -> usize {
+        let mut d: Vec<f64> = x.iter().copied().filter(|v| v.is_finite()).collect();
+        d.sort_by(f64::total_cmp);
+        d.dedup();
+        let distinct = (d.len() <= 10).then_some(d);
+        self.push(name, kind, Limits::numeric(x), distinct)
+    }
+
     /// Linear predictor; limits from its data `x`.
     pub fn linear(&mut self, name: &str, x: &[f64]) -> usize {
-        self.push(name, PredictorKind::Linear, Limits::numeric(x))
+        self.push_numeric(name, PredictorKind::Linear, x)
     }
 
     /// Spline predictor with the given basis; limits from `x`.
     pub fn rcs(&mut self, name: &str, rcs: Rcs, x: &[f64]) -> usize {
-        self.push(name, PredictorKind::Rcs(rcs), Limits::numeric(x))
+        self.push_numeric(name, PredictorKind::Rcs(rcs), x)
     }
 
     /// Linear-spline predictor; limits from `x`.
     pub fn lsp(&mut self, name: &str, lsp: Lsp, x: &[f64]) -> usize {
-        self.push(name, PredictorKind::Lsp(lsp), Limits::numeric(x))
+        self.push_numeric(name, PredictorKind::Lsp(lsp), x)
     }
 
     /// Categorical predictor with levels taken from `x`; adjusted to the
@@ -252,8 +278,10 @@ impl ModelSpec {
             high_effect: f64::NAN,
             low_prediction: lo,
             high_prediction: hi,
+            low: lo,
+            high: hi,
         };
-        self.push(name, PredictorKind::Categorical(levels), limits)
+        self.push(name, PredictorKind::Categorical(levels), limits, None)
     }
 
     /// Full tensor-product interaction (`a * b`).
@@ -459,6 +487,177 @@ impl ModelSpec {
             .map(|&v| Self::estimate(&self.row(&[(k, v)], intercept), beta, vcov, crit, level))
             .collect();
         (values, est)
+    }
+}
+
+/// One predictor's axis of a [`Nomogram`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct NomogramAxis {
+    /// Predictor name.
+    pub name: String,
+    /// Values at the tick marks.
+    pub values: Vec<f64>,
+    /// The predictor's term of the linear predictor at those values
+    /// (uncentered, `Xbeta`).
+    pub xbeta: Vec<f64>,
+    /// Points: `(xbeta − min xbeta) × scale`.
+    pub points: Vec<f64>,
+}
+
+/// A nomogram ([`ModelSpec::nomogram`], `rms::nomogram`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Nomogram {
+    /// One axis per predictor.
+    pub axes: Vec<NomogramAxis>,
+    /// Points per unit of the linear predictor (`sc`): `maxscale` over the
+    /// widest range of a predictor's term.
+    pub scale: f64,
+    /// Linear predictor at zero total points: the intercept plus every
+    /// term's minimum (`Intercept`).
+    pub intercept: f64,
+    /// Ticks of the total-points axis.
+    pub total_points: Vec<f64>,
+    /// Linear-predictor values of the `lp` axis (`lp.at`).
+    pub lp_at: Vec<f64>,
+    /// Their positions in points.
+    pub lp_points: Vec<f64>,
+}
+
+impl Nomogram {
+    /// Linear predictor of a total score.
+    pub fn points_to_lp(&self, total: f64) -> f64 {
+        self.intercept + total / self.scale
+    }
+
+    /// Total score of a linear predictor.
+    pub fn lp_to_points(&self, lp: f64) -> f64 {
+        (lp - self.intercept) * self.scale
+    }
+
+    /// Ticks of a function axis (e.g. a probability, `fun = plogis`): the
+    /// values `pretty(fun(range(lp_at)), nint)` and their positions in
+    /// points, from the inverse of `fun` interpolated on 1000 points of the
+    /// `lp` range (`nomogram(fun = )`). Values outside the range are
+    /// dropped.
+    pub fn function_axis(&self, fun: impl Fn(f64) -> f64, nint: usize) -> (Vec<f64>, Vec<f64>) {
+        let (lo, hi) = (self.lp_at[0], self.lp_at[self.lp_at.len() - 1]);
+        let ticks = crate::utils::pretty(fun(lo), fun(hi), nint);
+        let xs: Vec<f64> = (0..1000)
+            .map(|i| lo + (hi - lo) * i as f64 / 999.0)
+            .collect();
+        let fx: Vec<f64> = xs.iter().map(|&v| fun(v)).collect();
+        let mut pairs: Vec<(f64, f64)> = fx.iter().copied().zip(xs.iter().copied()).collect();
+        pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (sx, sy): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
+        let lp = crate::diagnostics::accuracy::approx_ties_mean(&sx, &sy, &ticks);
+        ticks
+            .iter()
+            .zip(lp)
+            .filter(|(_, w)| w.is_finite())
+            .map(|(&t, w)| (t, self.lp_to_points(w)))
+            .unzip()
+    }
+}
+
+impl ModelSpec {
+    /// `rms::nomogram` for a main-effects model with coefficients `beta`
+    /// (intercept first when `intercept`). Each predictor gets ticks at its
+    /// `values` (or, by default, its categories, its distinct values when at
+    /// most 10, or `pretty(range, nint)`), its term of the linear predictor
+    /// there and the points `(term − min) × scale`, with `scale = maxscale /
+    /// max range`. `linear_predictors` (the fit's, intercept included) give
+    /// the `lp` axis, `pretty(range, nint)`; the total-points axis spans
+    /// `pretty(c(0, max(maxscale, scale·max(lp.at − intercept))), nint)`.
+    pub fn nomogram(
+        &self,
+        beta: &Col<f64>,
+        intercept: bool,
+        linear_predictors: &[f64],
+        values: &[Option<Vec<f64>>],
+        maxscale: f64,
+        nint: usize,
+    ) -> Result<Nomogram, DesignError> {
+        if !self.interactions.is_empty() {
+            return Err(DesignError::Invalid(
+                "nomogram supports main effects only".into(),
+            ));
+        }
+        let off = usize::from(intercept);
+        let mut start = off;
+        let mut axes = Vec::with_capacity(self.predictors.len());
+        let mut ranges = Vec::with_capacity(self.predictors.len());
+        for (k, p) in self.predictors.iter().enumerate() {
+            let ticks = values
+                .get(k)
+                .cloned()
+                .flatten()
+                .unwrap_or_else(|| p.default_ticks(nint));
+            let basis = p.basis(&ticks);
+            let m = basis.n_columns();
+            if start + m > beta.nrows() {
+                return Err(DesignError::Invalid("beta is too short".into()));
+            }
+            let xbeta: Vec<f64> = (0..ticks.len())
+                .map(|i| {
+                    (0..m)
+                        .map(|j| basis.columns[(i, j)] * beta[start + j])
+                        .sum()
+                })
+                .collect();
+            start += m;
+            let lo = xbeta.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = xbeta.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            ranges.push((lo, hi));
+            axes.push(NomogramAxis {
+                name: p.name.clone(),
+                values: ticks,
+                xbeta,
+                points: Vec::new(),
+            });
+        }
+        let scale = maxscale / ranges.iter().map(|(l, h)| h - l).fold(0.0, f64::max);
+        for (a, &(lo, _)) in axes.iter_mut().zip(&ranges) {
+            a.points = a.xbeta.iter().map(|x| (x - lo) * scale).collect();
+        }
+        let b0 = if intercept { beta[0] } else { 0.0 };
+        let icpt = b0 + ranges.iter().map(|r| r.0).sum::<f64>();
+        let lmin = linear_predictors
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min);
+        let lmax = linear_predictors
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let lp_at = crate::utils::pretty(lmin, lmax, nint);
+        let sum_max = if axes.len() == 1 {
+            maxscale
+        } else {
+            lp_at
+                .iter()
+                .map(|v| scale * (v - icpt))
+                .fold(maxscale, f64::max)
+        };
+        Ok(Nomogram {
+            total_points: crate::utils::pretty(0.0, sum_max, nint),
+            lp_points: lp_at.iter().map(|v| (v - icpt) * scale).collect(),
+            lp_at,
+            axes,
+            scale,
+            intercept: icpt,
+        })
+    }
+}
+
+impl Predictor {
+    /// Nomogram ticks: the categories, the (≤ 10) distinct values, or
+    /// `pretty` over the data range.
+    fn default_ticks(&self, nint: usize) -> Vec<f64> {
+        match (&self.kind, &self.distinct) {
+            (PredictorKind::Categorical(levels), _) => levels.clone(),
+            (_, Some(d)) => d.clone(),
+            _ => crate::utils::pretty(self.limits.low, self.limits.high, nint),
+        }
     }
 }
 
