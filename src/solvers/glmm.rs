@@ -121,6 +121,9 @@ pub struct GlmmRegressor {
     offset: Option<Col<f64>>,
     /// Compute Satterthwaite degrees of freedom for a Gaussian fit.
     satterthwaite: bool,
+    /// lme4's `nAGQ`: 0 = PIRLS fixed effects, 1 = Laplace with the fixed
+    /// effects optimised jointly with θ, > 1 = adaptive Gauss–Hermite.
+    n_agq: usize,
 }
 
 impl GlmmRegressor {
@@ -222,6 +225,13 @@ impl GlmmRegressor {
             ));
         }
         check_slope_columns(slopes, x.ncols())?;
+        if self.n_agq > 1 && (q != 1 || !self.random_intercept) {
+            return Err(RegressionError::NumericalError(
+                "adaptive Gauss–Hermite quadrature (n_agq > 1) needs a single scalar \
+                 random intercept"
+                    .to_string(),
+            ));
+        }
 
         // Compact arbitrary group ids into 0..J and record membership.
         let (group_idx, n_groups) = compact_groups(group);
@@ -296,6 +306,11 @@ impl GlmmRegressor {
         if groups.is_empty() {
             return Err(RegressionError::NumericalError(
                 "fit_crossed needs at least one grouping factor".to_string(),
+            ));
+        }
+        if groups.len() > 1 && self.n_agq > 0 && !matches!(self.kind, ResponseKind::Gaussian) {
+            return Err(RegressionError::NumericalError(
+                "n_agq > 0 is only available for a single grouping factor".to_string(),
             ));
         }
         let n_factors = groups.len();
@@ -739,6 +754,7 @@ impl GlmmRegressor {
                 q,
                 t,
                 &beta0,
+                false,
                 self.max_iterations,
                 self.tolerance,
             )
@@ -751,17 +767,40 @@ impl GlmmRegressor {
 
         let theta = optimize_theta(q, self.theta_max, self.tolerance, &objective)?;
         let t = build_t(&theta, q);
-        let sol = run(&t).ok_or(RegressionError::ConvergenceFailed {
+        let mut sol = run(&t).ok_or(RegressionError::ConvergenceFailed {
             iterations: self.max_iterations,
         })?;
-        let deviance =
+        let mut deviance =
             self.laplace_criterion(family, nb_theta, y, &sol.mu, sol.u_sq, sol.logdet_l2);
-        let sigma = self.glmm_scale(family, y, &sol.mu, sol.u_sq);
+        let mut sigma = self.glmm_scale(family, y, &sol.mu, sol.u_sq);
+        let mut t = t;
+        let mut vcov = scale_matrix(&sol.m_inv, sigma * sigma);
+        if self.n_agq >= 1 {
+            let ctx = AgqContext {
+                family,
+                nb_theta,
+                design,
+                z,
+                y,
+                offset,
+                group_idx,
+                n_groups,
+                p,
+                q,
+            };
+            let stage2 = self.refine_joint(&ctx, &theta, &sol.beta)?;
+            t = stage2.t;
+            sigma = self.glmm_scale(family, y, &stage2.sol.mu, stage2.sol.u_sq);
+            vcov = stage2
+                .vcov
+                .unwrap_or_else(|| scale_matrix(&sol.m_inv, sigma * sigma));
+            deviance = stage2.deviance;
+            sol = stage2.sol;
+        }
 
         // Σ = T Tᵀ (lme4 reports the GLMM random-effect covariance unscaled);
         // Var(β) = σ² M⁻¹ with σ = 1 except for Gamma / Tweedie.
         let cov = mm(&t, &transpose(&t));
-        let vcov = scale_matrix(&sol.m_inv, sigma * sigma);
         let re_se = group_conditional_se(&t, &sol.ztz, sigma);
 
         let mut fitted = FittedGlmm::new(
@@ -783,6 +822,92 @@ impl GlmmRegressor {
         fitted.nb_theta = nb_theta.is_finite().then_some(nb_theta);
         fitted.kind = self.kind;
         Ok(fitted)
+    }
+
+    /// The Laplace (`n_agq = 1`) or adaptive Gauss–Hermite (`n_agq > 1`)
+    /// criterion at `θ` and fixed `β`, with the conditional modes `u` found
+    /// for that `β` (lme4's `glmerLaplace` / `glmerAGQ` with `uOnly`).
+    fn joint_criterion(
+        &self,
+        ctx: &AgqContext<'_>,
+        theta: &[f64],
+        beta: &[f64],
+        nodes: &[(f64, f64)],
+    ) -> Option<(f64, PirlsSolution)> {
+        let t = build_t(theta, ctx.q);
+        let sol = pirls(
+            ctx.family,
+            ctx.design,
+            ctx.z,
+            ctx.y,
+            ctx.offset,
+            ctx.group_idx,
+            ctx.n_groups,
+            ctx.p,
+            ctx.q,
+            &t,
+            beta,
+            true,
+            self.max_iterations,
+            self.tolerance,
+        )?;
+        let mut crit = self.laplace_criterion(
+            ctx.family,
+            ctx.nb_theta,
+            ctx.y,
+            &sol.mu,
+            sol.u_sq,
+            sol.logdet_l2,
+        );
+        if self.n_agq > 1 {
+            crit -= 2.0 * agq_log_mult(ctx, t[0][0], beta, &sol, nodes)?;
+        }
+        crit.is_finite().then_some((crit, sol))
+    }
+
+    /// lme4's second stage: from the `n_agq = 0` estimates, minimise the
+    /// Laplace / AGQ deviance over `(θ, β)` jointly; the covariance of `β̂` is
+    /// the `β` block of `2 H⁻¹` with `H` the Hessian of that deviance.
+    fn refine_joint(
+        &self,
+        ctx: &AgqContext<'_>,
+        theta0: &[f64],
+        beta0: &[f64],
+    ) -> Result<JointFit, RegressionError> {
+        let nodes = if self.n_agq > 1 {
+            gauss_hermite(self.n_agq)
+        } else {
+            Vec::new()
+        };
+        let k = theta0.len();
+        let cost = |par: &[f64]| -> f64 {
+            self.joint_criterion(ctx, &par[..k], &par[k..], &nodes)
+                .map_or(f64::INFINITY, |r| r.0)
+        };
+        let x0: Vec<f64> = theta0.iter().chain(beta0).copied().collect();
+        let tol = self.tolerance.max(1e-12);
+        let best = newton_polish(&cost, &nelder_mead(&x0, &cost, tol, 20_000), 20);
+        let (deviance, sol) = self
+            .joint_criterion(ctx, &best[..k], &best[k..], &nodes)
+            .ok_or(RegressionError::ConvergenceFailed {
+                iterations: self.max_iterations,
+            })?;
+        let h = super::glmm_satterthwaite::hessian(&cost, &best);
+        let vcov = cholesky(&h).map(|c| {
+            let inv = cholesky_inverse(&c);
+            (0..ctx.p)
+                .map(|a| (0..ctx.p).map(|b| 2.0 * inv[k + a][k + b]).collect())
+                .collect()
+        });
+        Ok(JointFit {
+            t: build_t(&best[..k], ctx.q),
+            sol: PirlsSolution {
+                beta: best[k..].to_vec(),
+                ..sol
+            },
+            deviance,
+            vcov,
+        })
     }
 
     // -------------------------------------------------------- multi-factor ---
@@ -1666,6 +1791,7 @@ pub struct GlmmRegressorBuilder {
     nb_theta: Option<f64>,
     offset: Option<Col<f64>>,
     satterthwaite: bool,
+    n_agq: usize,
 }
 
 impl GlmmRegressorBuilder {
@@ -1683,6 +1809,7 @@ impl GlmmRegressorBuilder {
             nb_theta: None,
             offset: None,
             satterthwaite: false,
+            n_agq: 0,
         }
     }
 
@@ -1770,6 +1897,23 @@ impl GlmmRegressorBuilder {
         self
     }
 
+    /// Integration of the random effects for non-Gaussian families, as
+    /// lme4's `nAGQ`:
+    ///
+    /// * `0` (default) – Laplace approximation with the fixed effects found
+    ///   in the PIRLS step (`glmer(nAGQ = 0)`);
+    /// * `1` – Laplace approximation with the fixed effects optimised
+    ///   jointly with θ (`glmer`'s default); standard errors come from the
+    ///   Hessian of the deviance in `(θ, β)`, as lme4;
+    /// * `> 1` – adaptive Gauss–Hermite quadrature with that many nodes,
+    ///   for a single scalar random intercept only.
+    ///
+    /// Single grouping factor only; ignored by the Gaussian family.
+    pub fn n_agq(mut self, n_agq: usize) -> Self {
+        self.n_agq = n_agq;
+        self
+    }
+
     /// Build the [`GlmmRegressor`].
     pub fn build(self) -> GlmmRegressor {
         GlmmRegressor {
@@ -1785,6 +1929,7 @@ impl GlmmRegressorBuilder {
             nb_theta: self.nb_theta,
             offset: self.offset,
             satterthwaite: self.satterthwaite,
+            n_agq: self.n_agq,
         }
     }
 }
@@ -1998,6 +2143,8 @@ struct PirlsSolution {
     m_inv: Vec<Vec<f64>>,
     /// Per-group `Zⱼᵀ W Zⱼ` at the converged weights.
     ztz: Vec<Vec<Vec<f64>>>,
+    /// Spherical conditional modes `u` (`b = T u`).
+    u: Vec<Vec<f64>>,
     converged: bool,
     iterations: usize,
 }
@@ -2017,6 +2164,7 @@ fn pirls(
     q: usize,
     t: &[Vec<f64>],
     beta0: &[f64],
+    fix_beta: bool,
     max_iter: usize,
     tol: f64,
 ) -> Option<PirlsSolution> {
@@ -2082,9 +2230,13 @@ fn pirls(
             aic_all.push(aic);
         }
 
-        let chol_m = cholesky(&m)?;
-        let beta_new = cholesky_solve(&chol_m, &rhs);
-        last_m_inv = cholesky_inverse(&chol_m);
+        let beta_new = if fix_beta {
+            beta.clone()
+        } else {
+            let chol_m = cholesky(&m)?;
+            last_m_inv = cholesky_inverse(&chol_m);
+            cholesky_solve(&chol_m, &rhs)
+        };
 
         let mut u_new = vec![vec![0.0; q]; n_groups];
         let mut max_change = 0.0f64;
@@ -2138,9 +2290,105 @@ fn pirls(
         logdet_l2,
         m_inv: last_m_inv,
         ztz: stats.ztz,
+        u,
         converged,
         iterations,
     })
+}
+
+/// The data of a single-factor GLMM for the joint `(θ, β)` stage.
+struct AgqContext<'a> {
+    family: &'a dyn GlmFamily,
+    nb_theta: f64,
+    design: &'a Mat<f64>,
+    z: &'a Mat<f64>,
+    y: &'a [f64],
+    offset: &'a [f64],
+    group_idx: &'a [usize],
+    n_groups: usize,
+    p: usize,
+    q: usize,
+}
+
+/// Result of [`GlmmRegressor::refine_joint`].
+struct JointFit {
+    t: Vec<Vec<f64>>,
+    sol: PirlsSolution,
+    deviance: f64,
+    /// `None` when the Hessian is not positive definite.
+    vcov: Option<Vec<Vec<f64>>>,
+}
+
+/// Nodes and weights of the Gauss–Hermite rule for the standard normal
+/// density (lme4's `GHrule`), by the Golub–Welsch eigen-decomposition.
+fn gauss_hermite(n: usize) -> Vec<(f64, f64)> {
+    let jacobi = Mat::from_fn(n, n, |i, j| {
+        if i.abs_diff(j) == 1 {
+            (i.max(j) as f64).sqrt()
+        } else {
+            0.0
+        }
+    });
+    let Ok(eig) = jacobi.self_adjoint_eigen(faer::Side::Lower) else {
+        return Vec::new();
+    };
+    let (vals, vecs) = (eig.S().column_vector(), eig.U());
+    let mut nodes: Vec<(f64, f64)> = (0..n).map(|k| (vals[k], vecs[(0, k)].powi(2))).collect();
+    nodes.sort_by(|a, b| a.0.total_cmp(&b.0));
+    nodes
+}
+
+/// `Σⱼ log multⱼ` of lme4's `glmerAGQ` for a scalar random intercept:
+/// `multⱼ = Σₖ wₖ exp(zₖ²/2 − (devcⱼ(ûⱼ + zₖ sⱼ) − devcⱼ(ûⱼ))/2)` with
+/// `devcⱼ(u) = u² + Σ_{i∈j} d(yᵢ, μᵢ(u))` and `sⱼ = 1/Lⱼⱼ`.
+fn agq_log_mult(
+    ctx: &AgqContext<'_>,
+    theta: f64,
+    beta: &[f64],
+    sol: &PirlsSolution,
+    nodes: &[(f64, f64)],
+) -> Option<f64> {
+    let n = ctx.y.len();
+    let fixed: Vec<f64> = (0..n)
+        .map(|i| {
+            ctx.offset[i]
+                + (0..ctx.p)
+                    .map(|k| ctx.design[(i, k)] * beta[k])
+                    .sum::<f64>()
+        })
+        .collect();
+    let mut members = vec![Vec::new(); ctx.n_groups];
+    for (i, &g) in ctx.group_idx.iter().enumerate() {
+        members[g].push(i);
+    }
+    let devc = |g: usize, u: f64| -> f64 {
+        u * u
+            + members[g]
+                .iter()
+                .map(|&i| {
+                    let mu = ctx.family.clamp_mu(
+                        ctx.family
+                            .link_inverse(fixed[i] + ctx.z[(i, 0)] * theta * u),
+                    );
+                    ctx.family.unit_deviance(ctx.y[i], mu)
+                })
+                .sum::<f64>()
+    };
+    let mut total = 0.0;
+    for g in 0..ctx.n_groups {
+        let u0 = sol.u[g][0];
+        let sd = 1.0 / (1.0 + theta * theta * sol.ztz[g][0][0]).sqrt();
+        let d0 = devc(g, u0);
+        let mult: f64 = nodes
+            .iter()
+            .map(|&(zk, wk)| wk * (zk * zk / 2.0 - (devc(g, u0 + zk * sd) - d0) / 2.0).exp())
+            .sum();
+        if !(mult > 0.0 && mult.is_finite()) {
+            return None;
+        }
+        total += mult.ln();
+    }
+    Some(total)
 }
 
 /// A plain GLM (IRLS, no random effect) to warm-start the PIRLS β.

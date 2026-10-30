@@ -191,6 +191,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `pool_rubin(estimates, vcovs, df_complete)` combines the fits of one model to `m` imputed data sets. It returns the mean coefficients, total covariance `T = Ū + (1 + 1/m)B`, the within / between covariances, the variance inflation `diag(T)/diag(Ū)`, `riv`, `λ` (Hmisc's fraction of missing information), Rubin's d.f., and, given the complete-data d.f., the Barnard–Rubin d.f. and `mice`'s `fmi`.
   - `pooled_wald_d1(&pooled, indices)` is the D1 multivariate pooled Wald test (Li, Raghunathan and Rubin 1991).
   - Validated in `tests/r_validation_pool.rs` (generator `tests/r_scripts/generate_pool_validation.R`). Pooling six `aregImpute` imputations of an `ols` fit is checked against `Hmisc::fit.mult.impute` (1e-12). The Barnard–Rubin d.f., `fmi` and D1 are checked against the `mice::pool` / `mice::D1` formulas written out in R (`mice` isn't installed).
+- **GLMM: lme4's default Laplace approximation and adaptive Gauss–Hermite quadrature (#67).** `GlmmRegressorBuilder::n_agq(k)` matches `glmer(nAGQ = k)` for a single grouping factor.
+  - `0` (the default, unchanged) keeps the PIRLS fixed effects.
+  - `1` is glmer's default: a second stage minimises the Laplace deviance over `(θ, β)` jointly, with the conditional modes found for fixed `β`.
+  - `k > 1` uses adaptive Gauss–Hermite quadrature with `k` nodes (Golub–Welsch rule, as `GHrule`) for a single scalar random intercept. Its criterion is lme4's `glmerAGQ`.
+  - With `n_agq ≥ 1`, standard errors come from the Hessian of that deviance in `(θ, β)` (`vcov(glmer)`'s default `use.hessian`).
+  - For quadrature, `deviance()` is lme4's criterion and `log_likelihood()` adds the saturated term. lme4 2.0.1 leaves that term out of its AGQ `logLik`; its development version includes it.
+  - Validated in `tests/r_validation_glmm_nagq.rs` (generator `tests/r_scripts/generate_glmm_nagq_validation.R`) against `glmer` with Poisson and binomial random intercepts at `nAGQ = 1` and 7, and a Poisson random slope at `nAGQ = 1`. Checked: fixed effects, vcov, θ, conditional modes and log-likelihood.
+    - lme4 evaluates `log|L|²` with the factor of the previous PIRLS step rather than at the final mode. Our criterion is the exact Laplace value, so the Poisson Laplace optimum moves by under 1% of a standard error, with a log-likelihood at least lme4's.
+    - lme4's Hessian-based standard errors for those fits differ from ours by about 3%. Ours agree with lme4's AGQ Hessian.
 
 ### Changed
 
