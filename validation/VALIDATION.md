@@ -45,6 +45,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_glmm_satterthwaite_validation.R` | Validates GLMM `vcov`, Satterthwaite df (`lmerTest`), BLUP conditional SEs and fitted values / residuals |
 | `tests/r_scripts/generate_gls_validation.R` | Validates `GlsRegressor` (correlation structures, variance functions, REML/ML, var-cov intervals, variogram) against `nlme::gls` |
 | `tests/r_scripts/generate_transform_validation.R` | Validates `transform::box_cox` against `MASS::boxcox` and `smearing_estimate` against `Hmisc::smearingEst` |
+| `tests/r_scripts/generate_areg_validation.R` | Validates `transform::areg` (spline / linear / categorical bases, inverse transform, bootstrap optimism) against `Hmisc::areg` |
 
 #### scikit-learn-based oracles (Python, `validation/python/`)
 
