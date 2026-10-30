@@ -154,7 +154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `effective_df_diagonal()` / `effective_df()` give `orm`'s `effective.df.diagonal`, `1 − (V_ββ P)_jj`. They are the d.f. of the LR test and of the AIC.
     - `vcov` is the penalized inverse information (`var.penalty = "simple"`).
     - Validated in `tests/r_validation_ordinal_penalty.rs` (generator `tests/r_scripts/generate_ordinal_penalty_validation.R`) against `orm`: `penalty = 2`, a non-diagonal `penalty.matrix` with the probit link, and `penalty = 1` on a continuous response. Checked: coefficients, covariance, penalized deviance, LR χ², effective d.f. (1e-6 to 1e-9).
-  - Not yet: confidence limits for `Quantile.orm`; case weights for the continuation-ratio model.
+  - Not yet: case weights for the continuation-ratio model.
 - **`vcov()` on the GLM fits (#135).** `FittedPoisson`, `FittedBinomial`, `FittedNegativeBinomial`, `FittedTweedie`, `FittedGamma` and `FittedLogistic` return `φ̂ · (XᵀWX)⁻¹` (R's `vcov(glm)`), intercept first, with zero rows and columns for aliased (dropped constant) columns; `None` without `compute_inference(true)`. It feeds `inference::anova`, `wald_test` and `cluster_sandwich` directly. Validated in `tests/r_validation_glm_vcov.rs` (generator `tests/r_scripts/generate_glm_vcov_validation.R`) against `vcov(glm)` for Poisson, logistic, Gamma and Tweedie (p = 1.5, log link) and `MASS::glm.nb`.
 - **Shrinkage and model approximation: `inference::approximation` (#108, RMS §4.5, §5.5.2, Ch 19).**
   - `heuristic_shrinkage(lr_chisq, df)`: the van Houwelingen–le Cessie factor `γ̂ = (LR χ² − p) / LR χ²`, the expected calibration slope in new data. `shrink_slopes(beta, n_intercepts, gamma)` applies it to the slopes; the intercepts are to be re-estimated.
@@ -211,6 +211,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `std_err` stays the SE of `−log S` (`SE(S)/S`; R reports `SE(S)` itself in that case). Confidence limits with a zero SE are the estimate, as `survfit_confint`.
   - Validated in `tests/r_validation_survfit_robust.rs` (generator `tests/r_scripts/generate_survfit_robust_validation.R`) against survival for: weights (default), clusters, the Fleming–Harrington hazard, left truncation, forced `robust = TRUE` without weights, and Greenwood.
   - For the FH hazard, survival computes its intervals with `SE(S)` treated as a log-scale SE. Ours use `SE(S)/S` as for Nelson–Aalen; the test confirms R's formula.
+- **Confidence limits for predicted quantiles of ordinal models (#110 follow-up in #135).** `FittedOrdinal::predict_quantile_ci(x, q, method, level)` returns the estimate and pointwise limits of `rms::Quantile.orm(conf.int = )`. Each `α_j + xβ` is shifted by `± z·SE` (delta method from `vcov`), and the shifted exceedance curves are turned into quantiles as the estimate (interpolated or discrete). Validated in `tests/r_validation_quantile_orm.rs` (generator `tests/r_scripts/generate_quantile_orm_validation.R`) against rms, for logistic and probit links, q = 0.5 and 0.9, both methods.
 
 ### Changed
 

@@ -1071,18 +1071,74 @@ impl FittedOrdinal {
     ) -> Col<f64> {
         let exceed = self.exceedance_probabilities(x);
         let m = self.intercepts.nrows();
+        Col::from_fn(x.nrows(), |i| {
+            let cp: Vec<f64> = (0..m).map(|j| exceed[(i, j)]).collect();
+            self.quantile_of(&cp, &cp, q, method)
+        })
+    }
+
+    /// Predicted `q`-quantile of `Y` with pointwise confidence limits at
+    /// `level` (`Quantile.orm(conf.int = level)`): each `α_j + xβ` is moved
+    /// by `± z·SE` (delta method, from [`Self::vcov`]) and the shifted
+    /// exceedance curves are turned into quantiles as the estimate.
+    /// Returns `(estimate, lower, upper)`.
+    pub fn predict_quantile_ci(
+        &self,
+        x: &Mat<f64>,
+        q: f64,
+        method: OrdinalQuantileMethod,
+        level: f64,
+    ) -> (Col<f64>, Col<f64>, Col<f64>) {
+        let (m, p) = (self.intercepts.nrows(), self.coefficients.nrows());
+        let v = self.vcov();
+        let lp = self.linear_predictor(x);
+        let z = std_normal().inverse_cdf((1.0 + level) / 2.0);
+        let n = x.nrows();
+        let (mut est, mut lo, mut hi) = (Col::zeros(n), Col::zeros(n), Col::zeros(n));
+        for i in 0..n {
+            let se = |j: usize| -> f64 {
+                // d(α_j + xβ)/dθ = (e_j, x)
+                let mut s = v[(j, j)];
+                for a in 0..p {
+                    s += 2.0 * x[(i, a)] * v[(j, m + a)];
+                    for b in 0..p {
+                        s += x[(i, a)] * v[(m + a, m + b)] * x[(i, b)];
+                    }
+                }
+                s.max(0.0).sqrt()
+            };
+            let lb: Vec<f64> = (0..m).map(|j| self.intercepts[j] + lp[i]).collect();
+            let ses: Vec<f64> = (0..m).map(se).collect();
+            let cp: Vec<f64> = lb.iter().map(|&l| self.link.cdf(l)).collect();
+            let shifted = |sign: f64| -> Vec<f64> {
+                (0..m)
+                    .map(|j| self.link.cdf(lb[j] + sign * z * ses[j]))
+                    .collect()
+            };
+            est[i] = self.quantile_of(&cp, &cp, q, method);
+            lo[i] = self.quantile_of(&shifted(-1.0), &cp, q, method);
+            hi[i] = self.quantile_of(&shifted(1.0), &cp, q, method);
+        }
+        (est, lo, hi)
+    }
+
+    /// The `q`-quantile from exceedance probabilities `curve`
+    /// (`P(Y ≥ y_{j+1})`), interpolating with the response values shifted
+    /// in proportion to the estimate's exceedances `cp` (`m.yvals` of
+    /// `Quantile.orm`).
+    fn quantile_of(&self, curve: &[f64], cp: &[f64], q: f64, method: OrdinalQuantileMethod) -> f64 {
+        let m = curve.len();
         let values = &self.levels;
-        Col::from_fn(x.nrows(), |i| match method {
+        match method {
             OrdinalQuantileMethod::Discrete => {
                 // smallest y_j with P(Y ≤ y_j) = 1 − P(Y ≥ y_{j+1}) ≥ q
                 (0..m)
-                    .find(|&j| 1.0 - exceed[(i, j)] >= q)
+                    .find(|&j| 1.0 - curve[j] >= q)
                     .map_or(values[m], |j| values[j])
             }
             OrdinalQuantileMethod::Interpolated => {
-                // Quantile.orm: interpolate (1, cp₁, …, cp_m, 0) → y values
-                // shifted within each interval in proportion to cp
-                let cp: Vec<f64> = (0..m).map(|j| exceed[(i, j)]).collect();
+                // Quantile.orm: interpolate (1, curve₁, …, curve_m, 0) → y
+                // values shifted within each interval in proportion to cp
                 let span = cp[m - 1] - cp[0];
                 let w = |j: usize| {
                     if span != 0.0 {
@@ -1096,14 +1152,14 @@ impl FittedOrdinal {
                 xs.push(1.0);
                 ys.push(values[0]);
                 for j in 0..m {
-                    xs.push(cp[j]);
+                    xs.push(curve[j]);
                     ys.push((1.0 - w(j)) * values[j] + w(j) * values[j + 1]);
                 }
                 xs.push(0.0);
                 ys.push(values[m]);
                 interpolate_decreasing(&xs, &ys, 1.0 - q)
             }
-        })
+        }
     }
 }
 
