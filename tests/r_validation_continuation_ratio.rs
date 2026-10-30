@@ -177,4 +177,12 @@ fn case_weights_match_weighted_lrm_and_glm() {
             &Col::from_fn(N, |i| f64::from(u8::from(Y_CAT[i] > 2.0))),
         );
     assert!(neg.is_err());
+    let short = BinomialRegressor::logistic()
+        .weights(Col::from_fn(N - 1, |_| 1.0))
+        .build()
+        .fit(
+            &x,
+            &Col::from_fn(N, |i| f64::from(u8::from(Y_CAT[i] > 2.0))),
+        );
+    assert!(short.is_err());
 }
