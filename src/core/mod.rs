@@ -16,6 +16,7 @@ pub use binomial::BinomialFamily;
 pub use family::{GlmFamily, TweedieFamily};
 pub use link::BinomialLink;
 pub use model_info::{HasModelInfo, ModelInfo};
+pub(crate) use na_action::apply_na_action;
 pub use na_action::{NaAction, NaError, NaHandler, NaInfo, NaResult};
 pub(crate) use negative_binomial::distinct_values as negative_binomial_distinct_values;
 pub use negative_binomial::{estimate_theta_ml, estimate_theta_moments, NegativeBinomialFamily};

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`NaAction` is now applied (#176).** `RegressionOptions::na_action` (default `Omit`) was exported but ignored. The estimators configured by `RegressionOptions` (OLS, WLS, ridge, elastic net, BLS, RLS, Poisson, negative binomial, Tweedie, binomial, ALM, lmDynamic) now drop rows with NaN in `x` or `y` for `Omit` / `Exclude`, error for `Fail`, and leave them for `Pass`. Rows can't be dropped when weights or an offset are set, so NaN rows are an error there. **Behaviour change:** NaN input that used to error (OLS) or give NaN coefficients now fits the complete cases by default. `Exclude` does not yet pad the outputs back to the input length.
 - **`LmDynamicRegressor` considered only the first six predictors (#175).** Candidate models were cut off after `max_models` (default 64) bitmasks, and those only ever involve predictors 0–5, so later predictors were never candidates. All `2^p` subsets are now enumerated, as greybox does. Fitting errors when they exceed `max_models` (now 4096 by default, i.e. 12 predictors) or when `p > 30`, instead of dropping candidates. Code that relied on a small `max_models` to truncate the search now gets an error.
 
 ## [0.7.0] - 2026-10-30

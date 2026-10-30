@@ -319,6 +319,9 @@ impl Regressor for OlsRegressor {
     type Fitted = FittedOls;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        if let Some((xc, yc)) = crate::core::apply_na_action(x, y, self.options.na_action, false)? {
+            return self.fit(&xc, &yc);
+        }
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
@@ -1349,13 +1352,27 @@ mod tests {
     // Tests for the #21 input/output guards.
 
     #[test]
-    fn rejects_nan_in_x() {
+    fn nan_rows_follow_na_action() {
+        use crate::core::{NaAction, RegressionOptionsBuilder};
         let mut x = Mat::from_fn(5, 1, |i, _| i as f64);
         x[(2, 0)] = f64::NAN;
         let y = Col::from_fn(5, |i| 2.0 + 3.0 * i as f64);
-        let err = OlsRegressor::builder()
+        // default Omit (#176): the complete rows are fitted
+        let fit = OlsRegressor::builder()
             .with_intercept(true)
             .build()
+            .fit(&x, &y)
+            .unwrap();
+        assert!((fit.result().coefficients[0] - 3.0).abs() < 1e-10);
+        assert_eq!(fit.result().n_observations, 4);
+        // Pass leaves the NaN in place, which OLS rejects
+        let opts = |a| {
+            RegressionOptionsBuilder::default()
+                .na_action(a)
+                .build()
+                .unwrap()
+        };
+        let err = OlsRegressor::new(opts(NaAction::Pass))
             .fit(&x, &y)
             .unwrap_err();
         match err {
@@ -1364,6 +1381,8 @@ mod tests {
             }
             other => panic!("expected NumericalError, got {:?}", other),
         }
+        // Fail errors
+        assert!(OlsRegressor::new(opts(NaAction::Fail)).fit(&x, &y).is_err());
     }
 
     #[test]

@@ -311,6 +311,9 @@ impl Regressor for BlsRegressor {
     type Fitted = FittedBls;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        if let Some((xc, yc)) = crate::core::apply_na_action(x, y, self.options.na_action, false)? {
+            return self.fit(&xc, &yc);
+        }
         // Delegate to fit_internal which handles bound expansion
         self.fit_internal(x, y)
     }

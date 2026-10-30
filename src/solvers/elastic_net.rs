@@ -130,6 +130,9 @@ impl Regressor for ElasticNetRegressor {
     type Fitted = FittedElasticNet;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        if let Some((xc, yc)) = crate::core::apply_na_action(x, y, self.options.na_action, false)? {
+            return self.fit(&xc, &yc);
+        }
         // When alpha = 0, delegate to Ridge
         if self.options.alpha == 0.0 {
             let ridge = RidgeRegressor::new(self.options.clone());
