@@ -46,6 +46,8 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_gls_validation.R` | Validates `GlsRegressor` (correlation structures, variance functions, REML/ML, var-cov intervals, variogram) against `nlme::gls` |
 | `tests/r_scripts/generate_transform_validation.R` | Validates `transform::box_cox` against `MASS::boxcox` and `smearing_estimate` against `Hmisc::smearingEst` |
 | `tests/r_scripts/generate_areg_validation.R` | Validates `transform::areg` (spline / linear / categorical bases, inverse transform, bootstrap optimism) against `Hmisc::areg` |
+| `tests/r_scripts/generate_reduction_validation.R` | Validates `reduction` (`spearman2`, `hoeffding_d`, `varclus`, `hclust` for all linkages) against Hmisc and `stats::hclust` |
+| `tests/r_scripts/generate_redun_validation.R` | Validates `reduction::redun` (redundancy analysis, all option sets) against `Hmisc::redun` |
 
 #### scikit-learn-based oracles (Python, `validation/python/`)
 

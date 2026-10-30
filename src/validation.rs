@@ -801,7 +801,8 @@ pub fn rank_intervals(original: &[f64], replicates: &Mat<f64>, level: f64) -> Ve
         .collect()
 }
 
-fn average_ranks(v: &[f64]) -> Vec<f64> {
+/// Ranks with ties averaged (R's `rank`, 1-based).
+pub(crate) fn average_ranks(v: &[f64]) -> Vec<f64> {
     let mut idx: Vec<usize> = (0..v.len()).collect();
     idx.sort_by(|&a, &b| v[a].total_cmp(&v[b]));
     let mut r = vec![0.0; v.len()];

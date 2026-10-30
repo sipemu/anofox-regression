@@ -16,6 +16,7 @@
 
 mod areg;
 
+pub(crate) use areg::canonical;
 pub use areg::{areg, Areg, AregBootstrap, AregOptions, AregType};
 
 use crate::diagnostics::accuracy::quantile7;
