@@ -24,7 +24,7 @@ use crate::design::{Design, DesignError};
 use crate::diagnostics::accuracy::quantile7;
 use crate::splines::{Basis, Lsp, Rcs};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{ChiSquared, ContinuousCDF, FisherSnedecor, Normal, StudentsT};
 
 /// `datadist` limits of a predictor.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -658,6 +658,180 @@ impl Predictor {
             (_, Some(d)) => d.clone(),
             _ => crate::utils::pretty(self.limits.low, self.limits.high, nint),
         }
+    }
+}
+
+/// Critical value of simultaneous (max-|t|) confidence intervals for the
+/// linear combinations `rows · β` with covariance `vcov` (`multcomp`'s
+/// single-step adjustment, `Predict(conf.type = "simultaneous")`): the `c`
+/// with `P(maxᵢ |cᵢᵀβ̂ − cᵢᵀβ| / SEᵢ ≤ c) = level` under the normal or t
+/// reference of `crit`.
+///
+/// With `r` the rank of the combinations' correlation matrix, write each
+/// standardised combination as `aᵢᵀZ` with unit `aᵢ ∈ ℝʳ` and `Z = R·U`
+/// (`U` uniform on the sphere); then `P = E_U[F((c / maxᵢ|aᵢᵀU|)²)]` with
+/// `F` the χ²ᵣ (normal) or `r·F(r, ν)` (t) distribution function. The
+/// expectation is exact for `r = 1`, a dense angular rule for `r = 2` and a
+/// deterministic Halton rule (2¹⁷ antithetic points) above, so it is
+/// reproducible to about 1e-4; `mvtnorm`'s randomised Genz–Bretz algorithm
+/// used by R is accurate to about 1e-3.
+pub fn simultaneous_critical(
+    rows: &[Vec<f64>],
+    vcov: &Mat<f64>,
+    crit: Critical,
+    level: f64,
+) -> f64 {
+    let dirs = unit_directions(rows, vcov);
+    let r = dirs.first().map_or(0, Vec::len);
+    if r == 0 || !(level > 0.0 && level < 1.0) {
+        return f64::NAN;
+    }
+    if r == 1 {
+        return crit.quantile(1.0 - (1.0 - level) / 2.0);
+    }
+    let maxima = sphere_maxima(&dirs, r);
+    let cdf = |x2: f64| -> f64 {
+        match crit {
+            Critical::Normal => ChiSquared::new(r as f64).map_or(f64::NAN, |d| d.cdf(x2)),
+            Critical::StudentT(df) => {
+                FisherSnedecor::new(r as f64, df).map_or(f64::NAN, |d| d.cdf(x2 / r as f64))
+            }
+        }
+    };
+    let prob =
+        |c: f64| maxima.iter().map(|m| cdf((c / m).powi(2))).sum::<f64>() / maxima.len() as f64;
+    // the pointwise quantile and the Scheffé bound bracket the answer
+    let mut lo = crit.quantile(1.0 - (1.0 - level) / 2.0);
+    let mut hi = match crit {
+        Critical::Normal => ChiSquared::new(r as f64).map_or(f64::NAN, |d| d.inverse_cdf(level)),
+        Critical::StudentT(df) => {
+            FisherSnedecor::new(r as f64, df).map_or(f64::NAN, |d| r as f64 * d.inverse_cdf(level))
+        }
+    }
+    .sqrt()
+        * 1.001;
+    for _ in 0..80 {
+        let mid = 0.5 * (lo + hi);
+        if prob(mid) < level {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+/// Unit vectors `aᵢ ∈ ℝʳ` with `aᵢᵀaⱼ` the correlations of the combinations
+/// `rows · β`, `r` the numerical rank.
+fn unit_directions(rows: &[Vec<f64>], vcov: &Mat<f64>) -> Vec<Vec<f64>> {
+    let k = rows.len();
+    let p = vcov.nrows();
+    if k == 0 || rows.iter().any(|row| row.len() != p) {
+        return Vec::new();
+    }
+    let cov = Mat::from_fn(k, k, |a, b| {
+        (0..p)
+            .map(|i| {
+                (0..p)
+                    .map(|j| rows[a][i] * vcov[(i, j)] * rows[b][j])
+                    .sum::<f64>()
+            })
+            .sum::<f64>()
+    });
+    let corr = Mat::from_fn(k, k, |a, b| {
+        cov[(a, b)] / (cov[(a, a)] * cov[(b, b)]).sqrt()
+    });
+    let Ok(eig) = corr.self_adjoint_eigen(faer::Side::Lower) else {
+        return Vec::new();
+    };
+    let (vals, vecs) = (eig.S().column_vector(), eig.U());
+    let top = (0..k).fold(0.0_f64, |m, i| m.max(vals[i]));
+    let keep: Vec<usize> = (0..k)
+        .filter(|&i| vals[i] > 1e-10 * top * k as f64)
+        .collect();
+    (0..k)
+        .map(|a| {
+            let v: Vec<f64> = keep
+                .iter()
+                .map(|&e| vecs[(a, e)] * vals[e].sqrt())
+                .collect();
+            let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+            v.iter().map(|x| x / norm).collect()
+        })
+        .collect()
+}
+
+/// `maxᵢ |aᵢᵀU|` over a deterministic set of directions `U` on the sphere
+/// in `ℝʳ` (equally weighted).
+fn sphere_maxima(dirs: &[Vec<f64>], r: usize) -> Vec<f64> {
+    let m = |u: &[f64]| -> f64 {
+        dirs.iter()
+            .map(|a| a.iter().zip(u).map(|(x, y)| x * y).sum::<f64>().abs())
+            .fold(0.0, f64::max)
+    };
+    if r == 2 {
+        // U and −U give the same maximum: half a turn suffices
+        let n = 200_000;
+        return (0..n)
+            .map(|i| {
+                let t = std::f64::consts::PI * (i as f64 + 0.5) / n as f64;
+                m(&[t.cos(), t.sin()])
+            })
+            .collect();
+    }
+    const PRIMES: [u64; 30] = [
+        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
+        97, 101, 103, 107, 109, 113,
+    ];
+    let normal = Normal::new(0.0, 1.0).expect("standard normal");
+    let halton = |mut i: u64, b: u64| -> f64 {
+        let (mut f, mut x) = (1.0, 0.0);
+        while i > 0 {
+            f /= b as f64;
+            x += f * (i % b) as f64;
+            i /= b;
+        }
+        x
+    };
+    (1..=(1u64 << 17))
+        .map(|i| {
+            let z: Vec<f64> = (0..r)
+                .map(|d| normal.inverse_cdf(halton(i, PRIMES[d % PRIMES.len()])))
+                .collect();
+            let norm = z.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let u: Vec<f64> = z.iter().map(|x| x / norm).collect();
+            m(&u)
+        })
+        .collect()
+}
+
+impl ModelSpec {
+    /// [`ModelSpec::predict_grid`] with simultaneous confidence bands over
+    /// the grid (`Predict(conf.type = "simultaneous")`): the limits use the
+    /// critical value of [`simultaneous_critical`] for all grid rows, which
+    /// is returned too.
+    #[allow(clippy::too_many_arguments)]
+    pub fn predict_grid_simultaneous(
+        &self,
+        beta: &Col<f64>,
+        vcov: &Mat<f64>,
+        intercept: bool,
+        k: usize,
+        values: Option<Vec<f64>>,
+        crit: Critical,
+        level: f64,
+    ) -> (Vec<f64>, Vec<ContrastEstimate>, f64) {
+        let (values, mut est) = self.predict_grid(beta, vcov, intercept, k, values, crit, level);
+        let rows: Vec<Vec<f64>> = values
+            .iter()
+            .map(|&v| self.row(&[(k, v)], intercept))
+            .collect();
+        let c = simultaneous_critical(&rows, vcov, crit, level);
+        for e in &mut est {
+            e.lower = e.estimate - c * e.se;
+            e.upper = e.estimate + c * e.se;
+        }
+        (values, est, c)
     }
 }
 
