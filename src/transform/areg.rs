@@ -281,7 +281,10 @@ fn scaled(b: &[f64], means: &[f64], n: usize) -> Col<f64> {
 /// First canonical correlation of `X` and `Y` (`cancor` as used by areg):
 /// both variates have unit variance, the `y` variate increases with the
 /// first `y` column; returns the `x` and `y` coefficients and `r²`.
-fn canonical(x: &Mat<f64>, y: &Mat<f64>) -> Result<(Col<f64>, Col<f64>, f64), RegressionError> {
+pub(crate) fn canonical(
+    x: &Mat<f64>,
+    y: &Mat<f64>,
+) -> Result<(Col<f64>, Col<f64>, f64), RegressionError> {
     let n = x.nrows();
     let (xc, xm) = center(x);
     let (yc, ym) = center(y);

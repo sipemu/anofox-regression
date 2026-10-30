@@ -3,7 +3,7 @@
 //! (`Hmisc::hoeffd`), variable clustering on a similarity matrix
 //! (`Hmisc::varclus`) and the hierarchical clustering behind it
 //! (`stats::hclust`, a port of R's Fortran with its tie-breaking, merge and
-//! order conventions).
+//! order conventions), and redundancy analysis (`Hmisc::redun`).
 //!
 //! ```rust,ignore
 //! use anofox_regression::reduction::{varclus, Linkage, Similarity, SimilarityTransform};
@@ -572,5 +572,256 @@ pub fn varclus(
     Ok(Varclus {
         hclust: hclust(&diss, linkage)?,
         sim,
+    })
+}
+
+// =================================================================== redun ==
+
+/// How a variable enters [`redun`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RedunVariable {
+    /// Numeric: a restricted cubic spline (or ranks, see [`RedunOptions`]).
+    #[default]
+    Numeric,
+    /// Numeric but always linear (`I(x)` in the formula).
+    Linear,
+    /// Categorical (level codes): dummy columns.
+    Categorical,
+}
+
+/// Options of [`redun`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RedunOptions {
+    /// A variable is redundant when its R² from the others exceeds this.
+    pub r2: f64,
+    /// Use the adjusted R² (`type = "adjusted"`).
+    pub adjusted: bool,
+    /// Spline knots for numeric variables (default 3).
+    pub nk: usize,
+    /// Predict only the linear part of a spline variable (`tlinear`,
+    /// default `true`).
+    pub tlinear: bool,
+    /// `rank = TRUE`: as in Hmisc this sets `nk = 0`, so numeric variables
+    /// enter linearly.
+    pub rank: bool,
+    /// `qrank = TRUE`: numeric variables enter as their (scaled) ranks.
+    pub qrank: bool,
+    /// For a categorical variable, also require every dummy to be predicted
+    /// with R² above the cutoff (`allcat`).
+    pub allcat: bool,
+}
+
+impl Default for RedunOptions {
+    fn default() -> Self {
+        Self {
+            r2: 0.9,
+            adjusted: false,
+            nk: 3,
+            tlinear: true,
+            rank: false,
+            qrank: false,
+            allcat: false,
+        }
+    }
+}
+
+/// Result of [`redun`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Redun {
+    /// Variables kept (column indices of `x`), in their original order.
+    pub kept: Vec<usize>,
+    /// Variables declared redundant, in the order removed.
+    pub removed: Vec<usize>,
+    /// R² of each removed variable when it was removed.
+    pub r_squared: Vec<f64>,
+    /// At each removal after the first, the R² of the previously removed
+    /// variables from the variables still kept (`r2later`).
+    pub r_squared_later: Vec<Vec<f64>>,
+    /// R² of every analysed variable from all the others at the first step
+    /// (`rsq1`).
+    pub r_squared_first: Vec<f64>,
+    /// Constant variables, left out of the analysis (`toofew`).
+    pub too_few: Vec<usize>,
+}
+
+/// Internal variable type, as Hmisc's `vtype`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VType {
+    Linear,
+    Spline,
+    Rank,
+    QuadRank,
+    Categorical,
+}
+
+/// Expansion columns of one variable.
+fn redun_columns(z: &[f64], vtype: VType, nk: usize) -> Result<Mat<f64>, RegressionError> {
+    let n = z.len();
+    Ok(match vtype {
+        VType::Linear => Mat::from_fn(n, 1, |i, _| z[i]),
+        VType::Rank | VType::QuadRank => {
+            let r: Vec<f64> = average_ranks(z).iter().map(|v| v / n as f64).collect();
+            let m = if vtype == VType::QuadRank { 2 } else { 1 };
+            Mat::from_fn(n, m, |i, j| r[i].powi(j as i32 + 1))
+        }
+        VType::Spline => {
+            crate::splines::Rcs::from_data(z, nk)
+                .map_err(|e| invalid(&e.to_string()))?
+                .basis(z, "z")
+                .columns
+        }
+        VType::Categorical => {
+            let mut levels = z.to_vec();
+            levels.sort_by(f64::total_cmp);
+            levels.dedup();
+            Mat::from_fn(n, levels.len() - 1, |i, j| {
+                f64::from(u8::from(z[i] == levels[j + 1]))
+            })
+        }
+    })
+}
+
+struct RedunData {
+    blocks: Vec<Mat<f64>>,
+    vtypes: Vec<VType>,
+    n: usize,
+}
+
+impl RedunData {
+    /// Columns of the variables `ix` side by side.
+    fn design(&self, ix: &[usize]) -> Mat<f64> {
+        let cols: Vec<(usize, usize)> = ix
+            .iter()
+            .flat_map(|&v| (0..self.blocks[v].ncols()).map(move |c| (v, c)))
+            .collect();
+        Mat::from_fn(self.n, cols.len(), |i, k| {
+            self.blocks[cols[k].0][(i, cols[k].1)]
+        })
+    }
+
+    fn adjust(&self, r2: f64, dof: usize, adjusted: bool) -> f64 {
+        if !adjusted {
+            return r2;
+        }
+        let n = self.n as f64;
+        (1.0 - (1.0 - r2) * (n - 1.0) / (n - dof as f64 - 1.0)).max(0.0)
+    }
+
+    /// Hmisc's `fcan`: R² of variable `iy` from the variables `ix`.
+    fn r2(&self, ix: &[usize], iy: usize, o: &RedunOptions) -> Result<f64, RegressionError> {
+        let x = self.design(ix);
+        let vt = self.vtypes[iy];
+        let linear_y = o.tlinear && matches!(vt, VType::Spline | VType::QuadRank);
+        let yb = &self.blocks[iy];
+        let y = if linear_y || vt == VType::Linear || vt == VType::Rank {
+            Mat::from_fn(self.n, 1, |i, _| yb[(i, 0)])
+        } else {
+            yb.clone()
+        };
+        let (_, _, r2) = crate::transform::canonical(&x, &y)?;
+        let mut r2 = self.adjust(r2, x.ncols() + y.ncols() - 1, o.adjusted);
+        if r2 > o.r2 && o.allcat && vt == VType::Categorical && yb.ncols() > 1 {
+            for j in 0..yb.ncols() {
+                let yj = Mat::from_fn(self.n, 1, |i, _| yb[(i, j)]);
+                let (_, _, r2c) = crate::transform::canonical(&x, &yj)?;
+                r2 = r2.min(self.adjust(r2c, x.ncols(), o.adjusted));
+            }
+        }
+        Ok(r2)
+    }
+}
+
+/// Index of the first maximum.
+fn argmax(v: &[f64]) -> usize {
+    (0..v.len()).fold(0, |b, i| if v[i] > v[b] { i } else { b })
+}
+
+/// Redundancy analysis (`Hmisc::redun`, RMS §4.7.1): repeatedly predict
+/// every remaining variable from the others with flexible expansions
+/// (splines with `nk` knots, dummies, or ranks) and remove the best
+/// predicted one while its R² exceeds `options.r2` and every variable
+/// removed earlier stays predictable from those kept.
+pub fn redun(
+    x: &Mat<f64>,
+    kinds: &[RedunVariable],
+    options: &RedunOptions,
+) -> Result<Redun, RegressionError> {
+    let (n, p) = (x.nrows(), x.ncols());
+    if kinds.len() != p {
+        return Err(invalid("kinds needs one entry per column"));
+    }
+    let nk = if options.rank || options.qrank {
+        0
+    } else {
+        options.nk
+    };
+    let (mut vars, mut blocks, mut vtypes, mut too_few) = (vec![], vec![], vec![], vec![]);
+    for (j, &kind) in kinds.iter().enumerate() {
+        let z: Vec<f64> = (0..n).map(|i| x[(i, j)]).collect();
+        let mut distinct = z.clone();
+        distinct.sort_by(f64::total_cmp);
+        distinct.dedup();
+        if distinct.len() < 2 {
+            too_few.push(j);
+            continue;
+        }
+        let vt = match kind {
+            RedunVariable::Categorical => VType::Categorical,
+            _ if nk == 0 || distinct.len() < 3 || kind == RedunVariable::Linear => {
+                if options.qrank {
+                    VType::Rank
+                } else {
+                    VType::Linear
+                }
+            }
+            _ if options.qrank => VType::QuadRank,
+            _ => VType::Spline,
+        };
+        blocks.push(redun_columns(&z, vt, nk)?);
+        vtypes.push(vt);
+        vars.push(j);
+    }
+    let data = RedunData { blocks, vtypes, n };
+    let mut kept: Vec<usize> = (0..vars.len()).collect();
+    let (mut removed, mut r_squared, mut later_all) = (vec![], vec![], vec![]);
+    let mut first = Vec::new();
+    while kept.len() >= 2 {
+        let rsq = kept
+            .iter()
+            .map(|&j| {
+                let others: Vec<usize> = kept.iter().copied().filter(|&k| k != j).collect();
+                data.r2(&others, j, options)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if first.is_empty() {
+            first.clone_from(&rsq);
+        }
+        let best = argmax(&rsq);
+        if rsq[best] < options.r2 {
+            break;
+        }
+        let cand = kept[best];
+        let rest: Vec<usize> = kept.iter().copied().filter(|&k| k != cand).collect();
+        let later = removed
+            .iter()
+            .map(|&j| data.r2(&rest, j, options))
+            .collect::<Result<Vec<_>, _>>()?;
+        if later.iter().any(|&r| r < options.r2) {
+            break;
+        }
+        removed.push(cand);
+        r_squared.push(rsq[best]);
+        if !later.is_empty() {
+            later_all.push(later);
+        }
+        kept = rest;
+    }
+    Ok(Redun {
+        kept: kept.iter().map(|&k| vars[k]).collect(),
+        removed: removed.iter().map(|&k| vars[k]).collect(),
+        r_squared,
+        r_squared_later: later_all,
+        r_squared_first: first,
+        too_few,
     })
 }
