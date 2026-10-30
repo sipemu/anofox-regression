@@ -116,6 +116,13 @@ pub struct LmDynamicRegressor {
     max_models: Option<usize>,
 }
 
+/// Default cap on the number of candidate models: all subsets of up to 12
+/// predictors (with an intercept).
+const DEFAULT_MAX_MODELS: usize = 1 << 12;
+
+/// Largest number of predictors whose subsets are enumerated.
+const MAX_PREDICTORS: usize = 30;
+
 impl Default for LmDynamicRegressor {
     fn default() -> Self {
         Self {
@@ -123,7 +130,7 @@ impl Default for LmDynamicRegressor {
             ic_type: InformationCriterion::default(),
             distribution: AlmDistribution::Normal,
             lowess_span: Some(0.3), // Default LOWESS smoothing
-            max_models: Some(64),   // Limit for computational tractability
+            max_models: Some(DEFAULT_MAX_MODELS),
         }
     }
 }
@@ -154,22 +161,32 @@ impl LmDynamicRegressor {
         self.lowess_span
     }
 
-    /// Generate all candidate model specifications.
-    fn generate_model_specs(&self, p: usize) -> Vec<ModelSpec> {
+    /// Generate all candidate model specifications: every subset of the
+    /// predictors, as greybox. Errors when there are more subsets than
+    /// `max_models` (the candidates are never truncated, which would drop
+    /// whole predictors) or more than 30 predictors.
+    fn generate_model_specs(&self, p: usize) -> Result<Vec<ModelSpec>, RegressionError> {
+        if p > MAX_PREDICTORS {
+            return Err(RegressionError::NumericalError(format!(
+                "lmDynamic enumerates all 2^p subsets of the predictors; p = {p} exceeds {MAX_PREDICTORS}"
+            )));
+        }
         let max = self.max_models.unwrap_or(usize::MAX);
-        let mut specs = Vec::new();
+        let first = usize::from(!self.options.with_intercept);
+        let total_models = (1usize << p) - 1;
+        let n_models = total_models + 1 - first;
+        if n_models > max {
+            return Err(RegressionError::NumericalError(format!(
+                "lmDynamic needs all {n_models} candidate models for p = {p} predictors, \
+                 more than max_models = {max}; raise max_models or reduce the predictors"
+            )));
+        }
+        let mut specs = Vec::with_capacity(n_models);
 
         // All subsets of the variables in greybox's order (the first variable
         // toggles fastest); with an intercept the empty subset is the
         // intercept-only model.
-        let total_models = (1usize << p) - 1;
-        let first = if self.options.with_intercept { 0 } else { 1 };
-
         for mask in first..=total_models {
-            if specs.len() >= max {
-                break;
-            }
-
             let included: Vec<usize> = (0..p).filter(|&j| (mask >> j) & 1 == 1).collect();
 
             let n_params = included.len() + if self.options.with_intercept { 1 } else { 0 };
@@ -180,7 +197,7 @@ impl LmDynamicRegressor {
             });
         }
 
-        specs
+        Ok(specs)
     }
 
     /// Extract columns from X based on included variables.
@@ -208,7 +225,7 @@ impl LmDynamicRegressor {
         }
 
         // Generate candidate models
-        let model_specs = self.generate_model_specs(p);
+        let model_specs = self.generate_model_specs(p)?;
         let n_models = model_specs.len();
 
         if n_models == 0 {
@@ -921,7 +938,7 @@ impl Default for LmDynamicRegressorBuilder {
             ic_type: InformationCriterion::default(),
             distribution: AlmDistribution::default(),
             lowess_span: Some(0.3),
-            max_models: Some(64),
+            max_models: Some(DEFAULT_MAX_MODELS),
         }
     }
 }
@@ -960,8 +977,10 @@ impl LmDynamicRegressorBuilder {
 
     /// Set maximum number of candidate models to consider.
     ///
-    /// For p features, there are 2^p - 1 possible models.
-    /// Set this to limit computational cost.
+    /// All `2^p` subsets of the `p` predictors are candidates (`2^p − 1`
+    /// without an intercept); fitting errors when there are more than
+    /// `max` of them rather than dropping candidates. Default `4096`
+    /// (12 predictors).
     pub fn max_models(mut self, max: usize) -> Self {
         self.max_models = Some(max);
         self
@@ -1075,7 +1094,7 @@ mod tests {
         });
 
         let model = LmDynamicRegressor::builder()
-            .max_models(7) // Limit to manageable number
+            .max_models(8) // all 2^3 candidates
             .with_intercept(true)
             .build();
 
@@ -1084,9 +1103,8 @@ mod tests {
 
         let fitted = result.unwrap();
 
-        // Should have 2^3 - 1 = 7 models (or less if max_models limits it)
-        assert!(fitted.model_specs().len() <= 7);
-        assert!(!fitted.model_specs().is_empty());
+        // all 2^3 subsets, the empty one being the intercept-only model
+        assert_eq!(fitted.model_specs().len(), 8);
     }
 
     #[test]
@@ -1437,7 +1455,7 @@ mod tests {
         let y = Col::from_fn(40, |i| i as f64 + (i as f64).sin());
 
         let model = LmDynamicRegressor::builder()
-            .max_models(3)
+            .max_models(4)
             .with_intercept(true)
             .build();
 
@@ -1474,7 +1492,7 @@ mod tests {
         let y = Col::from_fn(30, |i| i as f64);
 
         let model = LmDynamicRegressor::builder()
-            .max_models(3)
+            .max_models(4)
             .with_intercept(true)
             .build();
 
@@ -1505,14 +1523,15 @@ mod tests {
         let x = Mat::from_fn(30, 5, |i, j| (i + j) as f64 * 0.1);
         let y = Col::from_fn(30, |i| i as f64);
 
-        let model = LmDynamicRegressor::builder()
-            .max_models(5) // Limit to 5 models instead of 2^5-1=31
-            .build();
-
-        let fitted = model.fit(&x, &y).expect("Should fit");
-
-        // Should have at most 5 models
-        assert!(fitted.model_specs().len() <= 5);
+        // 2^5 = 32 candidates do not fit in 5: an error, not a truncated set
+        // that would drop predictors (#175)
+        let capped = LmDynamicRegressor::builder().max_models(5).build();
+        assert!(capped.fit(&x, &y).is_err());
+        let full = LmDynamicRegressor::builder().max_models(32).build();
+        assert_eq!(
+            full.fit(&x, &y).expect("Should fit").model_specs().len(),
+            32
+        );
     }
 
     // === Prediction Interval Tests ===
@@ -1696,7 +1715,7 @@ mod tests {
 
         let model = LmDynamicRegressor::builder()
             .with_intercept(true)
-            .max_models(7)
+            .max_models(8)
             .build();
         let fitted = model.fit(&x, &y).expect("Should fit");
 
