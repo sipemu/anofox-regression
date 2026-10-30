@@ -220,6 +220,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `utils::pretty`, a port of R's `pretty()` (`R_pretty`), bit-identical on the tested ranges.
   - `effects::Limits` gains `low` / `high` (the data range), `Predictor` gains `distinct`, and `DesignError` gains `Invalid`.
   - Validated in `tests/r_validation_nomogram.rs` (generator `tests/r_scripts/generate_nomogram_validation.R`) against rms on `lrm(y ~ rcs(age, 4) + sex + chol + grade)` with a `plogis` risk axis.
+- **Principal components and cluster scores: `reduction::principal_components` / `cluster_scores` (#107, RMS §4.7).** `principal_components(x, scale)` matches `prcomp(x, scale. = scale)`: centre, scale, component SDs, loadings and scores. Each component's largest loading is made positive, since prcomp's signs are arbitrary. It also offers `proportion_of_variance` and `transform` for new rows (`predict.prcomp`). `cluster_scores(x, clusters, k)` returns the first `k` principal components of each variable cluster's standardised variables, e.g. of the groups from `varclus` + `cut_height`, as summary scores to model in place of the cluster. Validated in `tests/r_validation_pca.rs` (generator `tests/r_scripts/generate_pca_validation.R`) against `prcomp`, with signs aligned.
 
 ### Changed
 
