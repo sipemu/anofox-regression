@@ -20,8 +20,9 @@ pub enum AregType {
     Spline,
     /// Untransformed (`"l"`).
     Linear,
-    /// Dummy columns for every distinct value but the smallest (`"c"`);
-    /// predictors only.
+    /// Dummy columns for every distinct value but the smallest (`"c"`). A
+    /// categorical response has no inverse transformation (`inverse_y`,
+    /// `mad` and `med` are `None`).
     Categorical,
 }
 
@@ -32,7 +33,7 @@ pub struct AregOptions {
     pub nk: usize,
     /// Type of each predictor (default: all [`AregType::Spline`]).
     pub x_types: Option<Vec<AregType>>,
-    /// Type of the response, [`AregType::Spline`] or [`AregType::Linear`].
+    /// Type of the response.
     pub y_type: AregType,
 }
 
@@ -154,11 +155,6 @@ pub fn areg(x: &Mat<f64>, y: &[f64], options: &AregOptions) -> Result<Areg, Regr
     if x_types.len() != p {
         return Err(RegressionError::NumericalError(
             "x_types needs one entry per predictor".to_string(),
-        ));
-    }
-    if options.y_type == AregType::Categorical {
-        return Err(RegressionError::NumericalError(
-            "a categorical response is not supported".to_string(),
         ));
     }
     let x_expansions = (0..p)
@@ -426,8 +422,10 @@ impl Areg {
     /// linear response. `None` when the transformation is not monotone over
     /// the range of `y`.
     pub fn inverse_y(&self, t: &[f64]) -> Option<Vec<f64>> {
-        if self.y_expansion == Expansion::Linear {
-            return Some(t.to_vec());
+        match self.y_expansion {
+            Expansion::Linear => return Some(t.to_vec()),
+            Expansion::Categorical(_) => return None,
+            Expansion::Spline(_) => {}
         }
         self.inverse_with(&self.y_coefficients)
             .map(|inv| inv.eval_all(t.iter().copied()))

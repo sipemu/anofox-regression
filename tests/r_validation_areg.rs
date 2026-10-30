@@ -135,6 +135,7 @@ fn rejects_bad_input() {
         y_type: AregType::Categorical,
         ..AregOptions::default()
     };
+    // a categorical response with 150 levels leaves too few observations
     assert!(areg(&x, &Y, &cat_y).is_err());
     let constant = Mat::from_fn(N, 1, |_, _| 1.0);
     let one_level = AregOptions {
