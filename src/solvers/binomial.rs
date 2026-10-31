@@ -193,6 +193,11 @@ impl BinomialRegressor {
         let mut iterations = 0;
 
         // Compute initial deviance for deviance-based convergence (following R's glm.fit)
+        // With `lambda > 0` step-halving and convergence use the penalised
+        // deviance `dev + λ‖β‖²`, the objective of the penalised IRLS: the
+        // unpenalised deviance rises on the way to the shrunken solution.
+        let (lambda, with_intercept) = (self.options.lambda, self.options.with_intercept);
+        let penalty = |b: &Col<f64>| super::fit_stats::ridge_penalty(b, lambda, with_intercept);
         let mut dev = self.weighted_deviance(&y_vec, &mu);
         let mut dev_old: f64;
 
@@ -219,7 +224,7 @@ impl BinomialRegressor {
             self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
             // Update deviance after μ update
-            dev = self.weighted_deviance(&y_vec, &mu);
+            dev = self.weighted_deviance(&y_vec, &mu) + penalty(&beta);
 
             // Step-halving: if deviance increased, halve the step (following R's glm.fit)
             if dev.is_finite() && dev_old.is_finite() {
@@ -236,7 +241,7 @@ impl BinomialRegressor {
                     self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
                     // Recompute deviance
-                    dev = self.weighted_deviance(&y_vec, &mu);
+                    dev = self.weighted_deviance(&y_vec, &mu) + penalty(&beta);
                 }
             }
 
