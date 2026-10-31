@@ -583,6 +583,7 @@ impl BinomialRegressor {
             iterations,
             converged,
             y_values: y.clone(),
+            prior_weights: self.weights.clone(),
             xtwx_inverse,
             offset,
             aliased,
@@ -802,6 +803,8 @@ pub struct FittedBinomial {
     pub converged: bool,
     /// Original y values.
     y_values: Col<f64>,
+    /// Prior weights (`None`: all 1).
+    prior_weights: Option<Col<f64>>,
     /// (X'WX)⁻¹ matrix for prediction SE.
     xtwx_inverse: Option<Mat<f64>>,
     /// Offset used in fitting (stored for potential residual calculations).
@@ -856,19 +859,29 @@ impl FittedBinomial {
         Col::from_fn(mu.nrows(), |i| self.family.link(mu[i]))
     }
 
-    /// Compute Pearson residuals: (y - μ) / sqrt(V(μ)).
+    /// Pearson residuals `√wᵢ (yᵢ − μᵢ) / √V(μᵢ)` with prior weights `wᵢ`,
+    /// as `residuals(glm, type = "pearson")`.
     pub fn pearson_residuals(&self) -> Col<f64> {
         let mu = &self.result.fitted_values;
-        pearson_residuals(&self.y_values, mu, &self.family)
+        self.scale_by_sqrt_weights(pearson_residuals(&self.y_values, mu, &self.family))
     }
 
-    /// Compute deviance residuals: sign(y - μ) * sqrt(d_i).
+    /// Deviance residuals `sign(yᵢ − μᵢ) √(wᵢ dᵢ)` with prior weights `wᵢ`,
+    /// as `residuals(glm, type = "deviance")`; their squares sum to the
+    /// deviance.
     pub fn deviance_residuals(&self) -> Col<f64> {
         let mu = &self.result.fitted_values;
-        deviance_residuals(&self.y_values, mu, &self.family)
+        self.scale_by_sqrt_weights(deviance_residuals(&self.y_values, mu, &self.family))
     }
 
-    /// Compute working residuals: (y - μ) * (dη/dμ).
+    fn scale_by_sqrt_weights(&self, r: Col<f64>) -> Col<f64> {
+        match &self.prior_weights {
+            None => r,
+            Some(w) => Col::from_fn(r.nrows(), |i| w[i].sqrt() * r[i]),
+        }
+    }
+
+    /// Compute working residuals: (y - μ) * (dη/dμ) (not weighted, as R).
     pub fn working_residuals(&self) -> Col<f64> {
         let mu = &self.result.fitted_values;
         working_residuals(&self.y_values, mu, &self.family)
