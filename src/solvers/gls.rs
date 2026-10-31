@@ -844,16 +844,30 @@ impl Gradient for Objective<'_> {
 /// Minimise `f` from `x0` by L-BFGS with a central-difference gradient.
 /// When the line search fails (a first step into a singular region), a
 /// Nelder–Mead pass moves into the basin and L-BFGS restarts from there.
-fn minimise(f: &dyn Fn(&[f64]) -> f64, x0: Vec<f64>, max_iter: usize) -> Vec<f64> {
-    let (x, failed) = lbfgs(f, x0, max_iter);
-    if !failed {
+/// With `simplex_too` (the spatial structures) that second path also runs
+/// from `x0` and the better result is kept: their likelihood can have a
+/// nearly flat range → ∞ plateau that L-BFGS steps onto from nlme's start,
+/// e.g. `corGaus` with a nugget (#210).
+fn minimise(
+    f: &dyn Fn(&[f64]) -> f64,
+    x0: Vec<f64>,
+    max_iter: usize,
+    simplex_too: bool,
+) -> Vec<f64> {
+    let (x, failed) = lbfgs(f, x0.clone(), max_iter);
+    if !failed && !simplex_too {
         return x;
     }
-    let state = SimplexProgress::new(x);
+    let state = SimplexProgress::new(if failed { x.clone() } else { x0 });
     let Ok(res) = Executor::new(Objective { f }, NelderMead::adaptive(), state)
         .max_iter(200 * max_iter as u64)
         .run();
-    lbfgs(f, res.best_param().clone(), max_iter).0
+    let y = lbfgs(f, res.best_param().clone(), max_iter).0;
+    if failed || f(&y) < f(&x) {
+        y
+    } else {
+        x
+    }
 }
 
 /// One L-BFGS run: the best point and whether the solver failed.
@@ -954,7 +968,8 @@ impl GlsRegressor {
                 .log_likelihood(t, None, Scale::Optimisation)
                 .map_or(1e20, |v| -v)
         };
-        let theta = minimise(&f, x0, self.max_iterations);
+        let spatial = self.correlation.spatial().is_some();
+        let theta = minimise(&f, x0, self.max_iterations, spatial);
         if theta.iter().all(|v| v.is_finite())
             && problem.whiten(&theta, Scale::Optimisation).is_some()
         {
