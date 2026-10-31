@@ -83,6 +83,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_regression_tight_validation.R` | The `r_validation_regression.rs` datasets vs `lm(weights)`, closed-form ridge, `glmnet(thresh = 1e-20)` and `statmod::tweedie` with `epsilon = 1e-15` (#209) (`tests/r_validation_regression_tight.rs`) |
 | `tests/r_scripts/generate_validation_210_part1.R` | Gamma / Tweedie link powers (`statmod`), RLS forgetting factor, weighted isotonic (`Iso::pava`) (#210) (`tests/r_validation_210_part1.rs`) |
 | `tests/r_scripts/generate_validation_210_part2.R` | AFT AIC / BIC / z / p / CI vs `survreg`; ordinal probabilities vs `rms::orm` (#210) (`tests/r_validation_210_part2.rs`) |
+| `tests/r_scripts/generate_validation_210_part5.R` | Gamma(log) without intercept / with offset, Tweedie default link and `p = 0`, inverse-Gaussian logLik, ridge IRLS vs `glmnet(alpha = 0)`, binomial probit / cloglog `predict.glm(se.fit = TRUE)` (#210) (`tests/r_validation_210_part5.rs`) |
 | `tests/r_scripts/generate_lars_path_validation.R` | LAR / lasso path vs `lars::lars` (#210) (`tests/r_validation_lars_path.rs`) |
 | `tests/r_scripts/generate_hetero_validation.R` | White (3 regressors) and custom-z Breusch–Pagan vs `lmtest::bptest` (#210) (`tests/r_validation_hetero.rs`) |
 
@@ -815,6 +816,7 @@ Rscript tests/r_scripts/generate_quantile_predict_interval_validation.R   # -> t
 Rscript tests/r_scripts/generate_regression_tight_validation.R   # -> tests/r_validation_regression_tight.rs
 Rscript tests/r_scripts/generate_validation_210_part1.R   # -> tests/r_validation_210_part1.rs
 Rscript tests/r_scripts/generate_validation_210_part2.R   # -> tests/r_validation_210_part2.rs
+Rscript tests/r_scripts/generate_validation_210_part5.R   # -> tests/r_validation_210_part5.rs
 Rscript tests/r_scripts/generate_lars_path_validation.R   # -> tests/r_validation_lars_path.rs
 Rscript tests/r_scripts/generate_hetero_validation.R   # -> tests/r_validation_hetero.rs
 ```

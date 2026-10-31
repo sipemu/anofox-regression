@@ -171,6 +171,11 @@ impl TweedieRegressor {
         let mut iterations = 0;
 
         // Compute initial deviance for deviance-based convergence (following R's glm.fit)
+        // With `lambda > 0` step-halving and convergence use the penalised
+        // deviance `dev + λ‖β‖²`, the objective of the penalised IRLS: the
+        // unpenalised deviance rises on the way to the shrunken solution.
+        let (lambda, with_intercept) = (self.options.lambda, self.options.with_intercept);
+        let penalty = |b: &Col<f64>| super::fit_stats::ridge_penalty(b, lambda, with_intercept);
         let mut dev = self.family.deviance(&y_vec, &mu);
         let mut dev_old: f64;
 
@@ -197,7 +202,7 @@ impl TweedieRegressor {
             self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
             // Update deviance after μ update
-            dev = self.family.deviance(&y_vec, &mu);
+            dev = self.family.deviance(&y_vec, &mu) + penalty(&beta);
 
             // Step-halving: if deviance increased, halve the step (following R's glm.fit)
             if dev.is_finite() && dev_old.is_finite() {
@@ -214,7 +219,7 @@ impl TweedieRegressor {
                     self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
                     // Recompute deviance
-                    dev = self.family.deviance(&y_vec, &mu);
+                    dev = self.family.deviance(&y_vec, &mu) + penalty(&beta);
                 }
             }
 
@@ -1197,6 +1202,10 @@ impl TweedieRegressorBuilder {
     }
 
     /// Set whether to compute inference statistics.
+    ///
+    /// The dispersion is estimated (Pearson χ² / (n − p)), so t statistics,
+    /// p-values and the Wald limits `β̂ ± t_{n−p} · SE` use Student's t on
+    /// `n − p` df, as `summary.glm`. R's `confint.default` would use `z`.
     pub fn compute_inference(mut self, compute: bool) -> Self {
         self.options_builder = self.options_builder.compute_inference(compute);
         self
