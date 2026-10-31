@@ -1033,43 +1033,95 @@ fn test_ridge_lambda_scaling_glmnet() {
 fn test_elastic_net_lambda_scaling_glmnet() {
     use anofox_regression::LambdaScaling;
 
-    // Similar test for Elastic Net
+    // Lasso: Raw minimises ||y - Xβ||² + λ||β||₁, glmnet
+    // 1/(2n)||y - Xβ||² + λ||β||₁, so Raw λ = 2n · glmnet λ.
     let (x, y) = dataset2();
     let n = x.nrows();
 
-    // With Raw scaling
-    let enet_raw = ElasticNetRegressor::builder()
-        .with_intercept(true)
-        .lambda(1.0)
-        .alpha(0.5)
-        .lambda_scaling(LambdaScaling::Raw)
-        .build();
-    let fitted_raw = enet_raw.fit(&x, &y).expect("fit should succeed");
+    let lasso = |lambda: f64, scaling: LambdaScaling| {
+        ElasticNetRegressor::builder()
+            .with_intercept(true)
+            .lambda(lambda)
+            .alpha(1.0)
+            .lambda_scaling(scaling)
+            .tolerance(1e-14)
+            .build()
+            .fit(&x, &y)
+            .expect("fit should succeed")
+    };
+    let fitted_raw = lasso(2.0, LambdaScaling::Raw);
+    let fitted_glmnet = lasso(1.0 / n as f64, LambdaScaling::Glmnet);
 
-    // With Glmnet scaling - lambda is multiplied by n internally
-    let enet_glmnet = ElasticNetRegressor::builder()
-        .with_intercept(true)
-        .lambda(1.0 / n as f64)
-        .alpha(0.5)
-        .lambda_scaling(LambdaScaling::Glmnet)
-        .build();
-    let fitted_glmnet = enet_glmnet.fit(&x, &y).expect("fit should succeed");
-
-    // Coefficients should be very close
     for j in 0..x.ncols() {
         assert_relative_eq!(
             fitted_raw.coefficients()[j],
             fitted_glmnet.coefficients()[j],
-            epsilon = 1e-6
+            epsilon = 1e-8
         );
     }
-
-    // Intercepts should match
     assert_relative_eq!(
         fitted_raw.intercept().unwrap(),
         fitted_glmnet.intercept().unwrap(),
-        epsilon = 1e-6
+        epsilon = 1e-8
     );
+}
+
+#[test]
+fn test_elastic_net_glmnet_scaling_matches_r() {
+    use anofox_regression::LambdaScaling;
+
+    // R: glmnet(x4, y4, alpha, lambda = 0.1 / n4, standardize = FALSE)
+    // (validation/validation_output.txt, dataset 4; default thresh = 1e-7)
+    let out = include_str!("../validation/validation_output.txt");
+    let parse = |key: &str| -> Vec<f64> {
+        let line = out.lines().find(|l| l.starts_with(key)).expect("key");
+        let body = line.split('[').nth(1).unwrap().trim_end_matches(']');
+        body.split(',').map(|v| v.trim().parse().unwrap()).collect()
+    };
+    let (x_flat, y_all) = (parse("X4_flat ="), parse("Y4 ="));
+    let n = y_all.len();
+    let x = Mat::from_fn(n, 5, |i, j| x_flat[i * 5 + j]);
+    let y = Col::from_fn(n, |i| y_all[i]);
+    let n = n as f64;
+    let golden = [
+        (
+            0.5,
+            -0.001477022967520,
+            [
+                2.981170977551803,
+                -2.111768548328050,
+                0.054127690181294,
+                0.034078404041139,
+                0.059985687348184,
+            ],
+        ),
+        (
+            1.0,
+            -0.001473113499827,
+            [
+                2.981072659072019,
+                -2.111504297540462,
+                0.053610091203830,
+                0.033473030457753,
+                0.059671869731005,
+            ],
+        ),
+    ];
+    for (alpha, b0, b) in golden {
+        let fitted = ElasticNetRegressor::builder()
+            .with_intercept(true)
+            .lambda(0.1 / n)
+            .alpha(alpha)
+            .lambda_scaling(LambdaScaling::Glmnet)
+            .tolerance(1e-14)
+            .build()
+            .fit(&x, &y)
+            .expect("fit should succeed");
+        assert_relative_eq!(fitted.intercept().unwrap(), b0, epsilon = 1e-6);
+        for j in 0..5 {
+            assert_relative_eq!(fitted.coefficients()[j], b[j], epsilon = 1e-6);
+        }
+    }
 }
 
 // ============================================================================

@@ -400,7 +400,14 @@ pub fn fit_path(
     let scaled = if opts.alpha == 0.0 {
         ridge_path_scaled(&prep, lambdas)?
     } else {
-        cd_path_scaled(&prep, lambdas, opts)?
+        let pens: Vec<(f64, f64)> = lambdas
+            .iter()
+            .map(|&lam| {
+                let lam = lam / prep.y_scale;
+                (lam * opts.alpha, lam * (1.0 - opts.alpha))
+            })
+            .collect();
+        cd_path_scaled(&prep, &pens, opts)?
     };
     Ok(unscale(&prep, scaled, lambdas, opts.alpha))
 }
@@ -479,23 +486,54 @@ fn soft(z: f64, g: f64) -> f64 {
     }
 }
 
-/// Coordinate-descent path on the scaled problem with warm starts.
+/// Solve `1/(2n) · ||y − β₀ − Xβ||² + l1 · ||β||₁ + l2/2 · ||β||²` (no
+/// standardisation, no `sd(y)` rescaling of the ridge part) by coordinate
+/// descent. Returns the intercept (0 without one) and the coefficients on
+/// the original scale; constant columns get 0. `tol` and `max_iter` are as
+/// in [`PathOptions`].
+pub(crate) fn fit_penalized(
+    x: &Mat<f64>,
+    y: &Col<f64>,
+    l1: f64,
+    l2: f64,
+    fit_intercept: bool,
+    tol: f64,
+    max_iter: usize,
+) -> Result<(f64, Col<f64>), RegressionError> {
+    validate_xy(x, y)?;
+    let opts = PathOptions {
+        alpha: 1.0,
+        fit_intercept,
+        standardize: false,
+        tol,
+        max_iter,
+    };
+    opts.validate()?;
+    let prep = prepare(x, y, &opts);
+    // On the scaled problem (b = β / sd(y)) the lasso part is divided by
+    // sd(y) and the ridge part unchanged.
+    let scaled = cd_path_scaled(&prep, &[(l1 / prep.y_scale, l2)], &opts)?;
+    let path = unscale(&prep, scaled, &[0.0], f64::NAN);
+    Ok((path.intercepts[0], path.coefficients_at(0)))
+}
+
+/// Coordinate-descent path on the scaled problem with warm starts, for the
+/// scaled penalties `(l1, l2)` of each solution.
 fn cd_path_scaled(
     prep: &Prepared,
-    lambdas: &[f64],
+    pens: &[(f64, f64)],
     opts: &PathOptions,
 ) -> Result<Mat<f64>, RegressionError> {
     let n = prep.xs.nrows();
     let p = prep.xs.ncols();
     let nf = n as f64;
-    let alpha = opts.alpha;
-    // Process in decreasing λ for warm starts.
-    let mut order: Vec<usize> = (0..lambdas.len()).collect();
-    order.sort_by(|&a, &b| lambdas[b].total_cmp(&lambdas[a]));
+    // Process in decreasing penalty for warm starts.
+    let mut order: Vec<usize> = (0..pens.len()).collect();
+    order.sort_by(|&a, &b| (pens[b].0 + pens[b].1).total_cmp(&(pens[a].0 + pens[a].1)));
 
     let mut beta = vec![0.0; p];
     let mut r: Vec<f64> = prep.ys.iter().copied().collect();
-    let mut out = Mat::<f64>::zeros(p, lambdas.len());
+    let mut out = Mat::<f64>::zeros(p, pens.len());
     let cols: Vec<&[f64]> = (0..p)
         .map(|j| {
             let c = prep.xs.col(j);
@@ -506,9 +544,7 @@ fn cd_path_scaled(
     let thresh = opts.tol;
 
     for &l in &order {
-        let lam = lambdas[l] / prep.y_scale;
-        let l1 = lam * alpha;
-        let l2 = lam * (1.0 - alpha);
+        let (l1, l2) = pens[l];
         let mut passes = 0usize;
         let mut converged = false;
         // Outer loop: full pass, then iterate on the active set until it

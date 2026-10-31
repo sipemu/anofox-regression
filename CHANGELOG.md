@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`NaAction` is now applied (#176).** `RegressionOptions::na_action` (default `Omit`) was exported but ignored. The estimators configured by `RegressionOptions` (OLS, WLS, ridge, elastic net, BLS, RLS, Poisson, negative binomial, Tweedie, binomial, ALM, lmDynamic) now drop rows with NaN in `x` or `y` for `Omit` / `Exclude`, error for `Fail`, and leave them for `Pass`. Rows can't be dropped when weights or an offset are set, so NaN rows are an error there. **Behaviour change:** NaN input that used to error (OLS) or give NaN coefficients now fits the complete cases by default. `Exclude` does not yet pad the outputs back to the input length.
 - **`LmDynamicRegressor` considered only the first six predictors (#175).** Candidate models were cut off after `max_models` (default 64) bitmasks, and those only ever involve predictors 0–5, so later predictors were never candidates. All `2^p` subsets are now enumerated, as greybox does. Fitting errors when they exceed `max_models` (now 4096 by default, i.e. 12 predictors) or when `p > 30`, instead of dropping candidates. Code that relied on a small `max_models` to truncate the search now gets an error.
+- **`ElasticNetRegressor::fit` returned a soft-thresholded ridge fit instead of the elastic-net solution (#187).** `fit` minimised only RSS + L2 penalty with L-BFGS and then soft-thresholded once, which shrank or zeroed coefficients far too much and depended on the scale of `X`. It now solves by coordinate descent (the `path` solver).
+  - `LambdaScaling::Glmnet`: the fit equals `glmnet(x, y, alpha, lambda, standardize = FALSE)` and `path()` at that `λ`, including glmnet's division of the ridge part by `sd(y)`.
+  - `LambdaScaling::Raw`: the fit minimises the documented `||y − Xβ||² + λ(α||β||₁ + (1−α)||β||²)`. For the lasso that is glmnet with `λ_raw = 2n·λ_glmnet` (not `n·λ`).
+  - `tolerance` is glmnet's `thresh`. At least 100 000 passes are allowed regardless of `max_iterations`. `lambda = 0` is OLS (via ridge).
+  - Validated against glmnet 5.2 in `tests/issue187_elastic_net_cd.rs` (lasso and elastic net, with and without intercept, `X` rescaled ×100) and against the dataset-4 reference in `validation/validation_output.txt`.
+  - **Behaviour change:** coefficients of every fit with `alpha > 0` and `lambda > 0` change.
 
 ## [0.7.0] - 2026-10-30
 
