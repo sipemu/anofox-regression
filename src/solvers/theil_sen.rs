@@ -6,10 +6,12 @@
 //! 29.3% asymptotic breakdown point and matches `mblm::mblm` (R) and
 //! `sklearn.linear_model.TheilSenRegressor` numerically.
 //!
-//! Multivariate case: for each subsample of `n_subsamples = n_features + 1`
-//! observations, solve the exact OLS system to get a coefficient vector,
-//! then take the spatial (geometric) median of all those vectors using a
-//! Vardi–Zhang modified Weiszfeld iteration. When
+//! Multivariate case: for each subsample of `n_subsamples` observations
+//! (default `n_features + 1`, or `n_features` without intercept), solve the
+//! exact system — least squares when `n_subsamples` is larger — to get a
+//! coefficient vector, then take the spatial (geometric) median of all those
+//! vectors using a Vardi–Zhang modified Weiszfeld iteration (the ordinary
+//! median for a single coefficient, as sklearn). When
 //! `C(n, n_subsamples) <= max_subpopulation` the algorithm enumerates every
 //! subsample (matching sklearn's deterministic path); otherwise it draws
 //! `max_subpopulation` random subsamples using the provided seed.
@@ -68,6 +70,7 @@
 use crate::core::{HasModelInfo, ModelInfo, OptionsError};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
+use faer::linalg::solvers::SolveLstsq;
 use faer::prelude::Solve;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, Normal};
@@ -482,8 +485,7 @@ fn ols_on_subsample(
     let p = x.ncols();
     let p_eff = if with_intercept { p + 1 } else { p };
     let k = idx.len();
-    if k != p_eff {
-        // Caller guarantees k = p_eff for the standard configuration.
+    if k < p_eff {
         return None;
     }
     let xs = Mat::from_fn(k, p_eff, |i, j| {
@@ -499,9 +501,16 @@ fn ols_on_subsample(
     });
     let ys = Col::from_fn(k, |i| y[idx[i]]);
 
-    // Square system: directly solve via LU. Skip if singular.
-    let lu = xs.partial_piv_lu();
-    let beta = lu.solve(&ys);
+    // Square system: LU (skipped if singular); larger subsets
+    // (`n_subsamples > p_eff`): least squares by QR, as sklearn's `lstsq`.
+    let beta = if k == p_eff {
+        xs.partial_piv_lu().solve(&ys)
+    } else {
+        let b = xs
+            .col_piv_qr()
+            .solve_lstsq(Mat::from_fn(k, 1, |i, _| ys[i]));
+        Col::from_fn(p_eff, |j| b[(j, 0)])
+    };
     let mut out = Vec::with_capacity(p_eff);
     let mut any_nan = false;
     for i in 0..p_eff {
@@ -524,6 +533,13 @@ fn ols_on_subsample(
 /// `points` is a flat list of length-`dim` coefficient vectors. The
 /// returned vector minimises `Σ_i ||x − p_i||₂`.
 fn spatial_median(points: &[Vec<f64>], dim: usize, max_iter: usize, tol: f64) -> Vec<f64> {
+    // One dimension: the ordinary median, as sklearn's `_spatial_median`
+    // (for an even count the minimiser is any point between the two middle
+    // values; Weiszfeld would stop somewhere in that interval).
+    if dim == 1 {
+        let mut v: Vec<f64> = points.iter().map(|p| p[0]).collect();
+        return vec![median_in_place(&mut v)];
+    }
     // Initialise with the coordinate-wise mean (matching sklearn's
     // `_spatial_median` so the iteration trajectory matches term-for-term
     // and convergence terminates at the same point under the same tol).

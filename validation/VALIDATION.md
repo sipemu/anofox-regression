@@ -94,6 +94,7 @@ The validation system uses a three-component structure:
 | Script | Purpose |
 |--------|---------|
 | `validation/python/generate_theil_sen_validation.py` | `TheilSenRegressor` — univariate exact + multivariate exhaustive branch |
+| `validation/python/generate_theil_sen_210_validation.py` | `TheilSenRegressor` without intercept and with `n_subsamples` > p + 1 (#210) (`tests/issue210_theil_sen.rs`) |
 | `validation/python/generate_ransac_validation.py` | `RANSACRegressor` with `LinearRegression` base estimator |
 | `validation/python/generate_pa_validation.py` | `PassiveAggressiveRegressor` PA-I and PA-II variants |
 | `validation/python/generate_lars_validation.py` | `Lars`, `LassoLars`, plus path truncation by `n_nonzero_coefs` |
@@ -848,6 +849,7 @@ Then regenerate any of the sklearn-based fixtures:
 
 ```bash
 .venv/bin/python generate_theil_sen_validation.py > ../../tests/fixtures/theil_sen_validation.rs
+.venv/bin/python generate_theil_sen_210_validation.py > ../../tests/fixtures/theil_sen_210_validation.rs
 .venv/bin/python generate_ransac_validation.py    > ../../tests/fixtures/ransac_validation.rs
 .venv/bin/python generate_pa_validation.py        > ../../tests/fixtures/pa_validation.rs
 .venv/bin/python generate_lars_validation.py      > ../../tests/fixtures/lars_validation.rs
