@@ -11,12 +11,11 @@ use faer::{Col, Mat};
 
 include!("fixtures/pa_validation.rs");
 
-/// Tolerance covers minor floating-point ordering differences between
-/// our update implementation and sklearn's Cython kernel; the algorithm
-/// itself is deterministic with `shuffle=False`. In practice we match
-/// sklearn to ~1e-2 on every fixture; we set the band slightly looser to
-/// absorb sklearn version-to-version drift.
-const TOL: f64 = 2e-2;
+/// With `shuffle=False` the algorithm is deterministic and matches sklearn's
+/// kernel to rounding. The fixture inputs must round-trip exactly (`.17e`):
+/// the univariate PA-I fit oscillates between epochs, so a last-bit change
+/// in `x` grows to ~5e-3 in the final weights (#209).
+const TOL: f64 = 1e-9;
 
 #[test]
 fn pa1_univariate_matches_sklearn() {

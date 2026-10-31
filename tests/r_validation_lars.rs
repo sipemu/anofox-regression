@@ -108,7 +108,7 @@ fn lasso_lars_matches_sklearn() {
     let intercept = fitted.result().intercept.unwrap();
     let coefs = &fitted.result().coefficients;
 
-    let tol = 5e-3; // LassoLars termination point is interpolated;
+    let tol = 1e-9; // LassoLars termination point is interpolated;
                     // we hit the same alpha within numerical precision.
     assert!(
         (intercept - EXPECTED_INTERCEPT_LASSO_LARS).abs() < tol,

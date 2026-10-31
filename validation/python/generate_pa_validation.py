@@ -28,11 +28,11 @@ def emit_header() -> None:
 
 
 def emit_const_f64(name: str, value: float) -> None:
-    print(f"const {name}: f64 = {value:.15e};")
+    print(f"const {name}: f64 = {value:.17e};")
 
 
 def emit_array_f64(name: str, values: np.ndarray) -> None:
-    body = ", ".join(f"{v:.15e}" for v in values)
+    body = ", ".join(f"{v:.17e}" for v in values)
     print(f"const {name}: [f64; {len(values)}] = [{body}];")
 
 
