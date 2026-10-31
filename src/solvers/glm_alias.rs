@@ -1,26 +1,42 @@
-//! Constant-column handling shared by the IRLS GLM solvers.
+//! Aliased-column handling shared by the IRLS GLM solvers.
 //!
-//! With an intercept, a constant feature column is perfectly collinear with
-//! the intercept. Like [`OlsRegressor`](crate::solvers::OlsRegressor) (and R's
-//! `glm`), the GLMs drop such columns from the fit, report them as aliased
-//! with a `NaN` coefficient (and `NaN` inference), and ignore them when
-//! predicting.
+//! Like [`OlsRegressor`](crate::solvers::OlsRegressor) and R's `glm`, the GLMs
+//! drop columns that are linearly dependent on the intercept and the earlier
+//! columns (constant columns with an intercept, duplicates, exact linear
+//! combinations), report them as aliased with a `NaN` coefficient (and `NaN`
+//! inference), and ignore them when predicting. Of a collinear set the
+//! *later* column is dropped, as R's limited-pivoting QR (`dqrdc2`) does.
 
 use crate::core::RegressionResult;
-use crate::utils::detect_constant_columns;
+use crate::utils::{detect_constant_columns, lm_alias_columns};
 use faer::{Col, Mat};
 
-/// Columns to keep when an intercept model contains constant columns, or
-/// `None` when nothing has to be dropped.
+/// Relative residual-norm threshold of the collinearity test: R's `glm.fit`
+/// QR tolerance `min(1e-7, epsilon / 1000)` at the default `epsilon = 1e-8`.
+const GLM_ALIAS_TOLERANCE: f64 = 1e-11;
+
+/// Columns to keep (those not aliased with the intercept and earlier
+/// columns), or `None` when nothing has to be dropped.
 pub(crate) fn columns_to_keep(x: &Mat<f64>, with_intercept: bool, tol: f64) -> Option<Vec<usize>> {
-    if !with_intercept || x.nrows() == 0 {
+    if x.nrows() == 0 {
         return None;
     }
-    let constant = detect_constant_columns(x, tol);
-    if !constant.iter().any(|&c| c) {
+    let constant = if with_intercept {
+        detect_constant_columns(x, tol)
+    } else {
+        vec![false; x.ncols()]
+    };
+    let ones = Col::from_fn(x.nrows(), |_| 1.0);
+    let aliased = lm_alias_columns(
+        x,
+        with_intercept.then_some(&ones),
+        &constant,
+        GLM_ALIAS_TOLERANCE,
+    );
+    if !aliased.iter().any(|&a| a) {
         return None;
     }
-    Some((0..x.ncols()).filter(|&j| !constant[j]).collect())
+    Some((0..x.ncols()).filter(|&j| !aliased[j]).collect())
 }
 
 /// `x[:, keep]`.
