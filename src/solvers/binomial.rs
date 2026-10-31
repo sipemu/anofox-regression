@@ -87,18 +87,17 @@ impl BinomialRegressor {
         }
     }
 
-    /// Deviance of the weighted-mean model.
+    /// Null deviance as R's `glm.fit` (prior weights, offset, intercept).
     fn weighted_null_deviance(&self, y: &[f64]) -> f64 {
-        match &self.weights {
-            None => self.family.null_deviance(y),
-            Some(w) => {
-                let total: f64 = w.iter().sum();
-                let mean = (0..y.len()).map(|i| w[i] * y[i]).sum::<f64>() / total;
-                (0..y.len())
-                    .map(|i| w[i] * self.family.unit_deviance(y[i], mean))
-                    .sum()
-            }
-        }
+        let w: Option<Vec<f64>> = self.weights.as_ref().map(|w| w.iter().copied().collect());
+        let off: Option<Vec<f64>> = self.offset.as_ref().map(|o| o.iter().copied().collect());
+        crate::core::glm_null_deviance(
+            &self.family,
+            y,
+            w.as_deref(),
+            off.as_deref(),
+            self.options.with_intercept,
+        )
     }
 
     /// Create a builder for logistic regression (logit link).

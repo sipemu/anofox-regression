@@ -52,6 +52,9 @@ pub struct PoissonRegressor {
     options: RegressionOptions,
     family: PoissonFamily,
     offset: Option<Col<f64>>,
+    /// Scale the covariance by the Pearson χ²/df (quasi-Poisson,
+    /// `glm(family = quasipoisson)`) instead of dispersion 1. Default `false`.
+    estimate_dispersion: bool,
     /// If `true` (the default), a fit that fails to converge within
     /// `max_iterations` returns `Err(ConvergenceFailed)`. If `false`, the last
     /// iterate is returned with `converged = false` on the fitted model.
@@ -65,6 +68,7 @@ impl PoissonRegressor {
             options,
             family,
             offset: None,
+            estimate_dispersion: false,
             error_on_non_convergence: true,
         }
     }
@@ -417,19 +421,25 @@ impl PoissonRegressor {
 
         let y_vec: Vec<f64> = (0..n_samples).map(|i| y[i]).collect();
         let deviance = self.family.deviance(&y_vec, mu);
-        let null_deviance = self.family.null_deviance(&y_vec);
+        let off_vec: Option<Vec<f64>> = self.offset.as_ref().map(|o| o.iter().copied().collect());
+        let null_deviance = crate::core::glm_null_deviance(
+            &self.family,
+            &y_vec,
+            None,
+            off_vec.as_deref(),
+            self.options.with_intercept,
+        );
 
-        // Estimate dispersion (for Poisson, typically 1, but can estimate for overdispersion)
+        // Dispersion 1 (`glm(family = poisson)`); `estimate_dispersion(true)`
+        // gives the quasi-Poisson Pearson χ²/df (unfloored, as
+        // `glm(family = quasipoisson)`). A max(1, χ²/df) floor inflated the SEs
+        // on overdispersed data (#189).
         let df_resid = (n_samples.saturating_sub(n_params)) as f64;
-        let dispersion = if df_resid > 0.0 {
-            // Pearson chi-squared / df for quasi-Poisson estimate
+        let dispersion = if self.estimate_dispersion && df_resid > 0.0 {
             let pearson_chi2: f64 = (0..n_samples)
-                .map(|i| {
-                    let v = self.family.variance(mu[i]);
-                    (y[i] - mu[i]).powi(2) / v
-                })
+                .map(|i| (y[i] - mu[i]).powi(2) / self.family.variance(mu[i]))
                 .sum();
-            (pearson_chi2 / df_resid).max(1.0) // Use 1.0 for standard Poisson
+            pearson_chi2 / df_resid
         } else {
             1.0
         };
@@ -518,7 +528,12 @@ impl PoissonRegressor {
                     beta,
                     &se,
                     self.options.with_intercept,
-                    WaldReference::Normal,
+                    // Estimated dispersion: t tests, as `summary.glm`.
+                    if self.estimate_dispersion {
+                        WaldReference::StudentT(df_resid)
+                    } else {
+                        WaldReference::Normal
+                    },
                 );
 
                 xtwx_inverse = Some(xtwx_inv);
@@ -1023,6 +1038,7 @@ pub struct PoissonRegressorBuilder {
     options_builder: RegressionOptionsBuilder,
     link: PoissonLink,
     offset: Option<Col<f64>>,
+    estimate_dispersion: bool,
     /// When `true`, non-convergence is reported via `FittedPoisson::converged`
     /// instead of returning an error. Defaults to `false` (error), so the
     /// derived `Default` preserves the historical behaviour.
@@ -1089,6 +1105,16 @@ impl PoissonRegressorBuilder {
         self
     }
 
+    /// Scale the coefficient covariance by the Pearson χ²/df.
+    ///
+    /// `false` (the default) uses dispersion 1, as `glm(family = poisson)`.
+    /// `true` estimates it as `glm(family = quasipoisson)` (the coefficients are
+    /// the same).
+    pub fn estimate_dispersion(mut self, estimate: bool) -> Self {
+        self.estimate_dispersion = estimate;
+        self
+    }
+
     /// Control what happens when IRLS fails to converge within
     /// `max_iterations`.
     ///
@@ -1107,6 +1133,7 @@ impl PoissonRegressorBuilder {
             options: self.options_builder.build_unchecked(),
             family: PoissonFamily::new(self.link),
             offset: self.offset,
+            estimate_dispersion: self.estimate_dispersion,
             error_on_non_convergence: !self.allow_non_convergence,
         }
     }

@@ -103,7 +103,8 @@ fn negbin_fixed_theta_inference_matches_mass() {
 /// `glm(family = negative.binomial(θ))`, which estimates the Pearson dispersion
 /// (here 0.8951608253, below 1 — the old `max(1, ·)` floor could not reach it):
 /// `coef(summary(glm(nb ~ z1 + z2, family = negative.binomial(1.8294684732585813))))`
-/// SE = 0.32197885489695210 0.27947972467922549 0.29471652136293919.
+/// SE = 0.32197885489695210 0.27947972467922549 0.29471652136293919,
+/// Pr(>|t|) = 0.0014559513325427772 0.12336837525700828 0.59999835453587536.
 #[test]
 fn negbin_estimate_dispersion_matches_summary_glm() {
     let x = Mat::from_fn(30, 2, |i, j| if j == 0 { Z1[i] } else { Z2[i] });
@@ -126,4 +127,14 @@ fn negbin_estimate_dispersion_matches_summary_glm() {
     );
     close(se[0], 0.279_479_724_679_225_5, 1e-6, "se1");
     close(se[1], 0.294_716_521_362_939_2, 1e-6, "se2");
+    // Estimated dispersion: t tests on n − p df, as summary.glm's "Pr(>|t|)".
+    let p = res.p_values.as_ref().unwrap();
+    close(
+        res.intercept_p_value.unwrap(),
+        0.001_455_951_332_542_777_2,
+        1e-6,
+        "p0",
+    );
+    close(p[0], 0.123_368_375_257_008_28, 1e-6, "p1");
+    close(p[1], 0.599_998_354_535_875_4, 1e-6, "p2");
 }
