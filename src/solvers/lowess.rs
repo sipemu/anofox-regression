@@ -351,6 +351,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_lowess_smooth_edge_cases() {
+        // Fewer than two points are returned unchanged
+        let one = Col::from_fn(1, |_| 3.0);
+        assert_eq!(lowess_smooth(&one, 0.5)[0], 3.0);
+        // Empty weight matrices are returned unchanged
+        assert_eq!(lowess_smooth_weights(&Mat::zeros(0, 2), 0.5).nrows(), 0);
+        // All-zero weights fall back to uniform rows
+        let s = lowess_smooth_weights(&Mat::zeros(6, 2), 0.5);
+        for i in 0..6 {
+            assert!((s[(i, 0)] - 0.5).abs() < 1e-12 && (s[(i, 1)] - 0.5).abs() < 1e-12);
+        }
+    }
+
+    #[test]
     fn test_lowess_smooth_constant() {
         // Constant input should remain constant
         let y = Col::from_fn(10, |_| 5.0);
