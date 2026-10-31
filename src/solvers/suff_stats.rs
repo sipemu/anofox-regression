@@ -853,7 +853,7 @@ fn apply_inference(result: &mut RegressionResult, m: &Mat<f64>, wald_tests: bool
             let t0 = if s0 > 0.0 { b0 / s0 } else { f64::NAN };
             let dist = StudentsT::new(0.0, 1.0, df).ok();
             let p0 = if t0.is_finite() {
-                dist.map_or(f64::NAN, |d| 2.0 * (1.0 - d.cdf(t0.abs())))
+                dist.map_or(f64::NAN, |d| 2.0 * d.sf(t0.abs()))
             } else {
                 f64::NAN
             };

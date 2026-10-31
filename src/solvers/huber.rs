@@ -430,7 +430,7 @@ impl HuberRegressor {
             }
             let se = var.sqrt();
             let t = b / se;
-            let pv = 2.0 * (1.0 - t_dist.cdf(t.abs()));
+            let pv = 2.0 * t_dist.sf(t.abs());
             (se, t, pv, b - t_crit * se, b + t_crit * se)
         };
 

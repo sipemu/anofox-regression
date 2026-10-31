@@ -73,7 +73,7 @@ fn spearman2_stats(rho2: f64, df1: usize, n: usize) -> Spearman2 {
     let df2 = (n - df1 - 1) as f64;
     let d1 = df1 as f64;
     let f = rho2 / d1 / ((1.0 - rho2) / df2);
-    let p_value = FisherSnedecor::new(d1, df2).map_or(f64::NAN, |d| 1.0 - d.cdf(f));
+    let p_value = FisherSnedecor::new(d1, df2).map_or(f64::NAN, |d| d.sf(f));
     Spearman2 {
         rho2,
         f,

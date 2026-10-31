@@ -96,7 +96,7 @@ pub fn inference(
             let z = beta[j] / se;
             z_values[j] = z;
             p_values[j] = match &normal {
-                Some(d) => 2.0 * (1.0 - d.cdf(z.abs())),
+                Some(d) => 2.0 * d.sf(z.abs()),
                 None => f64::NAN,
             };
             ci_lower[j] = beta[j] - z_crit * se;
