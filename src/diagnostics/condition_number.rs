@@ -340,6 +340,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_condition_diagnostic_empty_design() {
+        let d = condition_diagnostic(&Mat::<f64>::zeros(5, 0), false);
+        assert!(d.condition_indices.is_empty());
+        assert!(d.scaled_condition_number.is_infinite());
+        assert_eq!(d.severity, ConditionSeverity::Severe);
+        assert!(d.warning.is_some());
+    }
+
+    #[test]
+    fn test_condition_diagnostic_zero_column() {
+        // A zero column stays zero under unit-length scaling: singular design.
+        let x = Mat::from_fn(6, 2, |i, j| if j == 0 { i as f64 } else { 0.0 });
+        let d = condition_diagnostic(&x, true);
+        assert!(d.scaled_condition_number.is_infinite());
+        assert_eq!(d.severity, ConditionSeverity::Severe);
+    }
+
+    #[test]
     fn test_condition_number_orthogonal() {
         // Orthogonal columns should have condition number close to 1
         let n = 100;
