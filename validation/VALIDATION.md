@@ -58,6 +58,31 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_redun_validation.R` | Validates `reduction::redun` (redundancy analysis, all option sets) against `Hmisc::redun` |
 | `tests/r_scripts/generate_pca_validation.R` | Validates `reduction::principal_components` / `cluster_scores` against `stats::prcomp` |
 | `tests/r_scripts/generate_transcan_validation.R` | Validates `reduction::transcan` against `Hmisc::transcan(method = "canonical")` |
+| `tests/r_scripts/generate_glm_null_deviance_validation.R` | Poisson dispersion 1 / quasi-Poisson and `glm.fit` null deviance with offset, no intercept, prior weights (Poisson, NB, Gamma, binomial) vs `glm` / MASS (#189, #190) (`tests/issue189_190_glm_dispersion_null_deviance.rs`) |
+| `tests/r_scripts/generate_bls_validation.R` | `BlsRegressor` (BVLS) vs `nnls::nnls`, `bvls::bvls`, `quadprog::solve.QP` (#191) (`tests/issue191_bls.rs`) |
+| `tests/r_scripts/generate_glm_aliasing_validation.R` | Aliasing of collinear columns in the IRLS GLMs vs `glm` NA coefficients (#192) (`tests/issue192_glm_aliasing.rs`) |
+| `tests/r_scripts/generate_binomial_loglik_validation.R` | Binomial logLik / AIC / BIC with trial and case weights vs `logLik.glm` (#193) (`tests/issue193_binomial_loglik.rs`) |
+| `tests/r_scripts/generate_l2_logistic_validation.R` | L2-penalised logistic coefficients / SEs vs `rms::lrm(penalty.matrix =)` (#194) (`tests/issue194_l2_logistic_se.rs`) |
+| `tests/r_scripts/generate_wls_zero_weights_validation.R` | WLS with zero weights: nobs, df, coefficient table, intervals vs `lm(weights =)` (#195) (`tests/issue195_wls_zero_weights.rs`) |
+| `tests/r_scripts/generate_vif_validation.R` | VIF and GVIF vs `car::vif` (#196) (`tests/issue196_gvif.rs`) |
+| `tests/r_scripts/generate_glm_residuals_validation.R` | Pearson / deviance / working residuals (incl. prior weights) vs `residuals.glm` (#197) (`tests/issue197_glm_residuals.rs`) |
+| `tests/r_scripts/generate_pls_explvar_validation.R` | PLS explained variance, coefficients, fitted values (centred, scaled, uncentred) vs `pls::plsr` (#198) (`tests/issue198_pls.rs`) |
+| `tests/r_scripts/generate_quantile_loss_validation.R` | Weighted check loss, R1 and weighted coefficients vs `quantreg::rq` (#199) (`tests/issue199_quantile_loss.rs`) |
+| `tests/r_scripts/generate_pvalue_underflow_validation.R` | p-values down to 1e-80 vs `summary.lm`, weighted `lm`, `nlme::gls`, `sandwich` (#200) (`tests/issue200_pvalue_underflow.rs`) |
+| `tests/r_scripts/generate_alm_vcov_validation.R` | ALM standard errors vs `vcov(greybox::alm)`, 12 distributions (#201) (`tests/issue201_alm_vcov.rs`) |
+| `tests/r_scripts/generate_alm_ic_validation.R` | ALM nparam / logLik / AIC / AICc / BIC vs `greybox::alm` (#202) (`tests/issue202_alm_ic.rs`) |
+| `tests/r_scripts/generate_aid_ic_validation.R` | AID candidate AICc vs `AICc(greybox::alm(y ~ 1))` (#203) (`tests/issue203_aid_ic.rs`) |
+| `tests/r_scripts/generate_lowess_smooth_validation.R` | `lowess_smooth` / `lowess_smooth_weights` vs `stats::lowess` (#204) (`tests/issue204_lowess_smooth.rs`) |
+| `tests/r_scripts/generate_na_exclude_validation.R` | `NaAction::Exclude` padding vs `na.exclude` (#205) (`tests/issue205_na_exclude.rs`) |
+| `tests/r_scripts/generate_glm_default_tolerance_validation.R` | GLM fits at default / tight tolerance vs converged `glm` (#206) (`tests/issue206_glm_default_tolerance.rs`) |
+| `tests/r_scripts/generate_bkw_validation.R` | Belsley–Kuh–Welsch condition indices / proportions vs `olsrr::ols_eigen_cindex`, `kappa` (#207) (`tests/issue207_bkw.rs`) |
+| `tests/r_scripts/generate_cox_concordance_validation.R` | Cox concordance with weights / offset / strata / (start, stop] vs `coxph` (#208) (`tests/issue208_cox_concordance.rs`) |
+| `tests/r_scripts/generate_tight_validation.R` | HC0–HC3 with `coeftest`/`coefci`, OLS 90 % intervals, influence diagnostics, ridge, `rq`, logistic, Huber at full precision (#209) (`tests/r_validation_tight.rs`) |
+| `tests/r_scripts/generate_glm_tight_validation.R` | The `r_validation_glm.rs` datasets vs `glm(epsilon = 1e-15)` / `glm.nb` (#209) (`tests/r_validation_glm_tight.rs`) |
+| `tests/r_scripts/generate_validation_210_part1.R` | Gamma / Tweedie link powers (`statmod`), RLS forgetting factor, weighted isotonic (`Iso::pava`) (#210) (`tests/r_validation_210_part1.rs`) |
+| `tests/r_scripts/generate_validation_210_part2.R` | AFT AIC / BIC / z / p / CI vs `survreg`; ordinal probabilities vs `rms::orm` (#210) (`tests/r_validation_210_part2.rs`) |
+| `tests/r_scripts/generate_lars_path_validation.R` | LAR / lasso path vs `lars::lars` (#210) (`tests/r_validation_lars_path.rs`) |
+| `tests/r_scripts/generate_hetero_validation.R` | White (3 regressors) and custom-z Breusch–Pagan vs `lmtest::bptest` (#210) (`tests/r_validation_hetero.rs`) |
 
 #### scikit-learn-based oracles (Python, `validation/python/`)
 
@@ -754,6 +779,50 @@ Rscript tests/r_scripts/generate_glmm_validation.R     > tests/fixtures/glmm_val
 ```
 
 The GLMM generator requires the `lme4` package (`install.packages("lme4")`).
+
+### October 2026 R-validation audit (#187–#210)
+
+The scripts below write their reference values to stdout as Rust `const`s,
+which are pasted into the named test file (the test header names its
+generator). Each is self-contained (data generated with `set.seed` or taken
+verbatim from the existing test); run from the repository root:
+
+```bash
+Rscript tests/r_scripts/generate_glm_null_deviance_validation.R   # -> tests/issue189_190_glm_dispersion_null_deviance.rs
+Rscript tests/r_scripts/generate_bls_validation.R   # -> tests/issue191_bls.rs
+Rscript tests/r_scripts/generate_glm_aliasing_validation.R   # -> tests/issue192_glm_aliasing.rs
+Rscript tests/r_scripts/generate_binomial_loglik_validation.R   # -> tests/issue193_binomial_loglik.rs
+Rscript tests/r_scripts/generate_l2_logistic_validation.R   # -> tests/issue194_l2_logistic_se.rs
+Rscript tests/r_scripts/generate_wls_zero_weights_validation.R   # -> tests/issue195_wls_zero_weights.rs
+Rscript tests/r_scripts/generate_vif_validation.R   # -> tests/issue196_gvif.rs
+Rscript tests/r_scripts/generate_glm_residuals_validation.R   # -> tests/issue197_glm_residuals.rs
+Rscript tests/r_scripts/generate_pls_explvar_validation.R   # -> tests/issue198_pls.rs
+Rscript tests/r_scripts/generate_quantile_loss_validation.R   # -> tests/issue199_quantile_loss.rs
+Rscript tests/r_scripts/generate_pvalue_underflow_validation.R   # -> tests/issue200_pvalue_underflow.rs
+Rscript tests/r_scripts/generate_alm_vcov_validation.R   # -> tests/issue201_alm_vcov.rs
+Rscript tests/r_scripts/generate_alm_ic_validation.R   # -> tests/issue202_alm_ic.rs
+Rscript tests/r_scripts/generate_aid_ic_validation.R   # -> tests/issue203_aid_ic.rs
+Rscript tests/r_scripts/generate_lowess_smooth_validation.R   # -> tests/issue204_lowess_smooth.rs
+Rscript tests/r_scripts/generate_na_exclude_validation.R   # -> tests/issue205_na_exclude.rs
+Rscript tests/r_scripts/generate_glm_default_tolerance_validation.R   # -> tests/issue206_glm_default_tolerance.rs
+Rscript tests/r_scripts/generate_bkw_validation.R   # -> tests/issue207_bkw.rs
+Rscript tests/r_scripts/generate_cox_concordance_validation.R   # -> tests/issue208_cox_concordance.rs
+Rscript tests/r_scripts/generate_tight_validation.R   # -> tests/r_validation_tight.rs
+Rscript tests/r_scripts/generate_glm_tight_validation.R   # -> tests/r_validation_glm_tight.rs
+Rscript tests/r_scripts/generate_validation_210_part1.R   # -> tests/r_validation_210_part1.rs
+Rscript tests/r_scripts/generate_validation_210_part2.R   # -> tests/r_validation_210_part2.rs
+Rscript tests/r_scripts/generate_lars_path_validation.R   # -> tests/r_validation_lars_path.rs
+Rscript tests/r_scripts/generate_hetero_validation.R   # -> tests/r_validation_hetero.rs
+```
+
+Packages beyond base R: `MASS`, `statmod`, `sandwich`, `lmtest`, `quantreg`,
+`car`, `olsrr`, `pls`, `nnls`, `bvls`, `quadprog`, `nlme`, `survival`, `rms`,
+`greybox`, `Iso`, `lars`. Conventions: GLM references use
+`glm.control(epsilon = 1e-15)` (except where aliasing needs `epsilon >= 1e-10`,
+see `generate_glm_aliasing_validation.R`); greybox references use tight
+`nloptr` tolerances (`xtol_rel = ftol_rel = 1e-14`) because its defaults stop
+short of the optimum. The sklearn fixtures (`validation/python/`) print
+`.17e` so inputs round-trip.
 
 ### Regenerate Python (sklearn) references
 
