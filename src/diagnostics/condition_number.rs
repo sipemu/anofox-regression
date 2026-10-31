@@ -45,17 +45,27 @@ impl ConditionSeverity {
 }
 
 /// Result of condition number analysis.
+///
+/// `condition_number` is the plain κ of the design (R's `kappa(X, exact =
+/// TRUE)`), which depends on the units of the columns. The collinearity
+/// diagnostics of Belsley, Kuh & Welsch — `singular_values`,
+/// `condition_indices`, `scaled_condition_number` and the `severity`
+/// classification — use the design with every column (including the
+/// intercept) scaled to unit length, as `olsrr::ols_eigen_cindex` and
+/// `perturb::colldiag`, so they do not depend on units.
 #[derive(Debug, Clone)]
 pub struct ConditionDiagnostic {
-    /// Condition number of the design matrix X.
+    /// Condition number of the (unscaled) design matrix X, `kappa(X, exact = TRUE)`.
     pub condition_number: f64,
     /// Condition number of X'X (equals κ² of X).
     pub condition_number_xtx: f64,
-    /// Singular values of X (sorted descending).
+    /// Singular values of the unit-column-length design (sorted descending).
     pub singular_values: Vec<f64>,
-    /// Condition indices: max(σ) / σ_j for each singular value.
+    /// BKW condition indices `σ_max / σ_k` of the unit-column-length design.
     pub condition_indices: Vec<f64>,
-    /// Severity classification.
+    /// Largest BKW condition index (κ of the unit-column-length design).
+    pub scaled_condition_number: f64,
+    /// Severity classification of `scaled_condition_number` (BKW cut-offs).
     pub severity: ConditionSeverity,
     /// Warning message if condition number is problematic.
     pub warning: Option<String>,
@@ -63,7 +73,10 @@ pub struct ConditionDiagnostic {
 
 /// Compute the condition number of a design matrix.
 ///
-/// The condition number κ(X) = σ_max / σ_min where σ are the singular values.
+/// The condition number κ(X) = σ_max / σ_min where σ are the singular values
+/// of the unscaled design, R's `kappa(X, exact = TRUE)`. It depends on the
+/// units of the columns; for the scale-free Belsley–Kuh–Welsch condition
+/// indices use [`condition_diagnostic`].
 ///
 /// # Arguments
 ///
@@ -162,100 +175,106 @@ pub fn condition_number(x: &Mat<f64>, with_intercept: bool) -> f64 {
 /// }
 /// ```
 pub fn condition_diagnostic(x: &Mat<f64>, with_intercept: bool) -> ConditionDiagnostic {
-    let x_design = if with_intercept {
-        let n = x.nrows();
-        let p = x.ncols();
-        let mut x_aug = Mat::zeros(n, p + 1);
-        for i in 0..n {
-            x_aug[(i, 0)] = 1.0;
-            for j in 0..p {
-                x_aug[(i, j + 1)] = x[(i, j)];
-            }
-        }
-        x_aug
-    } else {
-        x.clone()
-    };
-
-    let svd = match x_design.thin_svd() {
-        Ok(svd) => svd,
-        Err(_) => {
-            return ConditionDiagnostic {
-                condition_number: f64::INFINITY,
-                condition_number_xtx: f64::INFINITY,
-                singular_values: vec![],
-                condition_indices: vec![],
-                severity: ConditionSeverity::Severe,
-                warning: Some("SVD computation failed".to_string()),
-            };
-        }
-    };
-    let s = svd.S();
-    let s_col = s.column_vector();
-
-    let n_params = s_col.nrows();
-    if n_params == 0 {
+    let x_design = design(x, with_intercept);
+    let condition_number = condition_number(x, with_intercept);
+    let Some((singular_values, _)) = svd_desc(&scale_unit_length(&x_design)) else {
         return ConditionDiagnostic {
-            condition_number: f64::INFINITY,
-            condition_number_xtx: f64::INFINITY,
+            condition_number,
+            condition_number_xtx: condition_number * condition_number,
             singular_values: vec![],
             condition_indices: vec![],
+            scaled_condition_number: f64::INFINITY,
             severity: ConditionSeverity::Severe,
-            warning: Some("Empty design matrix".to_string()),
+            warning: Some("SVD computation failed or empty design matrix".to_string()),
         };
-    }
-
-    // Extract and sort singular values (descending)
-    let mut singular_values: Vec<f64> = (0..n_params).map(|i| s_col[i]).collect();
-    singular_values.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-
-    let s_max = singular_values[0];
-    let s_min = *singular_values.iter().rfind(|&&v| v > 0.0).unwrap_or(&0.0);
-
-    let condition_number = if s_min > 0.0 {
-        s_max / s_min
-    } else {
-        f64::INFINITY
     };
 
-    let condition_number_xtx = condition_number * condition_number;
-
-    // Compute condition indices: max(σ) / σ_j
+    let s_max = singular_values[0];
     let condition_indices: Vec<f64> = singular_values
         .iter()
         .map(|&si| if si > 0.0 { s_max / si } else { f64::INFINITY })
         .collect();
+    let scaled_condition_number = *condition_indices.last().unwrap_or(&f64::INFINITY);
 
-    // Classify severity
-    let severity = classify_condition_number(condition_number);
+    // Classify severity (Belsley's cut-offs apply to the scaled design)
+    let severity = classify_condition_number(scaled_condition_number);
+    let k = scaled_condition_number;
 
     // Generate warning if needed
     let warning = match severity {
         ConditionSeverity::WellConditioned => None,
         ConditionSeverity::Moderate => Some(format!(
-            "Moderate collinearity detected (κ = {:.1}). Results should be reliable but verify.",
-            condition_number
+            "Moderate collinearity detected (condition index {k:.1}). Results should be reliable but verify."
         )),
         ConditionSeverity::High => Some(format!(
-            "High collinearity detected (κ = {:.1}). Coefficients may be unstable. \
-             Consider removing collinear features or using regularization.",
-            condition_number
+            "High collinearity detected (condition index {k:.1}). Coefficients may be unstable. \
+             Consider removing collinear features or using regularization."
         )),
         ConditionSeverity::Severe => Some(format!(
-            "Severe collinearity detected (κ = {:.1}). Coefficients are likely unreliable. \
-             Use regularization (Ridge/Lasso) or remove highly correlated features.",
-            condition_number
+            "Severe collinearity detected (condition index {k:.1}). Coefficients are likely unreliable. \
+             Use regularization (Ridge/Lasso) or remove highly correlated features."
         )),
     };
 
     ConditionDiagnostic {
         condition_number,
-        condition_number_xtx,
+        condition_number_xtx: condition_number * condition_number,
         singular_values,
         condition_indices,
+        scaled_condition_number,
         severity,
         warning,
     }
+}
+
+/// The design `[1, X]` (with intercept) or `X`.
+fn design(x: &Mat<f64>, with_intercept: bool) -> Mat<f64> {
+    if with_intercept {
+        Mat::from_fn(x.nrows(), x.ncols() + 1, |i, j| {
+            if j == 0 {
+                1.0
+            } else {
+                x[(i, j - 1)]
+            }
+        })
+    } else {
+        x.clone()
+    }
+}
+
+/// Scale every column to unit Euclidean length (BKW); zero columns stay zero.
+fn scale_unit_length(x: &Mat<f64>) -> Mat<f64> {
+    let norms: Vec<f64> = (0..x.ncols())
+        .map(|j| {
+            (0..x.nrows())
+                .map(|i| x[(i, j)].powi(2))
+                .sum::<f64>()
+                .sqrt()
+        })
+        .collect();
+    Mat::from_fn(x.nrows(), x.ncols(), |i, j| {
+        if norms[j] > 0.0 {
+            x[(i, j)] / norms[j]
+        } else {
+            0.0
+        }
+    })
+}
+
+/// Singular values (descending) and the matching right singular vectors
+/// (columns of V in the same order).
+fn svd_desc(x: &Mat<f64>) -> Option<(Vec<f64>, Mat<f64>)> {
+    if x.ncols() == 0 || x.nrows() == 0 {
+        return None;
+    }
+    let svd = x.thin_svd().ok()?;
+    let s = svd.S().column_vector();
+    let v = svd.V();
+    let mut order: Vec<usize> = (0..s.nrows()).collect();
+    order.sort_by(|&a, &b| s[b].total_cmp(&s[a]));
+    let values = order.iter().map(|&k| s[k]).collect();
+    let vecs = Mat::from_fn(v.nrows(), order.len(), |j, c| v[(j, order[c])]);
+    Some((values, vecs))
 }
 
 /// Classify the condition number into severity levels.
@@ -279,75 +298,41 @@ pub fn classify_condition_number(cond: f64) -> ConditionSeverity {
     }
 }
 
-/// Find features contributing most to collinearity.
+/// Variance-decomposition proportions of Belsley, Kuh & Welsch (1980).
 ///
-/// Uses the variance-decomposition proportions approach from
-/// Belsley, Kuh, and Welsch (1980).
-///
-/// # Arguments
-///
-/// * `x` - Design matrix (n_samples x n_features)
-/// * `with_intercept` - If true, prepend an intercept column
+/// The design (with the intercept column if `with_intercept`) is scaled to
+/// unit column length; with its SVD `X = U D Vᵀ`, `φ_jk = v_jk² / d_k²` and
+/// the proportion of the variance of coefficient `j` associated with
+/// component `k` is `π_jk = φ_jk / Σ_k φ_jk`.
 ///
 /// # Returns
 ///
-/// A matrix of variance-decomposition proportions (n_features x n_features).
-/// High proportions (>0.5) on rows with high condition indices indicate
-/// which features are involved in collinearity.
+/// A `p × p` matrix with `π_jk` in row `j` (coefficient, intercept first) and
+/// column `k` (component, in the order of decreasing singular value, i.e.
+/// increasing condition index) — the transpose of the table printed by
+/// `olsrr::ols_eigen_cindex` / `perturb::colldiag`. Proportions above 0.5 for
+/// two or more coefficients on a component with a high condition index point
+/// to the variables involved in a near dependency.
 pub fn variance_decomposition_proportions(x: &Mat<f64>, with_intercept: bool) -> Mat<f64> {
-    let x_design = if with_intercept {
-        let n = x.nrows();
-        let p = x.ncols();
-        let mut x_aug = Mat::zeros(n, p + 1);
-        for i in 0..n {
-            x_aug[(i, 0)] = 1.0;
-            for j in 0..p {
-                x_aug[(i, j + 1)] = x[(i, j)];
-            }
-        }
-        x_aug
-    } else {
-        x.clone()
-    };
-
-    let svd = match x_design.thin_svd() {
-        Ok(svd) => svd,
-        Err(_) => return Mat::zeros(0, 0),
-    };
-    let v = svd.V().to_owned();
-    let s = svd.S();
-    let s_col = s.column_vector();
-
-    let n_params = s_col.nrows();
-    if n_params == 0 {
+    let Some((d, v)) = svd_desc(&scale_unit_length(&design(x, with_intercept))) else {
         return Mat::zeros(0, 0);
-    }
-
-    // Compute φ_jk = V_jk² / σ_k² for each variable j and component k
-    // Then normalize: π_jk = φ_jk / Σ_k' φ_jk'
-
-    let mut phi = Mat::zeros(n_params, n_params);
-    for j in 0..n_params {
-        for k in 0..n_params {
-            let s_k = s_col[k];
-            if s_k > 0.0 {
-                phi[(j, k)] = v[(j, k)] * v[(j, k)] / (s_k * s_k);
-            }
+    };
+    let p = d.len();
+    let phi = Mat::from_fn(v.nrows(), p, |j, k| {
+        if d[k] > 0.0 {
+            v[(j, k)].powi(2) / d[k].powi(2)
+        } else {
+            0.0
         }
-    }
-
-    // Normalize rows
-    let mut proportions = Mat::zeros(n_params, n_params);
-    for j in 0..n_params {
-        let row_sum: f64 = (0..n_params).map(|k| phi[(j, k)]).sum();
+    });
+    Mat::from_fn(phi.nrows(), p, |j, k| {
+        let row_sum: f64 = (0..p).map(|c| phi[(j, c)]).sum();
         if row_sum > 0.0 {
-            for k in 0..n_params {
-                proportions[(j, k)] = phi[(j, k)] / row_sum;
-            }
+            phi[(j, k)] / row_sum
+        } else {
+            0.0
         }
-    }
-
-    proportions
+    })
 }
 
 #[cfg(test)]
