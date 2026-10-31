@@ -87,6 +87,28 @@ impl BinomialRegressor {
         }
     }
 
+    /// Binomial log-likelihood with `wᵢ` trials and success proportion `yᵢ`:
+    /// `Σ lchoose(wᵢ, wᵢyᵢ) + wᵢyᵢ log μᵢ + wᵢ(1 − yᵢ) log(1 − μᵢ)`, R's
+    /// `binomial()$aic` / `logLik.glm` for integer success counts. For 0/1
+    /// responses the binomial coefficient vanishes and this is `Σ wᵢ log p̂ᵢ`
+    /// (`lrm(weights = )`) for any weights.
+    fn log_likelihood(&self, y: &[f64], mu: &[f64]) -> f64 {
+        use statrs::function::gamma::ln_gamma;
+        let xlogy = |a: f64, b: f64| if a == 0.0 { 0.0 } else { a * b.ln() };
+        (0..y.len())
+            .map(|i| {
+                let w = self.prior(i);
+                if w == 0.0 {
+                    return 0.0;
+                }
+                let (s, f) = (w * y[i], w * (1.0 - y[i]));
+                ln_gamma(w + 1.0) - ln_gamma(s + 1.0) - ln_gamma(f + 1.0)
+                    + xlogy(s, mu[i])
+                    + xlogy(f, 1.0 - mu[i])
+            })
+            .sum()
+    }
+
     /// Null deviance as R's `glm.fit` (prior weights, offset, intercept).
     fn weighted_null_deviance(&self, y: &[f64]) -> f64 {
         let w: Option<Vec<f64>> = self.weights.as_ref().map(|w| w.iter().copied().collect());
@@ -499,7 +521,7 @@ impl BinomialRegressor {
 
         let n = n_samples as f64;
         let k = n_params as f64;
-        let log_likelihood = -deviance / 2.0;
+        let log_likelihood = self.log_likelihood(&y_vec, mu);
 
         let aic = 2.0 * k - 2.0 * log_likelihood;
         let aicc = if (n - k - 1.0) > 0.0 {
@@ -1132,8 +1154,10 @@ impl BinomialRegressorBuilder {
 
     /// Prior (case) weights, as `glm(weights = )`: each row's contribution
     /// to the IRLS weights, the deviance and the information is multiplied
-    /// by its weight. For 0/1 `y`, `log_likelihood = −deviance/2 = Σ wᵢ log
-    /// p̂ᵢ`, as `lrm(weights = )`. Residuals and fitted values stay per row.
+    /// by its weight. With `y` a proportion and `weights` the numbers of
+    /// trials the log-likelihood is R's (`logLik(glm(cbind(s, f) ~ x))`); for
+    /// 0/1 `y` it is `Σ wᵢ log p̂ᵢ`, as `lrm(weights = )`. Residuals and fitted
+    /// values stay per row.
     pub fn weights(mut self, weights: Col<f64>) -> Self {
         self.weights = Some(weights);
         self
