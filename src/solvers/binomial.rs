@@ -596,6 +596,14 @@ impl BinomialRegressor {
                 }
             }
         }
+        // With the L2 penalty ½λ‖β‖² the information is X'WX + λI (intercept
+        // unpenalised): its inverse is the covariance, as `rms::lrm`'s
+        // default `var.penalty = "simple"`.
+        if self.options.lambda > 0.0 {
+            for j in usize::from(self.options.with_intercept)..n_params {
+                xtwx[(j, j)] += self.options.lambda;
+            }
+        }
 
         let qr = xtwx.qr();
         let q = qr.compute_thin_Q();
@@ -1135,7 +1143,9 @@ impl BinomialRegressorBuilder {
     /// This helps stabilize estimation when there is quasi-separation or
     /// perfect prediction in the data.
     ///
-    /// Note: The intercept is not penalized.
+    /// Note: The intercept is not penalized. Standard errors use the inverse
+    /// penalised information `(X'WX + λI)⁻¹`, as `rms::lrm(penalty = 1,
+    /// penalty.matrix = λI)` (default `var.penalty = "simple"`).
     pub fn lambda(mut self, lambda: f64) -> Self {
         self.options_builder = self.options_builder.lambda(lambda);
         self
