@@ -163,16 +163,6 @@ impl PoissonRegressor {
             // Store old beta for step-halving
             let beta_old = beta.clone();
 
-            // Check convergence based on coefficient change
-            let max_change: f64 = beta_new
-                .iter()
-                .zip(beta_old.iter())
-                .map(|(&b_new, &b_old)| {
-                    let diff: f64 = b_new - b_old;
-                    diff.abs()
-                })
-                .fold(0.0_f64, f64::max);
-
             // Try full step first
             beta = beta_new;
 
@@ -201,13 +191,11 @@ impl PoissonRegressor {
                 }
             }
 
-            // Check convergence using both coefficient change and deviance criteria
-            // Following R's glm.fit: |dev - dev_old| / (0.1 + |dev|) < epsilon
+            // R's glm.fit criterion: |dev - dev_old| / (0.1 + |dev|) < epsilon.
+            // (A coefficient-change criterion in addition stopped non-canonical
+            // fits early; requiring it never stops under separation.)
             let dev_converged = (dev - dev_old).abs() / (0.1 + dev.abs()) < tol;
-            let coef_converged = max_change < tol;
-
-            // Converge if either criterion is met
-            if dev_converged || coef_converged {
+            if dev_converged {
                 converged = true;
                 break;
             }
