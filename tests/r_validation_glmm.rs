@@ -24,11 +24,11 @@ use faer::{Col, Mat};
 
 include!("fixtures/glmm_validation.rs");
 
-// The Gaussian LMM is solved in closed form per θ and matches lme4 to many
-// digits; the small tolerance covers the golden-section resolution on θ.
-const LMM_TOL: f64 = 2e-3;
-// The GLMM Laplace (nAGQ=0) matches glmer(nAGQ=0); the looser tolerance covers
-// the PIRLS convergence threshold and golden-section resolution.
+// The Gaussian LMM is solved in closed form per θ and matches lme4 to 1e-5
+// (lme4's default optimiser stops ~2e-6 short on the nested-factor case).
+const LMM_TOL: f64 = 1e-5;
+// The GLMM Laplace (nAGQ=0) is ~1e-3 from glmer(nAGQ=0) on the Poisson /
+// binomial scenarios, also against a tightly converged glmer (#234).
 const GLMM_TOL: f64 = 1e-2;
 
 #[test]
