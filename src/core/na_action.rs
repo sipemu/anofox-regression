@@ -591,13 +591,15 @@ mod tests {
     }
 }
 
-/// The complete rows of `x` and `y`.
-pub(crate) type CompleteCases = (Mat<f64>, Col<f64>);
+/// The complete rows of `x` and `y`, and which rows were dropped.
+pub(crate) type CompleteCases = (Mat<f64>, Col<f64>, NaInfo);
 
 /// Applies `action` before a fit of `x` and `y`: `Ok(None)` when the data
 /// are fitted as given (no NaN, `Pass`, or mismatched lengths left for the
 /// estimator to report), `Ok(Some((x, y)))` with the complete cases for
-/// `Omit` / `Exclude`, and an error for `Fail`. With row-aligned extras
+/// `Omit` / `Exclude` (store the [`NaInfo`] on the fit's result, so that
+/// `Exclude` pads residuals and fitted values back to the input rows), and an
+/// error for `Fail`. With row-aligned extras
 /// (weights, an offset) rows cannot be dropped here, so NaN rows are an
 /// error.
 pub(crate) fn apply_na_action(
@@ -622,5 +624,5 @@ pub(crate) fn apply_na_action(
     }
     let r = NaHandler::process(x, y, action)
         .map_err(|e| RegressionError::NumericalError(e.to_string()))?;
-    Ok(Some((r.x_clean, r.y_clean)))
+    Ok(Some((r.x_clean, r.y_clean, r.na_info)))
 }

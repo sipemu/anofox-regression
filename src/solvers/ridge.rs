@@ -146,8 +146,12 @@ impl Regressor for RidgeRegressor {
     type Fitted = FittedRidge;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
-        if let Some((xc, yc)) = crate::core::apply_na_action(x, y, self.options.na_action, false)? {
-            return self.fit(&xc, &yc);
+        if let Some((xc, yc, na_info)) =
+            crate::core::apply_na_action(x, y, self.options.na_action, false)?
+        {
+            let mut fitted = self.fit(&xc, &yc)?;
+            fitted.result.na_info = Some(na_info);
+            return Ok(fitted);
         }
         // Conditioning-aware λ (#258): resolve λ for this design, then fit
         // with that fixed λ.
