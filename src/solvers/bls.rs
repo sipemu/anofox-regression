@@ -79,18 +79,19 @@ impl BlsRegressor {
         BlsRegressorBuilder::default().lower_bound_all(0.0)
     }
 
-    /// Solve the bounded least squares problem using the active set method.
-    ///
-    /// Algorithm: Lawson-Hanson with box constraints
+    /// Solve the bounded least squares problem with the active-set method of
+    /// Lawson & Hanson as generalised to box constraints by Stark & Parker
+    /// (BVLS).
     ///
     /// The algorithm maintains two sets:
-    /// - Passive set P: variables free to move within bounds
-    /// - Active set A: variables fixed at their bounds
+    /// - Free set F: variables solved for (unbounded variables are always free)
+    /// - Bound set B: variables fixed at their lower or upper bound
     ///
     /// At each iteration:
-    /// 1. Solve unconstrained LS on passive set
-    /// 2. If solution violates bounds, move variables to active set
-    /// 3. Check KKT conditions, move variables from active to passive if beneficial
+    /// 1. Solve least squares for F on `y − X_B β_B`
+    /// 2. If that leaves a bound, step to the boundary and fix the variable
+    /// 3. When feasible, free the bound variable that most violates the KKT
+    ///    conditions; stop when none does
     fn solve_bls(
         &self,
         x: &Mat<f64>,
@@ -98,10 +99,9 @@ impl BlsRegressor {
         lower: &[f64],
         upper: &[f64],
     ) -> Result<(Col<f64>, usize), RegressionError> {
-        let _n_samples = x.nrows();
         let n_features = x.ncols();
 
-        // Initialize solution at lower bounds (or 0 if unbounded below)
+        // Bounded variables start at a finite bound, unbounded ones are free.
         let mut beta = Col::from_fn(n_features, |j| {
             if lower[j].is_finite() {
                 lower[j]
@@ -111,124 +111,82 @@ impl BlsRegressor {
                 0.0
             }
         });
+        // true = fixed at a bound, false = free
+        let mut active: Vec<bool> = (0..n_features)
+            .map(|j| lower[j].is_finite() || upper[j].is_finite())
+            .collect();
+        let mut at_lower: Vec<bool> = (0..n_features).map(|j| lower[j].is_finite()).collect();
 
-        // Active set: true = variable is at bound (fixed)
-        // false = variable is free (in passive set)
-        let mut active = vec![true; n_features];
-
-        // Track which bound each active variable is at: true = at lower, false = at upper
-        let mut at_lower = vec![true; n_features];
-
-        // Precompute X'X and X'y
         let xtx = compute_xtx(x);
         let xty = compute_xty(x, y);
-
         let max_iter = self.options.max_iterations;
+        // KKT test on the scale-free gradient x_j'(y − Xβ) / (‖x_j‖·‖y‖).
         let tol = self.options.tolerance;
+        let y_norm = y
+            .iter()
+            .map(|v| v * v)
+            .sum::<f64>()
+            .sqrt()
+            .max(f64::MIN_POSITIVE);
+        let scale: Vec<f64> = (0..n_features)
+            .map(|j| xtx[(j, j)].sqrt().max(f64::MIN_POSITIVE) * y_norm)
+            .collect();
+        // A variable that was just freed and immediately returned to its bound
+        // is not freed again until something else changes (anti-cycling).
+        let mut blocked: Option<usize> = None;
+        let mut first = true;
 
         for _outer_iter in 0..max_iter {
-            // Compute gradient: g = X'X * beta - X'y = -X'(y - X*beta)
-            let gradient = compute_gradient(&xtx, &xty, &beta);
-
-            // Check KKT conditions and find variable to add to passive set
-            let mut max_violation = 0.0;
-            let mut best_idx: Option<usize> = None;
-
-            for j in 0..n_features {
-                if active[j] {
-                    // Variable is at bound, check if moving it would help
-                    if at_lower[j] {
-                        // At lower bound: negative gradient means we should increase
-                        if -gradient[j] > max_violation {
-                            max_violation = -gradient[j];
-                            best_idx = Some(j);
-                        }
+            if !first {
+                // Gradient of ½||y − Xβ||²: X'Xβ − X'y
+                let gradient = compute_gradient(&xtx, &xty, &beta);
+                let mut max_violation = tol;
+                let mut best_idx: Option<usize> = None;
+                for j in (0..n_features).filter(|&j| active[j] && Some(j) != blocked) {
+                    // At lower: freeing helps if β_j should increase (−g > 0);
+                    // at upper: if it should decrease (g > 0).
+                    let v = if at_lower[j] {
+                        -gradient[j]
                     } else {
-                        // At upper bound: positive gradient means we should decrease
-                        if gradient[j] > max_violation {
-                            max_violation = gradient[j];
-                            best_idx = Some(j);
-                        }
+                        gradient[j]
+                    } / scale[j];
+                    if v > max_violation && lower[j] < upper[j] {
+                        max_violation = v;
+                        best_idx = Some(j);
                     }
                 }
-            }
-
-            // If KKT conditions are satisfied, we're done
-            if max_violation < tol {
-                break;
-            }
-
-            // Move best variable to passive set
-            if let Some(idx) = best_idx {
-                active[idx] = false;
+                match best_idx {
+                    Some(idx) => active[idx] = false,
+                    None => break,
+                }
+                blocked = None;
+                // Solve on the free set, stepping back to the boundary on
+                // violations (`freed` is the variable just released).
+                let freed = best_idx;
+                self.free_set_steps(
+                    x,
+                    y,
+                    lower,
+                    upper,
+                    &mut beta,
+                    &mut active,
+                    &mut at_lower,
+                    freed,
+                    &mut blocked,
+                )?;
             } else {
-                break;
-            }
-
-            // Inner loop: solve on passive set and handle bound violations
-            for _inner_iter in 0..max_iter {
-                // Get passive set indices
-                let passive_indices: Vec<usize> = (0..n_features).filter(|&j| !active[j]).collect();
-
-                if passive_indices.is_empty() {
-                    break;
-                }
-
-                // Solve unconstrained LS on passive set
-                let beta_passive = self.solve_passive_set(x, y, &passive_indices)?;
-
-                // Check for bound violations
-                let mut has_violation = false;
-                let mut min_alpha = 1.0;
-                let mut violation_idx = 0;
-                let mut violation_at_lower = true;
-
-                for (i, &j) in passive_indices.iter().enumerate() {
-                    let new_val = beta_passive[i];
-                    let old_val = beta[j];
-
-                    if new_val < lower[j] - tol {
-                        // Violates lower bound
-                        let alpha = (lower[j] - old_val) / (new_val - old_val);
-                        if alpha < min_alpha {
-                            min_alpha = alpha;
-                            violation_idx = j;
-                            violation_at_lower = true;
-                            has_violation = true;
-                        }
-                    } else if new_val > upper[j] + tol {
-                        // Violates upper bound
-                        let alpha = (upper[j] - old_val) / (new_val - old_val);
-                        if alpha < min_alpha {
-                            min_alpha = alpha;
-                            violation_idx = j;
-                            violation_at_lower = false;
-                            has_violation = true;
-                        }
-                    }
-                }
-
-                if !has_violation {
-                    // No violations, accept the solution
-                    for (i, &j) in passive_indices.iter().enumerate() {
-                        beta[j] = beta_passive[i];
-                    }
-                    break;
-                } else {
-                    // Interpolate to boundary
-                    for (i, &j) in passive_indices.iter().enumerate() {
-                        beta[j] = beta[j] + min_alpha * (beta_passive[i] - beta[j]);
-                    }
-
-                    // Move violated variable to active set
-                    active[violation_idx] = true;
-                    at_lower[violation_idx] = violation_at_lower;
-                    beta[violation_idx] = if violation_at_lower {
-                        lower[violation_idx]
-                    } else {
-                        upper[violation_idx]
-                    };
-                }
+                first = false;
+                self.free_set_steps(
+                    x,
+                    y,
+                    lower,
+                    upper,
+                    &mut beta,
+                    &mut active,
+                    &mut at_lower,
+                    None,
+                    &mut blocked,
+                )?;
             }
         }
 
@@ -237,19 +195,94 @@ impl BlsRegressor {
             beta[j] = beta[j].clamp(lower[j], upper[j]);
         }
 
-        // Count non-zero coefficients (rank proxy for bounded problems)
-        let rank = beta
-            .iter()
-            .enumerate()
-            .filter(|(j, &b)| {
-                let at_lower_bound = (b - lower[*j]).abs() < tol;
-                let at_upper_bound = (b - upper[*j]).abs() < tol;
-                // Exclude coefficients at zero bounds
-                !(at_lower_bound && lower[*j] == 0.0 || at_upper_bound && upper[*j] == 0.0)
-            })
+        // Count coefficients not fixed at a zero bound (rank proxy)
+        let rank = (0..n_features)
+            .filter(|&j| !(active[j] && beta[j] == 0.0))
             .count();
 
         Ok((beta, rank.max(1)))
+    }
+
+    /// Inner loop of [`solve_bls`]: least squares on the free set with the
+    /// bound variables' contribution removed, moving variables that leave
+    /// their box to the bound set until the free solution is feasible.
+    #[allow(clippy::too_many_arguments)]
+    fn free_set_steps(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        lower: &[f64],
+        upper: &[f64],
+        beta: &mut Col<f64>,
+        active: &mut [bool],
+        at_lower: &mut [bool],
+        freed: Option<usize>,
+        blocked: &mut Option<usize>,
+    ) -> Result<(), RegressionError> {
+        let n_features = x.ncols();
+        for _inner_iter in 0..=n_features {
+            let free: Vec<usize> = (0..n_features).filter(|&j| !active[j]).collect();
+            if free.is_empty() {
+                return Ok(());
+            }
+            // y − X_B β_B
+            let y_res = Col::from_fn(x.nrows(), |i| {
+                y[i] - (0..n_features)
+                    .filter(|&j| active[j])
+                    .map(|j| x[(i, j)] * beta[j])
+                    .sum::<f64>()
+            });
+            let z = self.solve_passive_set(x, &y_res, &free)?;
+
+            // Largest feasible step from β_F towards z.
+            let mut min_alpha = 1.0;
+            let mut hit: Option<(usize, bool)> = None;
+            for (i, &j) in free.iter().enumerate() {
+                let (new_val, old_val) = (z[i], beta[j]);
+                let bound = if new_val < lower[j] {
+                    Some((lower[j], true))
+                } else if new_val > upper[j] {
+                    Some((upper[j], false))
+                } else {
+                    None
+                };
+                if let Some((b, lo)) = bound {
+                    let alpha = ((b - old_val) / (new_val - old_val)).clamp(0.0, 1.0);
+                    if alpha < min_alpha || hit.is_none() {
+                        min_alpha = alpha;
+                        hit = Some((j, lo));
+                    }
+                }
+            }
+            match hit {
+                None => {
+                    for (i, &j) in free.iter().enumerate() {
+                        beta[j] = z[i];
+                    }
+                    return Ok(());
+                }
+                Some((j_hit, lo)) => {
+                    for (i, &j) in free.iter().enumerate() {
+                        beta[j] += min_alpha * (z[i] - beta[j]);
+                    }
+                    active[j_hit] = true;
+                    at_lower[j_hit] = lo;
+                    beta[j_hit] = if lo { lower[j_hit] } else { upper[j_hit] };
+                    // Also fix any other free variable that landed on a bound.
+                    for &j in &free {
+                        if !active[j] && (beta[j] <= lower[j] || beta[j] >= upper[j]) {
+                            active[j] = true;
+                            at_lower[j] = beta[j] <= lower[j];
+                            beta[j] = if at_lower[j] { lower[j] } else { upper[j] };
+                        }
+                    }
+                    if Some(j_hit) == freed && min_alpha == 0.0 {
+                        *blocked = freed;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Solve unconstrained least squares on passive set variables only.
@@ -737,6 +770,296 @@ impl BlsRegressor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use faer::linalg::solvers::SolveLstsq;
+
+    /// Brute-force bounded least squares for small `p`: every assignment of
+    /// each variable to free / lower / upper, keeping the feasible one with the
+    /// smallest RSS.
+    fn brute_force(x: &Mat<f64>, y: &Col<f64>, lower: &[f64], upper: &[f64]) -> (Vec<f64>, f64) {
+        let (n, p) = (x.nrows(), x.ncols());
+        let mut best = (vec![f64::NAN; p], f64::INFINITY);
+        for code in 0..3usize.pow(p as u32) {
+            let state: Vec<usize> = (0..p).map(|j| code / 3usize.pow(j as u32) % 3).collect();
+            if (0..p).any(|j| {
+                (state[j] == 1 && !lower[j].is_finite()) || (state[j] == 2 && !upper[j].is_finite())
+            }) {
+                continue;
+            }
+            let mut beta = vec![0.0; p];
+            for j in 0..p {
+                beta[j] = match state[j] {
+                    1 => lower[j],
+                    2 => upper[j],
+                    _ => 0.0,
+                };
+            }
+            let free: Vec<usize> = (0..p).filter(|&j| state[j] == 0).collect();
+            if !free.is_empty() {
+                let r = Col::from_fn(n, |i| {
+                    y[i] - (0..p)
+                        .filter(|&j| state[j] != 0)
+                        .map(|j| x[(i, j)] * beta[j])
+                        .sum::<f64>()
+                });
+                let xf = Mat::from_fn(n, free.len(), |i, k| x[(i, free[k])]);
+                let z = xf
+                    .col_piv_qr()
+                    .solve_lstsq(&Mat::from_fn(n, 1, |i, _| r[i]));
+                let z = Col::from_fn(free.len(), |k| z[(k, 0)]);
+                for (k, &j) in free.iter().enumerate() {
+                    beta[j] = z[k];
+                }
+            }
+            if (0..p).any(|j| beta[j] < lower[j] - 1e-12 || beta[j] > upper[j] + 1e-12) {
+                continue;
+            }
+            let rss: f64 = (0..n)
+                .map(|i| (y[i] - (0..p).map(|j| x[(i, j)] * beta[j]).sum::<f64>()).powi(2))
+                .sum();
+            if rss < best.1 {
+                best = (beta, rss);
+            }
+        }
+        best
+    }
+
+    #[test]
+    fn freed_variables_pushed_below_their_bound_step_back() {
+        // NNLS problem (found by random search) in which a free coefficient
+        // crosses its lower bound after another variable is freed, so the
+        // solver must step back to the boundary.
+        const X: [[f64; 7]; 15] = [
+            [
+                -0.16098249377483176,
+                0.251518704520466,
+                0.42056745927743566,
+                0.22099218443177776,
+                0.3763599348737777,
+                0.21264963775753176,
+                -0.067370308696967,
+            ],
+            [
+                -0.5235181330117988,
+                -0.558329460475367,
+                -0.15495341953678066,
+                -0.5647570969035437,
+                -0.7071233925180227,
+                -0.2328148975722465,
+                -0.5631675392738258,
+            ],
+            [
+                -1.2618736745426027,
+                -0.5838820521487946,
+                -0.5548520177979424,
+                -0.8481490931437942,
+                -0.8705104977220242,
+                -0.5133120433319687,
+                -1.232767502672429,
+            ],
+            [
+                0.20065581112372705,
+                -0.023844084196413956,
+                0.04482706559558597,
+                0.17150416082010894,
+                0.08038557936749248,
+                0.033898985202652776,
+                0.35494885310488944,
+            ],
+            [
+                -0.6147230709068469,
+                -0.21562386000740202,
+                -0.1081878111181242,
+                -0.1364366419410753,
+                -0.6231757723553183,
+                -0.4004300771333976,
+                -0.4681839863650206,
+            ],
+            [
+                -0.5711363145247752,
+                -0.23204499773959725,
+                -0.7055606730428099,
+                -0.3383733919860915,
+                -0.5521283983403111,
+                -0.611866264254344,
+                -0.6158362286436174,
+            ],
+            [
+                0.7295088109528851,
+                0.6772847685548982,
+                0.30403926914888146,
+                0.8827201701365028,
+                0.9384348459104026,
+                0.7454721935544495,
+                0.5363073200586539,
+            ],
+            [
+                0.2603953708381935,
+                0.3063622941370078,
+                0.4243647859163513,
+                0.23740409737313728,
+                0.22399770244524175,
+                0.7739343297586609,
+                0.763342577617762,
+            ],
+            [
+                0.14990081560353863,
+                0.040943874425136695,
+                0.6996295935239851,
+                0.5626198895332492,
+                0.1165980649987336,
+                0.7212102336208046,
+                0.49202555023722305,
+            ],
+            [
+                0.49288222249726354,
+                0.2785821756910104,
+                0.8131969628331341,
+                0.4994565443937768,
+                0.6769510091903232,
+                0.13855185991113872,
+                0.24147222425257997,
+            ],
+            [
+                0.9126092872627465,
+                0.7996417036261565,
+                0.649036236867109,
+                0.6694582481057828,
+                0.8903856043364282,
+                1.1082305962347923,
+                0.8822547791629812,
+            ],
+            [
+                0.4954624305778384,
+                0.12449259996124729,
+                0.2521542825474289,
+                0.10007481192463485,
+                0.5383125614887472,
+                0.735709903677529,
+                0.2746094213932972,
+            ],
+            [
+                0.1390897550430899,
+                -0.421468198614003,
+                0.23346166904309673,
+                -0.3197510057975518,
+                0.05424391093969705,
+                0.045974793423488175,
+                0.21740114902687635,
+            ],
+            [
+                -0.3789536070468992,
+                -0.40388534925621233,
+                -0.06627020507548913,
+                0.22685004228854366,
+                -0.06995164363302857,
+                -0.003401187485030016,
+                -0.3452247767326364,
+            ],
+            [
+                -0.7237357963007621,
+                -0.5676261679381589,
+                -0.4046603250752958,
+                -0.8998458207929134,
+                -0.6156334564360277,
+                -0.4577830328282269,
+                -1.0871254493739018,
+            ],
+        ];
+        const Y: [f64; 15] = [
+            1.1774089120983202,
+            -0.9955973176829187,
+            -1.5948492075103253,
+            1.3397940798783452,
+            -1.4700991813225075,
+            -1.6108340948798596,
+            -0.8557519523774682,
+            1.878548323950867,
+            -1.7631870534989198,
+            1.921340390580684,
+            -0.5877456332458828,
+            0.9348558042344357,
+            0.033977372698815955,
+            -1.1908730927256945,
+            -0.023914390753328352,
+        ];
+        let x = Mat::from_fn(15, 7, |i, j| X[i][j]);
+        let y = Col::from_fn(15, |i| Y[i]);
+        let (lower, upper) = (vec![0.0; 7], vec![f64::INFINITY; 7]);
+        let (expected, _) = brute_force(&x, &y, &lower, &upper);
+        let fit = BlsRegressor::nnls()
+            .with_intercept(false)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+        for j in 0..7 {
+            assert!(
+                (fit.coefficients()[j] - expected[j]).abs() < 1e-9,
+                "coef {j}: {} vs {}",
+                fit.coefficients()[j],
+                expected[j]
+            );
+        }
+    }
+
+    #[test]
+    fn bvls_matches_brute_force_on_random_problems() {
+        // Deterministic LCG; correlated columns so that freeing one variable
+        // pushes others across their bounds.
+        let mut seed: u64 = 191;
+        let mut rnd = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+        };
+        let bound_sets: [(f64, f64); 5] = [
+            (0.0, f64::INFINITY),
+            (f64::NEG_INFINITY, f64::INFINITY),
+            (-0.5, 0.5),
+            (0.3, 2.0),
+            (f64::NEG_INFINITY, -0.2),
+        ];
+        for case in 0..200 {
+            let (n, p) = (12, 4);
+            let base: Vec<f64> = (0..n).map(|_| rnd()).collect();
+            let mut x = Mat::<f64>::zeros(n, p);
+            for i in 0..n {
+                for j in 0..p {
+                    x[(i, j)] = base[i] + 0.6 * rnd();
+                }
+            }
+            let y = Col::from_fn(n, |_| 2.0 * rnd());
+            let lower: Vec<f64> = (0..p).map(|j| bound_sets[(case + j) % 5].0).collect();
+            let upper: Vec<f64> = (0..p)
+                .map(|j| bound_sets[(case * 3 + j) % 5].1.max(lower[j]))
+                .collect();
+            let (expected, rss_bf) = brute_force(&x, &y, &lower, &upper);
+            let fit = BlsRegressor::builder()
+                .with_intercept(false)
+                .lower_bounds(lower.clone())
+                .upper_bounds(upper.clone())
+                .tolerance(1e-12)
+                .build()
+                .fit(&x, &y)
+                .unwrap();
+            let b = fit.coefficients();
+            let rss: f64 = (0..n)
+                .map(|i| (y[i] - (0..p).map(|j| x[(i, j)] * b[j]).sum::<f64>()).powi(2))
+                .sum();
+            assert!(
+                rss <= rss_bf * (1.0 + 1e-9) + 1e-12,
+                "case {case}: rss {rss} vs brute force {rss_bf}, {b:?} vs {expected:?}"
+            );
+            for j in 0..p {
+                assert!(
+                    (b[j] - expected[j]).abs() < 1e-7,
+                    "case {case}: coef {j} {} vs {}",
+                    b[j],
+                    expected[j]
+                );
+            }
+        }
+    }
 
     #[test]
     fn nnls_recovers_exact_solution_under_nontrivial_pivot() {
