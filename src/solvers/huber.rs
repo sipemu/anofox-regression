@@ -597,6 +597,20 @@ impl FittedHuber {
     pub fn epsilon(&self) -> f64 {
         self.epsilon
     }
+
+    /// IRLS weights at the solution, `wᵢ = min(1, ε / |rᵢ / σ|)` (`MASS::rlm()$w`
+    /// for `psi.huber`).
+    pub fn weights(&self) -> Col<f64> {
+        let r = &self.result.residuals;
+        Col::from_fn(r.nrows(), |i| {
+            let u = (r[i] / self.scale).abs();
+            if u <= self.epsilon {
+                1.0
+            } else {
+                self.epsilon / u
+            }
+        })
+    }
 }
 
 impl FittedRegressor for FittedHuber {
