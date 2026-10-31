@@ -9,6 +9,11 @@
 //! - **Deviance**: `sign(y - μ) * sqrt(d_i)` where `d_i` is unit deviance
 //! - **Working**: `(y - μ) * (dη/dμ)` - used in IRLS
 //!
+//! These functions assume unit prior weights. With prior weights `w`, R's
+//! `residuals.glm` multiplies the Pearson and deviance residuals by `√w` (the
+//! fitted models' `pearson_residuals` / `deviance_residuals` methods do this);
+//! working residuals are not weighted.
+//!
 //! # Reference
 //!
 //! McCullagh, P. and Nelder, J.A. (1989). Generalized Linear Models, 2nd ed.
