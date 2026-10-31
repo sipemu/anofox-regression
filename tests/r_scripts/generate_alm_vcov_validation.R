@@ -1,0 +1,31 @@
+# Reference values for tests/issue201_alm_vcov.rs (#201): standard errors of
+# greybox::alm (vcov.alm) for distributions with closed-form, Fisher and
+# numerical-Hessian covariances. Shape parameters are fixed to the crate's.
+suppressMessages(library(greybox))
+set.seed(201)
+n <- 80
+x <- round(rnorm(n), 3)
+yn <- round(1 + 0.5 * x + rnorm(n, sd = 0.7), 3)
+ypos <- round(rgamma(n, 3, 3 / exp(0.5 + 0.2 * x)), 4)
+yp <- rpois(n, exp(1 + 0.3 * x))
+yb <- rbinom(n, 1, plogis(0.2 + x))
+fmt <- function(x) paste(ifelse(x == round(x), sprintf("%.1f", x), sprintf("%.17g", x)), collapse = ", ")
+v <- function(name, x) cat(sprintf("const %s: [f64; %d] = [%s];\n", name, length(x), fmt(unname(as.numeric(x)))))
+v("X", x); v("YN", yn); v("YPOS", ypos); v("YP", yp); v("YB", yb)
+tight <- function(...) alm(..., xtol_rel = 1e-14, ftol_rel = 1e-14, maxeval = 1e5)
+out <- function(tag, f) { v(paste0(tag, "_COEF"), coef(f)); v(paste0(tag, "_SE"), sqrt(diag(vcov(f)))) }
+out("NORMAL", tight(yn ~ x, distribution = "dnorm"))
+out("LOGNORMAL", tight(ypos ~ x, distribution = "dlnorm"))
+out("POISSON", tight(yp ~ x, distribution = "dpois"))
+out("GAMMA", tight(ypos ~ x, distribution = "dgamma"))
+out("INVGAUSS", tight(ypos ~ x, distribution = "dinvgauss"))
+out("EXPONENTIAL", tight(ypos ~ x, distribution = "dexp"))
+out("LOGISTIC", tight(yn ~ x, distribution = "dlogis"))
+out("LAPLACE", tight(yn ~ x, distribution = "dlaplace"))
+out("ALAPLACE", tight(yn ~ x, distribution = "dalaplace", alpha = 0.5))
+out("GNORM", tight(yn ~ x, distribution = "dgnorm", shape = 2))
+out("S", tight(yn ~ x, distribution = "ds"))
+out("GEOMETRIC", suppressWarnings(tight(yp ~ x, distribution = "dgeom")))
+out("NBINOM", tight(yp ~ x, distribution = "dnbinom", size = 1))
+out("BINOMIAL", tight(yb ~ x, distribution = "dbinom"))
+out("FNORM", tight(ypos ~ x, distribution = "dfnorm"))

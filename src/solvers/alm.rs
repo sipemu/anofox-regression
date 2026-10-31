@@ -50,7 +50,6 @@ use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{
     IntervalType, PredictionResult, RegressionOptions, RegressionOptionsBuilder, RegressionResult,
 };
-use crate::inference::CoefficientInference;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use basin::{
     CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente, NelderMead,
@@ -2571,7 +2570,7 @@ impl AlmRegressor {
 
         // Compute inference if requested
         if self.options.compute_inference {
-            self.compute_inference(x, &mut result, scale)?;
+            self.compute_inference(x, y, beta, &mut result, scale)?;
         }
 
         Ok(FittedAlm {
@@ -2586,84 +2585,147 @@ impl AlmRegressor {
     }
 
     /// Compute inference statistics using Fisher information.
+    /// Coefficient covariance as `vcov(greybox::alm)`, intercept first:
+    ///
+    /// - Normal, Log-Normal, Box-Cox Normal, Logit-Normal: `σ² (X'X)⁻¹` with
+    ///   `σ² = RSS / (n − k)` on the transformed scale (`sigma(fit)²`);
+    /// - Poisson: the Fisher information `(X' diag(μ) X)⁻¹`;
+    /// - otherwise the inverse of the Hessian of the negative log-likelihood
+    ///   in the coefficients, by greybox's central differences
+    ///   (`pracma::hessian`, step `ε^¼`), with the scale re-estimated from the
+    ///   coefficients by greybox's scaler (the profile likelihood); for the
+    ///   folded / rectified normal the scale is held at its estimate (greybox
+    ///   passes `sigma`), and for the t and Beta models (scale estimated
+    ///   jointly by ML) it is the coefficient block of the inverse of the joint
+    ///   Hessian.
+    fn alm_vcov(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        beta: &Col<f64>,
+        scale: f64,
+        k: usize,
+    ) -> Option<Mat<f64>> {
+        let n = x.nrows();
+        let off = usize::from(self.options.with_intercept);
+        let p = beta.nrows();
+        let design = Mat::from_fn(n, p, |i, j| if j < off { 1.0 } else { x[(i, j - off)] });
+        let inv = |m: &Mat<f64>| -> Option<Mat<f64>> {
+            let d = m.nrows();
+            use faer::linalg::solvers::Solve;
+            let inv = m
+                .as_ref()
+                .partial_piv_lu()
+                .solve(Mat::<f64>::identity(d, d));
+            (0..d)
+                .all(|i| (0..d).all(|j| inv[(i, j)].is_finite()))
+                .then_some(inv)
+        };
+        match self.distribution {
+            AlmDistribution::Normal
+            | AlmDistribution::LogNormal
+            | AlmDistribution::BoxCoxNormal
+            | AlmDistribution::LogitNormal => {
+                if n <= k {
+                    return None;
+                }
+                let sigma2 = scale * scale * n as f64 / (n - k) as f64;
+                let xtx = design.transpose() * &design;
+                inv(&xtx).map(|m| Mat::from_fn(p, p, |i, j| sigma2 * m[(i, j)]))
+            }
+            AlmDistribution::Poisson => {
+                let eta = &design * beta;
+                let w: Vec<f64> = (0..n).map(|i| self.link.inverse(eta[i])).collect();
+                let fi = Mat::from_fn(p, p, |a, b| {
+                    (0..n).map(|i| w[i] * design[(i, a)] * design[(i, b)]).sum()
+                });
+                inv(&fi)
+            }
+            _ => {
+                let joint = self.distribution.scale_is_joint();
+                let cost = NegLogLikelihoodCost {
+                    x,
+                    y,
+                    distribution: self.distribution,
+                    link: self.link,
+                    extra_parameter: self.extra_parameter,
+                    with_intercept: self.options.with_intercept,
+                    joint_scale: joint,
+                };
+                let mut theta: Vec<f64> = beta.iter().copied().collect();
+                if joint {
+                    theta.push(scale.ln());
+                }
+                let f = |t: &[f64]| {
+                    let Ok(v) = cost.cost(&t.to_vec());
+                    v
+                };
+                let h = pracma_hessian(&f, &theta, f64::EPSILON.powf(0.25));
+                let fixed_scale = matches!(
+                    self.distribution,
+                    AlmDistribution::FoldedNormal | AlmDistribution::RectifiedNormal
+                );
+                if joint && fixed_scale {
+                    inv(&Mat::from_fn(p, p, |i, j| h[(i, j)]))
+                } else {
+                    inv(&h).map(|m| Mat::from_fn(p, p, |i, j| m[(i, j)]))
+                }
+            }
+        }
+    }
+
     fn compute_inference(
         &self,
         x: &Mat<f64>,
+        y: &Col<f64>,
+        beta: &Col<f64>,
         result: &mut RegressionResult,
-        _scale: f64,
+        scale: f64,
     ) -> Result<(), RegressionError> {
         let df = result.residual_df() as f64;
-
-        if df <= 0.0 || !result.mse.is_finite() {
+        if df <= 0.0 {
             return Ok(());
         }
-
-        // Use standard errors based on (X'WX)^{-1} approximation
-        // For simplicity, use the OLS-based standard errors
-        if let Some(intercept) = result.intercept {
-            if let Ok((se, se_int)) =
-                CoefficientInference::standard_errors_with_intercept(x, result.mse, &result.aliased)
-            {
-                let t_stats = CoefficientInference::t_statistics(&result.coefficients, &se);
-                let p_vals = CoefficientInference::p_values(&t_stats, df);
-                let (ci_lower, ci_upper) = CoefficientInference::confidence_intervals(
-                    &result.coefficients,
-                    &se,
-                    df,
-                    self.options.confidence_level,
-                );
-
-                result.std_errors = Some(se);
-                result.t_statistics = Some(t_stats);
-                result.p_values = Some(p_vals);
-                result.conf_interval_lower = Some(ci_lower);
-                result.conf_interval_upper = Some(ci_upper);
-
-                // Intercept inference
-                let t_int = if se_int > 0.0 {
-                    intercept / se_int
-                } else {
-                    f64::NAN
-                };
-
-                use statrs::distribution::StudentsT;
-                let t_dist = StudentsT::new(0.0, 1.0, df).ok();
-                let p_int = if t_int.is_finite() {
-                    t_dist.map_or(f64::NAN, |d| 2.0 * d.sf(t_int.abs()))
-                } else {
-                    f64::NAN
-                };
-
-                let t_crit = t_dist.map_or(f64::NAN, |d| {
-                    d.inverse_cdf(1.0 - (1.0 - self.options.confidence_level) / 2.0)
-                });
-                let ci_int = (intercept - t_crit * se_int, intercept + t_crit * se_int);
-
-                result.intercept_std_error = Some(se_int);
-                result.intercept_t_statistic = Some(t_int);
-                result.intercept_p_value = Some(p_int);
-                result.intercept_conf_interval = Some(ci_int);
-            }
-        } else if let Ok(se) = CoefficientInference::standard_errors(x, result.mse, &result.aliased)
-        {
-            let t_stats = CoefficientInference::t_statistics(&result.coefficients, &se);
-            let p_vals = CoefficientInference::p_values(&t_stats, df);
-            let (ci_lower, ci_upper) = CoefficientInference::confidence_intervals(
-                &result.coefficients,
-                &se,
-                df,
-                self.options.confidence_level,
-            );
-
-            result.std_errors = Some(se);
-            result.t_statistics = Some(t_stats);
-            result.p_values = Some(p_vals);
-            result.conf_interval_lower = Some(ci_lower);
-            result.conf_interval_upper = Some(ci_upper);
-        }
-
+        let Some(vcov) = self.alm_vcov(x, y, beta, scale, result.n_parameters) else {
+            return Ok(());
+        };
+        let se = Col::from_fn(beta.nrows(), |j| vcov[(j, j)].max(0.0).sqrt());
+        crate::inference::fill_wald_inference(
+            result,
+            beta,
+            &se,
+            self.options.with_intercept,
+            crate::inference::WaldReference::StudentT(df),
+        );
         Ok(())
     }
+}
+
+/// `pracma::hessian`: central second differences with step `h` (greybox's
+/// `FI = TRUE`), diagonal `(f(x−h) − 2f(x) + f(x+h)) / h²`, off-diagonal
+/// `(f(x+hᵢ+hⱼ) − f(x+hᵢ−hⱼ) − f(x−hᵢ+hⱼ) + f(x−hᵢ−hⱼ)) / (4h²)`.
+fn pracma_hessian(f: &dyn Fn(&[f64]) -> f64, x0: &[f64], h: f64) -> Mat<f64> {
+    let n = x0.len();
+    let at = |d: &[(usize, f64)]| {
+        let mut x = x0.to_vec();
+        for &(i, v) in d {
+            x[i] += v;
+        }
+        f(&x)
+    };
+    let f0 = f(x0);
+    let mut hm = Mat::zeros(n, n);
+    for i in 0..n {
+        hm[(i, i)] = (at(&[(i, -h)]) - 2.0 * f0 + at(&[(i, h)])) / (h * h);
+        for j in (i + 1)..n {
+            let v = (at(&[(i, h), (j, h)]) - at(&[(i, h), (j, -h)]) - at(&[(i, -h), (j, h)])
+                + at(&[(i, -h), (j, -h)]))
+                / (4.0 * h * h);
+            hm[(i, j)] = v;
+            hm[(j, i)] = v;
+        }
+    }
+    hm
 }
 
 impl Regressor for AlmRegressor {
