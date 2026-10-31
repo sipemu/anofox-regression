@@ -350,9 +350,16 @@ impl Regressor for PlsRegressor {
             return Err(RegressionError::InsufficientObservations { needed: 1, got: 0 });
         }
 
-        // Center data (and optionally scale X)
-        let (x_centered, x_means) = center_columns(x);
-        let (y_centered, y_mean) = center_vector(y);
+        // Center data (and optionally scale X). Without an intercept the
+        // data are not centred (`plsr(center = FALSE)`); the scale is the
+        // standard deviation either way, as `plsr(scale = TRUE)`.
+        let (x_dev, col_means) = center_columns(x);
+        let (x_centered, x_means, y_centered, y_mean) = if self.with_intercept {
+            let (y_centered, y_mean) = center_vector(y);
+            (x_dev.clone(), col_means, y_centered, y_mean)
+        } else {
+            (x.clone(), Col::zeros(n_features), y.clone(), 0.0)
+        };
 
         // Optionally scale X to unit variance
         let (x_processed, x_scales) = if self.scale {
@@ -361,7 +368,7 @@ impl Regressor for PlsRegressor {
             for j in 0..n_features {
                 let mut var = 0.0;
                 for i in 0..n_samples {
-                    var += x_centered[(i, j)].powi(2);
+                    var += x_dev[(i, j)].powi(2);
                 }
                 var /= (n_samples - 1) as f64;
                 let std = var.sqrt();
@@ -382,6 +389,11 @@ impl Regressor for PlsRegressor {
         // Run SIMPLS algorithm
         let (weights, x_loadings, y_loadings, scores, mut coefficients) =
             self.simpls(&x_processed, &y_centered, n_components);
+        let x_total_ss: f64 = x_processed
+            .col_iter()
+            .flat_map(|c| c.iter().copied())
+            .map(|v| v * v)
+            .sum();
 
         // If scaling was applied, adjust coefficients
         if let Some(ref scales) = x_scales {
@@ -433,6 +445,7 @@ impl Regressor for PlsRegressor {
             x_means,
             y_mean,
             x_scales,
+            x_total_ss,
             weights,
             x_loadings,
             y_loadings,
@@ -506,6 +519,8 @@ pub struct FittedPls {
     y_mean: f64,
     /// Standard deviations of X columns (if scaled)
     x_scales: Option<Col<f64>>,
+    /// Total sum of squares of the (centred / scaled) X used in the fit
+    x_total_ss: f64,
     /// Weight matrix W (p x n_components)
     weights: Mat<f64>,
     /// X-loadings matrix P (p x n_components)
@@ -598,38 +613,19 @@ impl FittedPls {
         new_scores
     }
 
-    /// Get the explained variance ratio for each component.
-    ///
-    /// Returns the proportion of total variance in X explained by each component.
+    /// Fraction of the total variance of the (centred / scaled) X explained
+    /// by each component: `‖p_k‖² ‖t_k‖² / ‖X‖²_F`, i.e. `pls::explvar / 100`.
     pub fn explained_variance_ratio(&self) -> Col<f64> {
-        let n = self.scores.nrows();
-        let ncomp = self.n_components;
-
-        // Compute variance of each score column
-        let mut variances = Col::zeros(ncomp);
-        let mut total_var = 0.0;
-
-        for k in 0..ncomp {
-            let mut sum = 0.0;
-            let mut sum_sq = 0.0;
-            for i in 0..n {
-                sum += self.scores[(i, k)];
-                sum_sq += self.scores[(i, k)].powi(2);
+        let (n, p) = (self.scores.nrows(), self.x_loadings.nrows());
+        Col::from_fn(self.n_components, |k| {
+            let pp: f64 = (0..p).map(|j| self.x_loadings[(j, k)].powi(2)).sum();
+            let tt: f64 = (0..n).map(|i| self.scores[(i, k)].powi(2)).sum();
+            if self.x_total_ss > 0.0 {
+                pp * tt / self.x_total_ss
+            } else {
+                f64::NAN
             }
-            let mean = sum / n as f64;
-            let var = sum_sq / n as f64 - mean.powi(2);
-            variances[k] = var;
-            total_var += var;
-        }
-
-        // Normalize to get ratios
-        if total_var > 0.0 {
-            for k in 0..ncomp {
-                variances[k] /= total_var;
-            }
-        }
-
-        variances
+        })
     }
 }
 
