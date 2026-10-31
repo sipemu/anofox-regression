@@ -58,7 +58,12 @@ pub struct RegressionOptions {
     pub solver: SolverType,
     /// Maximum iterations for iterative solvers (Elastic Net).
     pub max_iterations: usize,
-    /// Convergence tolerance for iterative solvers.
+    /// Convergence tolerance for iterative solvers (default `1e-8`). For the
+    /// IRLS GLMs (Poisson, binomial, Tweedie / Gamma) it is R's
+    /// `glm.control(epsilon)`: the fit stops when the relative deviance change
+    /// `|dev − dev_old| / (|dev| + 0.1)` falls below it, so coefficients are
+    /// accurate to roughly `√tolerance` for non-canonical links; use e.g.
+    /// `1e-15` for full precision.
     pub tolerance: f64,
     /// Rank tolerance for QR decomposition.
     pub rank_tolerance: f64,
@@ -83,7 +88,7 @@ impl Default for RegressionOptions {
             forgetting_factor: 1.0,
             solver: SolverType::Qr,
             max_iterations: 1000,
-            tolerance: 1e-6,
+            tolerance: 1e-8,
             rank_tolerance: 1e-10,
             na_action: NaAction::Omit,
         }
