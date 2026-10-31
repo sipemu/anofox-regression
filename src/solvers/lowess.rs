@@ -7,8 +7,9 @@
 //! weights on the residuals (scaled by six times their median absolute value),
 //! and linear interpolation between points closer than `delta`.
 //!
-//! [`lowess_smooth_weights`] / [`lowess_smooth`] are the simpler index-based
-//! smoothers lmDynamic uses for its model weights over time.
+//! [`lowess_smooth`] / [`lowess_smooth_weights`] apply [`lowess`] over the
+//! observation index (`lowess(seq_along(y), y, f = span)`), the latter per
+//! column with the rows renormalised to sum to 1.
 
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
@@ -281,149 +282,68 @@ fn clowess(x0: &[f64], y0: &[f64], frac: f64, nsteps: usize, delta: f64) -> Vec<
     ys[1..].to_vec()
 }
 
-/// Apply LOWESS smoothing to each column of a weight matrix.
+/// Smooth each column of a weight matrix over the row index with
+/// [`lowess`] (R's `lowess(seq_len(n), w[, j], f = span)`), then clip
+/// negative values to 0 and renormalise every row to sum to 1 (uniform
+/// weights for a row that is all zero).
 ///
 /// # Arguments
 /// * `weights` - Matrix where each row is an observation and each column is a model
-/// * `span` - Fraction of data to use for local regression (0.0 to 1.0)
+/// * `span` - Fraction of data to use for local regression (R's `f`, clamped to `[0, 1]`)
 ///
 /// # Returns
 /// Smoothed weight matrix of same dimensions
 pub fn lowess_smooth_weights(weights: &Mat<f64>, span: f64) -> Mat<f64> {
-    let n = weights.nrows();
-    let m = weights.ncols();
-
+    let (n, m) = (weights.nrows(), weights.ncols());
     if n == 0 || m == 0 {
         return weights.clone();
     }
-
-    let span = span.clamp(0.0, 1.0);
-    let k = ((n as f64 * span).ceil() as usize).max(2).min(n);
-
     let mut smoothed = Mat::zeros(n, m);
-
-    // Create time index (0 to n-1)
-    let t: Vec<f64> = (0..n).map(|i| i as f64).collect();
-
-    // Smooth each column independently
     for col in 0..m {
-        let y: Vec<f64> = (0..n).map(|i| weights[(i, col)]).collect();
-        let smoothed_col = lowess_1d(&t, &y, k);
+        let y = Col::from_fn(n, |i| weights[(i, col)]);
+        let s = lowess_smooth(&y, span);
         for i in 0..n {
-            smoothed[(i, col)] = smoothed_col[i];
+            smoothed[(i, col)] = s[i];
         }
     }
-
-    // Renormalize rows to sum to 1
     for i in 0..n {
         let row_sum: f64 = (0..m).map(|j| smoothed[(i, j)].max(0.0)).sum();
-        if row_sum > 1e-10 {
-            for j in 0..m {
-                smoothed[(i, j)] = smoothed[(i, j)].max(0.0) / row_sum;
-            }
-        } else {
-            // If all weights are zero/negative, use uniform
-            for j in 0..m {
-                smoothed[(i, j)] = 1.0 / m as f64;
-            }
+        for j in 0..m {
+            smoothed[(i, j)] = if row_sum > 1e-10 {
+                smoothed[(i, j)].max(0.0) / row_sum
+            } else {
+                1.0 / m as f64
+            };
         }
     }
-
     smoothed
 }
 
-/// Apply LOWESS smoothing to a single time series.
-///
-/// # Arguments
-/// * `x` - Time/index values
-/// * `y` - Values to smooth
-/// * `k` - Number of nearest neighbors to use
-///
-/// # Returns
-/// Smoothed values
-fn lowess_1d(x: &[f64], y: &[f64], k: usize) -> Vec<f64> {
-    let n = x.len();
-    if n == 0 {
-        return Vec::new();
-    }
-    if n == 1 {
-        return vec![y[0]];
-    }
-
-    let k = k.min(n);
-    let mut result = vec![0.0; n];
-
-    for i in 0..n {
-        // Find k nearest neighbors
-        let mut distances: Vec<(usize, f64)> = (0..n).map(|j| (j, (x[j] - x[i]).abs())).collect();
-        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Get the k nearest
-        let neighbors: Vec<usize> = distances.iter().take(k).map(|(idx, _)| *idx).collect();
-        let max_dist = distances[k - 1].1;
-
-        // Compute tricube weights
-        let weights: Vec<f64> = neighbors
-            .iter()
-            .map(|&j| {
-                if max_dist < 1e-10 {
-                    1.0 / k as f64
-                } else {
-                    let u = (x[j] - x[i]).abs() / max_dist;
-                    tricube(u)
-                }
-            })
-            .collect();
-
-        // Weighted local regression (just weighted mean for robustness)
-        let weight_sum: f64 = weights.iter().sum();
-        if weight_sum > 1e-10 {
-            let weighted_y: f64 = neighbors
-                .iter()
-                .zip(weights.iter())
-                .map(|(&j, &w)| w * y[j])
-                .sum();
-            result[i] = weighted_y / weight_sum;
-        } else {
-            result[i] = y[i];
-        }
-    }
-
-    result
-}
-
-/// Tricube weight function: (1 - u³)³ for u in [0, 1], 0 otherwise
-fn tricube(u: f64) -> f64 {
-    if (0.0..1.0).contains(&u) {
-        let v = 1.0 - u.powi(3);
-        v.powi(3)
-    } else {
-        0.0
-    }
-}
-
-/// Smooth a single column vector using LOWESS.
+/// Smooth a series over its index with [`lowess`] and R's other defaults
+/// (`iter = 3`, default `delta`): `lowess(seq_along(y), y, f = span)$y`.
 ///
 /// # Arguments
 /// * `y` - Values to smooth
-/// * `span` - Fraction of data to use (0.0 to 1.0)
+/// * `span` - Fraction of data to use (R's `f`, clamped to `[0, 1]`)
 ///
 /// # Returns
 /// Smoothed values
 pub fn lowess_smooth(y: &Col<f64>, span: f64) -> Col<f64> {
     let n = y.nrows();
-    if n == 0 {
+    if n < 2 {
         return y.clone();
     }
-
-    let span = span.clamp(0.0, 1.0);
-    let k = ((n as f64 * span).ceil() as usize).max(2).min(n);
-
-    let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
-    let y_vec: Vec<f64> = (0..n).map(|i| y[i]).collect();
-
-    let smoothed = lowess_1d(&x, &y_vec, k);
-    Col::from_fn(n, |i| smoothed[i])
+    let x: Vec<f64> = (1..=n).map(|i| i as f64).collect();
+    let y_vec: Vec<f64> = y.iter().copied().collect();
+    let options = LowessOptions {
+        frac: span.clamp(0.0, 1.0),
+        ..LowessOptions::default()
+    };
+    match lowess(&x, &y_vec, &options) {
+        // x is already sorted, so `fitted` is in input order.
+        Ok(fit) => Col::from_fn(n, |i| fit.fitted[i]),
+        Err(_) => y.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -431,19 +351,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tricube() {
-        // At u = 0, tricube = 1
-        assert!((tricube(0.0) - 1.0).abs() < 1e-10);
-
-        // At u = 1, tricube = 0
-        assert!((tricube(1.0) - 0.0).abs() < 1e-10);
-
-        // At u = 0.5, tricube = (1 - 0.125)^3 = 0.669921875
-        assert!((tricube(0.5) - 0.669921875).abs() < 1e-6);
-
-        // Outside [0, 1], tricube = 0
-        assert!((tricube(-0.1) - 0.0).abs() < 1e-10);
-        assert!((tricube(1.5) - 0.0).abs() < 1e-10);
+    fn test_lowess_smooth_edge_cases() {
+        // Fewer than two points are returned unchanged
+        let one = Col::from_fn(1, |_| 3.0);
+        assert_eq!(lowess_smooth(&one, 0.5)[0], 3.0);
+        // Empty weight matrices are returned unchanged
+        assert_eq!(lowess_smooth_weights(&Mat::zeros(0, 2), 0.5).nrows(), 0);
+        // All-zero weights fall back to uniform rows
+        let s = lowess_smooth_weights(&Mat::zeros(6, 2), 0.5);
+        for i in 0..6 {
+            assert!((s[(i, 0)] - 0.5).abs() < 1e-12 && (s[(i, 1)] - 0.5).abs() < 1e-12);
+        }
     }
 
     #[test]
