@@ -735,8 +735,10 @@ impl FittedRegressor for FittedQuantile {
         match interval {
             None => PredictionResult::point_only(predictions),
             Some(_interval_type) => {
-                // Quantile regression intervals require bootstrap or rank-based methods
-                // For now, return NaN intervals
+                // Standard errors need the training data, which the fitted
+                // model does not keep: intervals are NaN here. Use
+                // `inference(x, y, se, level)?.predict_interval(x_new, level)`
+                // (`predict.rq(interval = "confidence")`).
                 let n = x.nrows();
                 let mut lower = Col::zeros(n);
                 let mut upper = Col::zeros(n);

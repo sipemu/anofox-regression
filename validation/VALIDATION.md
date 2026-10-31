@@ -79,6 +79,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_cox_concordance_validation.R` | Cox concordance with weights / offset / strata / (start, stop] vs `coxph` (#208) (`tests/issue208_cox_concordance.rs`) |
 | `tests/r_scripts/generate_tight_validation.R` | HC0–HC3 with `coeftest`/`coefci`, OLS 90 % intervals, influence diagnostics, ridge, `rq`, logistic, Huber at full precision (#209) (`tests/r_validation_tight.rs`) |
 | `tests/r_scripts/generate_glm_tight_validation.R` | The `r_validation_glm.rs` datasets vs `glm(epsilon = 1e-15)` / `glm.nb` (#209) (`tests/r_validation_glm_tight.rs`) |
+| `tests/r_scripts/generate_quantile_predict_interval_validation.R` | `predict.rq(interval = "confidence", se = "iid" \| "nid")` (#210) (`tests/r_validation_quantile_predict_interval.rs`) |
 | `tests/r_scripts/generate_regression_tight_validation.R` | The `r_validation_regression.rs` datasets vs `lm(weights)`, closed-form ridge, `glmnet(thresh = 1e-20)` and `statmod::tweedie` with `epsilon = 1e-15` (#209) (`tests/r_validation_regression_tight.rs`) |
 | `tests/r_scripts/generate_validation_210_part1.R` | Gamma / Tweedie link powers (`statmod`), RLS forgetting factor, weighted isotonic (`Iso::pava`) (#210) (`tests/r_validation_210_part1.rs`) |
 | `tests/r_scripts/generate_validation_210_part2.R` | AFT AIC / BIC / z / p / CI vs `survreg`; ordinal probabilities vs `rms::orm` (#210) (`tests/r_validation_210_part2.rs`) |
@@ -810,6 +811,7 @@ Rscript tests/r_scripts/generate_bkw_validation.R   # -> tests/issue207_bkw.rs
 Rscript tests/r_scripts/generate_cox_concordance_validation.R   # -> tests/issue208_cox_concordance.rs
 Rscript tests/r_scripts/generate_tight_validation.R   # -> tests/r_validation_tight.rs
 Rscript tests/r_scripts/generate_glm_tight_validation.R   # -> tests/r_validation_glm_tight.rs
+Rscript tests/r_scripts/generate_quantile_predict_interval_validation.R   # -> tests/r_validation_quantile_predict_interval.rs
 Rscript tests/r_scripts/generate_regression_tight_validation.R   # -> tests/r_validation_regression_tight.rs
 Rscript tests/r_scripts/generate_validation_210_part1.R   # -> tests/r_validation_210_part1.rs
 Rscript tests/r_scripts/generate_validation_210_part2.R   # -> tests/r_validation_210_part2.rs
