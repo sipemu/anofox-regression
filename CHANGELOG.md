@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`QuantileInference::predict_interval(x, level)` (#210):** confidence intervals for the predicted `τ`-quantile, `x₀ᵀβ̂ ± t · √(x₀ᵀ Σ x₀)`, as `predict.rq(interval = "confidence", se = "iid" | "nid")`. `FittedQuantile::predict_with_interval` still returns `NaN` limits, because the fitted model does not keep the training data its standard errors need; use `fitted.inference(x, y, se, level)?.predict_interval(x_new, level)`. Validated in `tests/r_validation_quantile_predict_interval.rs` (generator `tests/r_scripts/generate_quantile_predict_interval_validation.R`).
+
 ### Fixed
 
 - **`NaAction` is now applied (#176).** `RegressionOptions::na_action` (default `Omit`) was exported but ignored. The estimators configured by `RegressionOptions` (OLS, WLS, ridge, elastic net, BLS, RLS, Poisson, negative binomial, Tweedie, binomial, ALM, lmDynamic) now drop rows with NaN in `x` or `y` for `Omit` / `Exclude`, error for `Fail`, and leave them for `Pass`. Rows can't be dropped when weights or an offset are set, so NaN rows are an error there. **Behaviour change:** NaN input that used to error (OLS) or give NaN coefficients now fits the complete cases by default. `Exclude` does not yet pad the outputs back to the input length.

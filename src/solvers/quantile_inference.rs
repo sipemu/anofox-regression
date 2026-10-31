@@ -25,7 +25,7 @@
 //! intercept). Confidence limits are `estimate ± t_{n−k, 1−(1−level)/2} ·
 //! std_error`. Rank-inversion intervals (`se = "rank"`) are not implemented.
 
-use crate::core::RegressionResult;
+use crate::core::{PredictionResult, RegressionResult};
 use crate::solvers::path::SplitMix64;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::solvers::QuantileRegressor;
@@ -87,6 +87,55 @@ pub struct QuantileInference {
     pub covariance: Mat<f64>,
     /// Bootstrap replications that were used (0 unless `Boot`).
     pub n_boot: usize,
+}
+
+impl QuantileInference {
+    /// Confidence intervals for the conditional `τ`-quantile at the rows of
+    /// `x` (no intercept column), as `predict.rq(interval = "confidence",
+    /// level, se = ...)`: `x₀ᵀβ̂ ± t_{n−k, 1−(1−level)/2} · √(x₀ᵀ Σ x₀)` with
+    /// the coefficient covariance `Σ`. `se` of the result is `√(x₀ᵀ Σ x₀)`.
+    /// All limits are `NaN` when the table has no covariance (see
+    /// [`quantile_process`] without `se`).
+    pub fn predict_interval(
+        &self,
+        x: &Mat<f64>,
+        level: f64,
+    ) -> Result<PredictionResult, RegressionError> {
+        let off = usize::from(self.has_intercept);
+        let k = self.estimate.len();
+        if x.ncols() + off != k {
+            return Err(RegressionError::NumericalError(format!(
+                "x has {} columns, the model {}",
+                x.ncols(),
+                k - off
+            )));
+        }
+        if !(level > 0.0 && level < 1.0) {
+            return Err(RegressionError::NumericalError(format!(
+                "level must lie in (0, 1), got {level}"
+            )));
+        }
+        let t = StudentsT::new(0.0, 1.0, self.df_residual)
+            .map_err(|e| RegressionError::NumericalError(format!("t distribution: {e}")))?;
+        let q = t.inverse_cdf(1.0 - (1.0 - level) / 2.0);
+        let n = x.nrows();
+        let row = |i: usize, j: usize| if j < off { 1.0 } else { x[(i, j - off)] };
+        let fit = Col::from_fn(n, |i| (0..k).map(|j| row(i, j) * self.estimate[j]).sum());
+        let se = Col::from_fn(n, |i| {
+            let v: f64 = (0..k)
+                .flat_map(|a| (0..k).map(move |b| (a, b)))
+                .map(|(a, b)| row(i, a) * self.covariance[(a, b)] * row(i, b))
+                .sum();
+            if v >= 0.0 {
+                v.sqrt()
+            } else {
+                f64::NAN
+            }
+        });
+        let lower = Col::from_fn(n, |i| fit[i] - q * se[i]);
+        let upper = Col::from_fn(n, |i| fit[i] + q * se[i]);
+        Ok(PredictionResult::with_intervals(fit, lower, upper, se))
+    }
 }
 
 /// Hall–Sheather bandwidth of `quantreg::bandwidth.rq(tau, n, hs = TRUE)`

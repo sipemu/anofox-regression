@@ -196,8 +196,9 @@ impl GammaRegressorBuilder {
         self
     }
 
-    /// Override the link power. Defaults to the canonical link `log` for
-    /// Gamma (which corresponds to `link_power = -1`).
+    /// Override the link power (`η = μ^q`, `q = 0` meaning `log`). Defaults
+    /// to the log link (`link_power = 0`); the canonical inverse link is
+    /// `link_power = -1`, identity is `1`.
     pub fn link_power(mut self, q: f64) -> Self {
         self.link_power = Some(q);
         self
