@@ -5,10 +5,11 @@
 //! from `tests/r_scripts/generate_gls_validation.R`: 40 subjects with 3–5
 //! irregular visits, `y ~ time * trt + x`.
 //!
-//! nlme stops its optimiser at a relative tolerance of about 1e-6, and
-//! `intervals.gls` uses a finite-difference Hessian, so estimates are
-//! compared at 1e-4 and interval limits at 1e-3 (the log-likelihood, flat at
-//! the optimum, at 1e-7).
+//! Estimates are compared at 1e-7 (correlation / variance parameters 1e-6),
+//! except for the structures where nlme's optimiser stops ~1e-6 short
+//! (compound symmetry, unstructured, spatial: 1e-4 / 1e-3); `intervals.gls`
+//! uses a finite-difference Hessian, so interval limits are compared at 1e-3
+//! (the log-likelihood, flat at the optimum, at 1e-7).
 
 use anofox_regression::solvers::{
     FittedGls, GlsCorrelation, GlsMethod, GlsRegressor, GlsResidualType, GlsVariance,
@@ -73,17 +74,22 @@ fn check(
     cor: &[f64],
     var: &[f64],
 ) {
+    // nlme's optimiser (even with a tight `glsControl`) stops ~1e-6 short
+    // for compound symmetry, the unstructured and the spatial structures, so
+    // those are compared at 1e-4 (parameters 1e-3); the others agree to 1e-7.
+    let loose = tag.starts_with("CS") || tag.starts_with("SYMM") || tag.contains("nugget");
+    let (tol, tol_par) = if loose { (1e-4, 1e-3) } else { (1e-7, 1e-6) };
     let p = P + 1;
     let b: Vec<f64> = f.coefficients().iter().copied().collect();
-    all_close(&format!("{tag} coef"), &b, coef, 1e-4);
+    all_close(&format!("{tag} coef"), &b, coef, tol);
     let v: Vec<f64> = (0..p * p).map(|k| f.vcov()[(k / p, k % p)]).collect();
-    all_close(&format!("{tag} vcov"), &v, vcov, 1e-4);
-    close(&format!("{tag} sigma"), f.sigma(), sigma[0], 1e-4);
+    all_close(&format!("{tag} vcov"), &v, vcov, tol);
+    close(&format!("{tag} sigma"), f.sigma(), sigma[0], tol);
     close(&format!("{tag} logLik"), f.log_likelihood(), ll[0], 1e-7);
     close(&format!("{tag} AIC"), f.aic(), ll[1], 1e-7);
     close(&format!("{tag} BIC"), f.bic(), ll[2], 1e-7);
-    all_close(&format!("{tag} cor"), f.correlation_params(), cor, 1e-3);
-    all_close(&format!("{tag} var"), f.variance_params(), var, 1e-3);
+    all_close(&format!("{tag} cor"), f.correlation_params(), cor, tol_par);
+    all_close(&format!("{tag} var"), f.variance_params(), var, tol_par);
 }
 
 /// `intervals(fit, which = "var-cov")` flattened as (lower, est, upper) per
