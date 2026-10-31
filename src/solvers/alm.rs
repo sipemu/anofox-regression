@@ -2422,6 +2422,27 @@ impl AlmRegressor {
     }
 
     /// Build the final result.
+    /// Whether the fit estimates a scale (or shape) parameter that counts in
+    /// the information criteria, as greybox's `nparam`: not for the
+    /// Exponential, Poisson, Binomial, Geometric and cumulative-link models, nor
+    /// for the negative binomial (size fixed by `extra_parameter`) and the
+    /// Gamma / inverse Gaussian when `extra_parameter` fixes the shape.
+    fn estimates_scale(&self) -> bool {
+        match self.distribution {
+            AlmDistribution::Exponential
+            | AlmDistribution::Poisson
+            | AlmDistribution::NegativeBinomial
+            | AlmDistribution::Binomial
+            | AlmDistribution::Geometric
+            | AlmDistribution::CumulativeLogistic
+            | AlmDistribution::CumulativeNormal => false,
+            AlmDistribution::Gamma | AlmDistribution::InverseGaussian => {
+                self.extra_parameter.is_none()
+            }
+            _ => true,
+        }
+    }
+
     fn build_result(
         &self,
         x: &Mat<f64>,
@@ -2445,11 +2466,9 @@ impl AlmRegressor {
             (beta.clone(), None)
         };
 
-        let n_params = if self.options.with_intercept {
-            p + 2 // coefficients + intercept + scale
-        } else {
-            p + 1 // coefficients + scale
-        };
+        // Coefficients, plus the scale where one is estimated (greybox's `nparam`)
+        let n_scale = usize::from(self.estimates_scale());
+        let n_params = p + usize::from(self.options.with_intercept) + n_scale;
 
         // Compute residuals
         let mut residuals = Col::zeros(n);
@@ -2511,7 +2530,7 @@ impl AlmRegressor {
 
         // F-statistic (may not be meaningful for non-Normal)
         let ess = tss - rss;
-        let df_model = (n_params - if intercept.is_some() { 1 } else { 0 } - 1) as f64; // -1 for scale
+        let df_model = (n_params - usize::from(intercept.is_some()) - n_scale) as f64;
         let f_statistic = if df_model > 0.0 && df_resid > 0.0 && mse > 0.0 {
             (ess / df_model) / mse
         } else {
