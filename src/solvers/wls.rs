@@ -129,10 +129,12 @@ impl Regressor for WlsRegressor {
     type Fitted = FittedWls;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
-        if let Some((xc, yc)) =
+        if let Some((xc, yc, na_info)) =
             crate::core::apply_na_action(x, y, self.options.na_action, self.weights.is_some())?
         {
-            return self.fit(&xc, &yc);
+            let mut fitted = self.fit(&xc, &yc)?;
+            fitted.result.na_info = Some(na_info);
+            return Ok(fitted);
         }
         let n_samples = x.nrows();
         let n_features = x.ncols();

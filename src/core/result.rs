@@ -246,14 +246,14 @@ impl RegressionResult {
         }
     }
 
-    /// Get standard errors expanded to original length (for `NaAction::Exclude`).
-    ///
-    /// Only available if inference was computed.
+    /// The coefficient standard errors (one per coefficient, not per row, so
+    /// there is nothing to expand).
+    #[deprecated(
+        since = "0.8.0",
+        note = "standard errors are per coefficient, not per row; use `std_errors`"
+    )]
     pub fn std_errors_expanded(&self) -> Option<Col<f64>> {
-        self.std_errors.as_ref().map(|se| match &self.na_info {
-            Some(info) if info.needs_expansion() => info.expand(se),
-            _ => se.clone(),
-        })
+        self.std_errors.clone()
     }
 
     /// Check if NA values were removed during fitting.
@@ -460,34 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn test_std_errors_expanded_with_na() {
-        use super::super::na_action::{NaAction, NaInfo};
-
-        let mut result = RegressionResult::empty(2, 3);
-        result.std_errors = Some(Col::from_fn(3, |i| 0.1 * (i + 1) as f64));
-
-        let na_info = NaInfo {
-            n_original: 5,
-            n_clean: 3,
-            na_mask: vec![false, false, true, true, false],
-            kept_indices: vec![0, 1, 4],
-            n_removed: 2,
-            action: NaAction::Exclude,
-        };
-        result.na_info = Some(na_info);
-
-        let expanded = result.std_errors_expanded();
-        assert!(expanded.is_some());
-        let expanded = expanded.unwrap();
-        assert_eq!(expanded.nrows(), 5);
-        assert!((expanded[0] - 0.1).abs() < 1e-10);
-        assert!((expanded[1] - 0.2).abs() < 1e-10);
-        assert!(expanded[2].is_nan());
-        assert!(expanded[3].is_nan());
-        assert!((expanded[4] - 0.3).abs() < 1e-10);
-    }
-
-    #[test]
+    #[allow(deprecated)]
     fn test_std_errors_expanded_no_std_errors() {
         let result = RegressionResult::empty(2, 5);
         assert!(result.std_errors_expanded().is_none());
