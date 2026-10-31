@@ -11,13 +11,14 @@ use crate::inference::{
 };
 use crate::solvers::ridge::RidgeRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
-use crate::utils::{center_columns, center_vector, detect_constant_columns};
-use basin::{CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente};
+use crate::utils::detect_constant_columns;
 use faer::{Col, Mat};
 
-/// Elastic Net regression estimator using L-BFGS optimization.
+/// Elastic Net regression estimator, solved by coordinate descent.
 ///
 /// Minimizes: ||y - Xβ||² + λ(α||β||₁ + (1-α)||β||₂²)
+/// by coordinate descent. With `LambdaScaling::Glmnet` the fit is
+/// `glmnet(standardize = FALSE)` at `λ`, the same as [`path`](Self::path).
 ///
 /// Where:
 /// - α = 1 is pure Lasso (L1)
@@ -57,73 +58,6 @@ impl ElasticNetRegressor {
     pub fn builder() -> ElasticNetRegressorBuilder {
         ElasticNetRegressorBuilder::default()
     }
-
-    /// Soft thresholding operator: S(z, γ) = sign(z) * max(|z| - γ, 0)
-    fn soft_threshold(z: f64, gamma: f64) -> f64 {
-        if z > gamma {
-            z - gamma
-        } else if z < -gamma {
-            z + gamma
-        } else {
-            0.0
-        }
-    }
-}
-
-/// Cost function for Elastic Net optimization with basin's L-BFGS.
-/// Computes the smooth part of the objective: ||y - Xβ||² + λ(1-α)||β||₂²
-#[derive(Clone)]
-struct ElasticNetCost<'a> {
-    x: &'a Mat<f64>,
-    y: &'a Col<f64>,
-    lambda: f64,
-    alpha: f64,
-}
-
-impl ElasticNetCost<'_> {
-    /// Compute residuals: y - Xβ
-    fn compute_residuals(&self, beta: &[f64]) -> Vec<f64> {
-        let n = self.x.nrows();
-        let p = self.x.ncols();
-        (0..n)
-            .map(|i| {
-                let pred: f64 = (0..p).map(|j| self.x[(i, j)] * beta[j]).sum();
-                self.y[i] - pred
-            })
-            .collect()
-    }
-}
-
-impl CostFunction for ElasticNetCost<'_> {
-    type Param = Vec<f64>;
-    type Output = f64;
-    type Error = std::convert::Infallible;
-
-    fn cost(&self, beta: &Self::Param) -> Result<Self::Output, Self::Error> {
-        // ||y - Xβ||² + λ(1-α)||β||₂²
-        let residuals = self.compute_residuals(beta);
-        let rss: f64 = residuals.iter().map(|r| r * r).sum();
-        let l2_penalty: f64 = beta.iter().map(|b| b * b).sum();
-        Ok(rss + self.lambda * (1.0 - self.alpha) * l2_penalty)
-    }
-}
-
-impl Gradient for ElasticNetCost<'_> {
-    type Gradient = Vec<f64>;
-
-    fn gradient(&self, beta: &Self::Param) -> Result<Self::Gradient, Self::Error> {
-        // ∇f = -2X'(y - Xβ) + 2λ(1-α)β
-        let residuals = self.compute_residuals(beta);
-        let p = self.x.ncols();
-        let n = self.x.nrows();
-        let grad: Vec<f64> = (0..p)
-            .map(|j| {
-                let xtresid: f64 = (0..n).map(|i| self.x[(i, j)] * residuals[i]).sum();
-                -2.0 * xtresid + 2.0 * self.lambda * (1.0 - self.alpha) * beta[j]
-            })
-            .collect();
-        Ok(grad)
-    }
 }
 
 impl Regressor for ElasticNetRegressor {
@@ -133,8 +67,8 @@ impl Regressor for ElasticNetRegressor {
         if let Some((xc, yc)) = crate::core::apply_na_action(x, y, self.options.na_action, false)? {
             return self.fit(&xc, &yc);
         }
-        // When alpha = 0, delegate to Ridge
-        if self.options.alpha == 0.0 {
+        // When alpha = 0 (or lambda = 0), delegate to Ridge
+        if self.options.alpha == 0.0 || self.options.lambda == 0.0 {
             let ridge = RidgeRegressor::new(self.options.clone());
             let ridge_fitted = ridge.fit(x, y)?;
             // For pure Ridge, use the same aliased mask from result
@@ -170,20 +104,8 @@ impl Regressor for ElasticNetRegressor {
             // Detect constant columns (aliased with intercept)
             let constant_cols = detect_constant_columns(x, self.options.rank_tolerance);
 
-            // Center the data
-            let (x_centered, x_means) = center_columns(x);
-            let (y_centered, y_mean) = center_vector(y);
-
-            // Solve Elastic Net using L-BFGS
-            let coefficients = self.fit_lbfgs(&x_centered, &y_centered)?;
-
-            // Compute intercept: intercept = y_mean - x_means' * coefficients
-            let mut intercept = y_mean;
-            for j in 0..n_features {
-                if !constant_cols[j] {
-                    intercept -= x_means[j] * coefficients[j];
-                }
-            }
+            // Solve Elastic Net by coordinate descent (intercept unpenalised)
+            let (intercept, coefficients) = self.fit_cd(x, y)?;
 
             // Mark aliased columns (constant or zero coefficient due to L1)
             let mut aliased = constant_cols.clone();
@@ -251,7 +173,7 @@ impl Regressor for ElasticNetRegressor {
                 }
             }
 
-            let coefficients = self.fit_lbfgs(x, y)?;
+            let (_, coefficients) = self.fit_cd(x, y)?;
 
             // Mark zero coefficients as aliased
             for j in 0..n_features {
@@ -338,47 +260,44 @@ impl ElasticNetRegressor {
             .with_intercept(self.options.with_intercept)
     }
 
-    /// Solve Elastic Net using L-BFGS optimization with proximal soft thresholding.
-    fn fit_lbfgs(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Col<f64>, RegressionError> {
-        let n_samples = x.nrows();
-        let n_features = x.ncols();
-        let alpha = self.options.alpha;
-
-        // Apply lambda scaling based on convention
-        let lambda = match self.options.lambda_scaling {
-            LambdaScaling::Raw => self.options.lambda,
-            LambdaScaling::Glmnet => self.options.lambda * n_samples as f64,
-        };
-
-        // Create cost function (smooth part: RSS + L2 penalty)
-        let cost = ElasticNetCost {
-            x,
-            y,
-            lambda,
-            alpha,
-        };
-
-        // L-BFGS from zero with argmin's settings: memory 7, Moré–Thuente with
-        // c₁ = 1e-4, stop on ‖∇f‖ ≤ √ε or |Δf| ≤ ε
-        let solver =
-            Lbfgs::with_line_search(MoreThuente::new().with_sufficient_decrease_coefficient(1e-4))
-                .unbounded()
-                .with_m_capacity(7)
-                .with_absolute_gradient_tolerance(f64::EPSILON.sqrt())
-                .with_absolute_cost_change_tolerance(f64::EPSILON);
-        let state = FirstOrderState::new(vec![0.0; n_features]);
-        let Ok(result) = Executor::new(cost, solver, state)
-            .max_iter(self.options.max_iterations as u64)
-            .run();
-        let beta_smooth = result.best_param();
-
-        // Apply soft thresholding for L1 penalty (proximal step)
-        let l1_threshold = lambda * alpha;
-        let coefficients = Col::from_fn(n_features, |j| {
-            Self::soft_threshold(beta_smooth[j], l1_threshold)
-        });
-
-        Ok(coefficients)
+    /// Solve the elastic net exactly by coordinate descent.
+    ///
+    /// With `LambdaScaling::Raw` the objective is
+    /// `||y - Xβ||² + λ(α||β||₁ + (1-α)||β||₂²)`. With `LambdaScaling::Glmnet`
+    /// the result is `glmnet(x, y, alpha, lambda, standardize = FALSE)`, i.e.
+    /// [`path`](Self::path) at `λ`: glmnet's
+    /// `1/(2n)||y - Xβ||² + λ((1-α)/2 ||β||₂² + α||β||₁)` with the ridge part
+    /// divided by `sd(y)` (see [`path`](crate::solvers::path)).
+    /// The intercept is never penalised. Converges when the largest
+    /// `(1/n)||x_j||² · Δβ_j²` of a pass, relative to `var(y)`, is below
+    /// `tolerance` (glmnet's `thresh`), within
+    /// `max(max_iterations, 100 000)` passes.
+    fn fit_cd(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<(f64, Col<f64>), RegressionError> {
+        let (lambda, alpha) = (self.options.lambda, self.options.alpha);
+        let tol = self.options.tolerance;
+        let max_iter = self.options.max_iterations.max(100_000);
+        match self.options.lambda_scaling {
+            LambdaScaling::Raw => {
+                // 1/(2n)·RSS + l1·||β||₁ + l2/2·||β||²
+                let n = x.nrows() as f64;
+                crate::solvers::path::fit_penalized(
+                    x,
+                    y,
+                    lambda * alpha / (2.0 * n),
+                    lambda * (1.0 - alpha) / n,
+                    self.options.with_intercept,
+                    tol,
+                    max_iter,
+                )
+            }
+            LambdaScaling::Glmnet => {
+                let mut opts = self.path_options();
+                opts.tol = tol;
+                opts.max_iter = max_iter;
+                let path = crate::solvers::path::fit_path(x, y, &[lambda], &opts)?;
+                Ok((path.intercepts[0], path.coefficients_at(0)))
+            }
+        }
     }
 
     /// Compute fit statistics.
@@ -608,7 +527,8 @@ impl ElasticNetRegressorBuilder {
         self
     }
 
-    /// Set maximum iterations for coordinate descent.
+    /// Set maximum coordinate-descent passes (at least 100 000 are allowed,
+    /// as in [`PathOptions`](crate::solvers::path::PathOptions)).
     pub fn max_iterations(mut self, max_iter: usize) -> Self {
         self.builder = self.builder.max_iterations(max_iter);
         self

@@ -31,8 +31,9 @@ pub enum LambdaScaling {
     ///
     /// glmnet minimizes: (1/2n) * ||y - Xβ||² + λ * [(1-α)/2 ||β||² + α||β||₁]
     ///
-    /// To match, we multiply lambda by n:
-    /// ||y - Xβ||² + n*λ * ||β||² (for Ridge)
+    /// Ridge multiplies lambda by n: ||y - Xβ||² + n*λ * ||β||².
+    /// Elastic net solves glmnet's objective directly (as
+    /// `glmnet(standardize = FALSE)`, see [`crate::solvers::path`]).
     Glmnet,
 }
 
