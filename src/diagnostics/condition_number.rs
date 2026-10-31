@@ -133,7 +133,9 @@ pub fn condition_number(x: &Mat<f64>, with_intercept: bool) -> f64 {
         if si > s_max {
             s_max = si;
         }
-        if si > 0.0 && si < s_min {
+        // A zero singular value (exactly singular design) gives κ = ∞; it
+        // must not be skipped (R's `kappa(X, exact = TRUE)`).
+        if si < s_min {
             s_min = si;
         }
     }
@@ -355,6 +357,7 @@ mod tests {
         let d = condition_diagnostic(&x, true);
         assert!(d.scaled_condition_number.is_infinite());
         assert_eq!(d.severity, ConditionSeverity::Severe);
+        assert!(condition_number(&x, true).is_infinite());
     }
 
     #[test]
