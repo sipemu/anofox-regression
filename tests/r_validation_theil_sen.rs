@@ -75,7 +75,7 @@ fn multivariate_matches_sklearn_exhaustive() {
     // The multivariate case takes the Vardi-Zhang spatial median of all
     // OLS-on-subsample coefficient vectors. sklearn does the same. The
     // residual tolerance below covers Weiszfeld convergence differences.
-    let tol = 5e-3;
+    let tol = 1e-9;
     assert!(
         (intercept - EXPECTED_INTERCEPT_THEIL_MULTI).abs() < tol,
         "intercept {} vs sklearn {}",
