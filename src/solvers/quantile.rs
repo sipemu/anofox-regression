@@ -484,18 +484,20 @@ impl QuantileRegressor {
         }
     }
 
-    /// Compute the check function (quantile loss).
+    /// Weighted check-function (quantile) loss `Σ wᵢ ρ_τ(rᵢ)`, the objective
+    /// `rq` minimises.
     fn check_loss(&self, residuals: &Col<f64>) -> f64 {
-        let mut loss = 0.0;
-        for i in 0..residuals.nrows() {
-            let r = residuals[i];
-            if r >= 0.0 {
-                loss += self.tau * r;
-            } else {
-                loss += (self.tau - 1.0) * r;
-            }
-        }
-        loss
+        (0..residuals.nrows())
+            .map(|i| {
+                let w = self.weights.as_ref().map_or(1.0, |w| w[i]);
+                let r = residuals[i];
+                w * if r >= 0.0 {
+                    self.tau * r
+                } else {
+                    (self.tau - 1.0) * r
+                }
+            })
+            .sum()
     }
 }
 
@@ -568,8 +570,8 @@ impl Regressor for QuantileRegressor {
         // R1 = 1 - V(full) / V(null) where V is the quantile loss
         let full_loss = self.check_loss(&residuals);
 
-        // Null model: just the quantile of y
-        let y_quantile = self.compute_quantile(y);
+        // Null model: the intercept-only fit `rq(y ~ 1)`
+        let y_quantile = self.null_quantile(y);
         let null_residuals = Col::from_fn(n_samples, |i| y[i] - y_quantile);
         let null_loss = self.check_loss(&null_residuals);
 
@@ -608,20 +610,22 @@ impl Regressor for QuantileRegressor {
 }
 
 impl QuantileRegressor {
-    /// Compute the tau-th sample quantile of y.
-    fn compute_quantile(&self, y: &Col<f64>) -> f64 {
-        let mut sorted: Vec<f64> = y.iter().copied().collect();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        let n = sorted.len();
-        let index = (self.tau * (n - 1) as f64).floor() as usize;
-        let frac = self.tau * (n - 1) as f64 - index as f64;
-
-        if index + 1 < n {
-            sorted[index] * (1.0 - frac) + sorted[index + 1] * frac
-        } else {
-            sorted[index]
+    /// Minimiser of the weighted check loss `Σ wᵢ ρ_τ(yᵢ − q)`, the fit of
+    /// `rq(y ~ 1, weights = w)`: the smallest `y₍ₖ₎` whose cumulative weight
+    /// reaches `τ · Σ w`.
+    fn null_quantile(&self, y: &Col<f64>) -> f64 {
+        let w = |i: usize| self.weights.as_ref().map_or(1.0, |w| w[i]);
+        let mut order: Vec<usize> = (0..y.nrows()).filter(|&i| w(i) > 0.0).collect();
+        order.sort_by(|&a, &b| y[a].total_cmp(&y[b]));
+        let target = self.tau * order.iter().map(|&i| w(i)).sum::<f64>();
+        let mut cum = 0.0;
+        for &i in &order {
+            cum += w(i);
+            if cum >= target {
+                return y[i];
+            }
         }
+        order.last().map_or(0.0, |&i| y[i])
     }
 }
 
@@ -657,7 +661,8 @@ impl FittedQuantile {
         self.check_loss
     }
 
-    /// Get the pseudo R-squared (Koenker-Machado).
+    /// Koenker–Machado pseudo R², `1 − ρ(fit) / ρ(rq(y ~ 1))` with the
+    /// weighted check loss `ρ`.
     pub fn pseudo_r_squared(&self) -> f64 {
         self.result.r_squared
     }
