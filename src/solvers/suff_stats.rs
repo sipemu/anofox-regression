@@ -336,8 +336,9 @@ impl SufficientStats {
         self.n_features
     }
 
-    /// Number of rows added, including rows with zero weight (as
-    /// `RegressionResult::n_observations` of a fit on the rows).
+    /// Number of rows added, including rows with zero weight (a fit reports
+    /// only the [positive-weight rows](Self::n_positive) as
+    /// `RegressionResult::n_observations`, as `lm`).
     pub fn n_observations(&self) -> usize {
         self.n_rows as usize
     }
@@ -670,7 +671,8 @@ pub(crate) fn fit_state(
     result.intercept = intercept;
     result.rank = rank;
     result.n_parameters = n_params;
-    result.n_observations = n_rows;
+    // Rows with zero weight do not count (`nobs` / `df.residual` of `lm`).
+    result.n_observations = state.n_positive();
     result.aliased = aliased.clone();
     result.rank_tolerance = options.rank_tolerance;
     stats.apply(&mut result);

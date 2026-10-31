@@ -632,7 +632,8 @@ impl WlsRegressor {
         result.fitted_values = fitted_values.clone();
         result.rank = rank;
         result.n_parameters = n_params;
-        result.n_observations = n;
+        // Rows with zero weight do not count (`nobs` / `df.residual` of `lm`).
+        result.n_observations = (0..n).filter(|&i| weights[i] > 0.0).count();
         result.aliased = aliased.to_vec();
         result.rank_tolerance = self.options.rank_tolerance;
         stats.apply(&mut result);
