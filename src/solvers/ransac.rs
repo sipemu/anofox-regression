@@ -1,8 +1,10 @@
 //! RANSAC (RAndom SAmple Consensus) regression.
 //!
 //! Iteratively samples a minimal subset of the data, fits OLS on it, marks
-//! observations with `|residual| < residual_threshold` as inliers, and keeps
-//! the subset with the largest inlier count. The returned model is then
+//! observations with `|residual| <= residual_threshold` as inliers, and keeps
+//! the subset with the largest inlier count; among subsets with equal counts
+//! the one whose model has the higher R² on its inliers (sklearn's rule, the
+//! later one on an exact tie). The returned model is then
 //! refit on the best inlier set. Highly robust to outliers because outliers
 //! never enter the final fit.
 //!
@@ -111,6 +113,7 @@ impl Regressor for RansacRegressor {
 
         let mut rng = SplitMix64::new(self.random_state.wrapping_add(0x9E37_79B9_7F4A_7C15));
         let mut best_inlier_count: usize = 0;
+        let mut best_score = f64::NEG_INFINITY;
         let mut best_mask: Vec<bool> = vec![false; n];
 
         let mut effective_max_trials = self.max_trials;
@@ -152,8 +155,18 @@ impl Regressor for RansacRegressor {
                 }
             }
 
-            if inlier_count > best_inlier_count {
+            // sklearn: more inliers win; on a tie the subset model with the
+            // higher R² on its inliers (`score_subset >= score_best`).
+            let score = if inlier_count >= best_inlier_count {
+                inlier_r2(x, y, &mask, intercept, coef_slice)
+            } else {
+                f64::NEG_INFINITY
+            };
+            if inlier_count > best_inlier_count
+                || (inlier_count == best_inlier_count && score >= best_score)
+            {
                 best_inlier_count = inlier_count;
+                best_score = score;
                 best_mask = mask;
 
                 // Update the dynamic max_trials bound (Fischler–Bolles).
@@ -226,6 +239,29 @@ impl Regressor for RansacRegressor {
             n_trials: trials_run,
             residual_threshold,
         })
+    }
+}
+
+/// sklearn's `r2_score` of the subset model on the inlier rows (1 for a
+/// perfect fit of constant inliers, 0 for an imperfect one).
+fn inlier_r2(x: &Mat<f64>, y: &Col<f64>, mask: &[bool], intercept: f64, coef: &[f64]) -> f64 {
+    let rows: Vec<usize> = (0..y.nrows()).filter(|&i| mask[i]).collect();
+    if rows.is_empty() {
+        return f64::NEG_INFINITY;
+    }
+    let mean = rows.iter().map(|&i| y[i]).sum::<f64>() / rows.len() as f64;
+    let (mut ss_res, mut ss_tot) = (0.0, 0.0);
+    for &i in &rows {
+        let pred = intercept + (0..coef.len()).map(|j| x[(i, j)] * coef[j]).sum::<f64>();
+        ss_res += (y[i] - pred).powi(2);
+        ss_tot += (y[i] - mean).powi(2);
+    }
+    if ss_tot > 0.0 {
+        1.0 - ss_res / ss_tot
+    } else if ss_res == 0.0 {
+        1.0
+    } else {
+        0.0
     }
 }
 
