@@ -62,42 +62,6 @@ fn extract_predictor_column(x: &Mat<f64>, j: usize) -> Col<f64> {
     Col::from_fn(x.nrows(), |i| x[(i, j)])
 }
 
-/// Extract a subset of columns from a matrix.
-fn extract_columns(x: &Mat<f64>, start: usize, count: usize) -> Mat<f64> {
-    let n = x.nrows();
-    Mat::from_fn(n, count, |i, j| x[(i, start + j)])
-}
-
-/// Extract all columns except a specified range.
-fn extract_other_columns(x: &Mat<f64>, exclude_start: usize, exclude_count: usize) -> Mat<f64> {
-    let n = x.nrows();
-    let p = x.ncols();
-    let other_size = p - exclude_count;
-
-    Mat::from_fn(n, other_size, |i, out_col| {
-        let src_col = if out_col < exclude_start {
-            out_col
-        } else {
-            out_col + exclude_count
-        };
-        x[(i, src_col)]
-    })
-}
-
-/// Compute max R² for a group of columns regressed on other predictors.
-fn compute_group_r_squared(x_group: &Mat<f64>, x_other: &Mat<f64>) -> f64 {
-    let n = x_group.nrows();
-    let size = x_group.ncols();
-    let model = OlsRegressor::builder().with_intercept(true).build();
-
-    (0..size)
-        .filter_map(|j| {
-            let y_j = Col::from_fn(n, |i| x_group[(i, j)]);
-            model.fit(x_other, &y_j).ok().map(|f| f.r_squared())
-        })
-        .fold(0.0_f64, f64::max)
-}
-
 /// Convert R² to VIF value.
 fn r_squared_to_vif(r_squared: f64) -> f64 {
     if r_squared < 1.0 - 1e-14 {
@@ -107,55 +71,65 @@ fn r_squared_to_vif(r_squared: f64) -> f64 {
     }
 }
 
-/// Compute generalized VIF (GVIF) for categorical predictors.
+/// Generalized VIF (GVIF) of Fox & Monette (1992) for groups of columns,
+/// e.g. the dummy variables of a factor, as `car::vif` reports it.
 ///
-/// For a predictor that spans multiple columns (dummy variables),
-/// GVIF^(1/(2*df)) is comparable to regular VIF.
+/// For a group of `df` consecutive columns, with `R` the correlation matrix
+/// of all predictors and `R₁₁`, `R₂₂` its blocks for the group and the
+/// remaining columns:
+///
+/// `GVIF = det(R₁₁) · det(R₂₂) / det(R)`
+///
+/// A single-column group gives the ordinary VIF. To compare groups of
+/// different sizes use `GVIF^(1/(2·df))` (the `GVIF^(1/(2*Df))` column of
+/// `car::vif`), the factor by which the confidence-interval width is inflated.
+///
+/// `group_sizes` must sum to the number of columns; otherwise every group
+/// gets 1. Groups get 1 when there are no other columns and `∞` when the
+/// predictors are exactly collinear (singular `R`).
 pub fn generalized_vif(x: &Mat<f64>, group_sizes: &[usize]) -> Vec<f64> {
     let p = x.ncols();
-
-    // Verify group sizes sum to p
-    if group_sizes.iter().sum::<usize>() != p {
+    if group_sizes.iter().sum::<usize>() != p || x.nrows() < 2 {
         return vec![1.0; group_sizes.len()];
     }
-
-    let mut gvif = Vec::with_capacity(group_sizes.len());
-    let mut start_col = 0;
-
-    for &size in group_sizes {
-        let result = compute_gvif_for_group(x, start_col, size);
-        gvif.push(result);
-        start_col += size;
-    }
-
-    gvif
+    let r = correlation_matrix(x);
+    let det_r = r.determinant();
+    let mut start = 0;
+    group_sizes
+        .iter()
+        .map(|&size| {
+            let group: Vec<usize> = (start..start + size).collect();
+            start += size;
+            if size == 0 || size == p {
+                return 1.0;
+            }
+            if det_r <= 0.0 || !det_r.is_finite() {
+                return f64::INFINITY;
+            }
+            let rest: Vec<usize> = (0..p).filter(|j| !group.contains(j)).collect();
+            (sub_determinant(&r, &group) * sub_determinant(&r, &rest) / det_r).max(1.0)
+        })
+        .collect()
 }
 
-/// Compute GVIF for a single group of columns.
-fn compute_gvif_for_group(x: &Mat<f64>, start_col: usize, size: usize) -> f64 {
-    let p = x.ncols();
+/// Correlation matrix of the columns of `x`.
+fn correlation_matrix(x: &Mat<f64>) -> Mat<f64> {
+    let (n, p) = (x.nrows(), x.ncols());
+    let centred: Vec<Vec<f64>> = (0..p)
+        .map(|j| {
+            let m = (0..n).map(|i| x[(i, j)]).sum::<f64>() / n as f64;
+            let c: Vec<f64> = (0..n).map(|i| x[(i, j)] - m).collect();
+            let s = c.iter().map(|v| v * v).sum::<f64>().sqrt();
+            c.into_iter().map(|v| v / s).collect()
+        })
+        .collect();
+    Mat::from_fn(p, p, |a, b| {
+        centred[a].iter().zip(&centred[b]).map(|(u, v)| u * v).sum()
+    })
+}
 
-    // Empty groups have VIF = 1
-    if size == 0 {
-        return 1.0;
-    }
-
-    // Single-column predictors use regular VIF
-    if size == 1 {
-        return variance_inflation_factor(x)[start_col];
-    }
-
-    // No other columns means no collinearity
-    let other_size = p - size;
-    if other_size == 0 {
-        return 1.0;
-    }
-
-    let x_group = extract_columns(x, start_col, size);
-    let x_other = extract_other_columns(x, start_col, size);
-    let r_squared = compute_group_r_squared(&x_group, &x_other);
-
-    r_squared_to_vif(r_squared)
+fn sub_determinant(r: &Mat<f64>, idx: &[usize]) -> f64 {
+    Mat::from_fn(idx.len(), idx.len(), |a, b| r[(idx[a], idx[b])]).determinant()
 }
 
 /// Identify predictors with high multicollinearity.
