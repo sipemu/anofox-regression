@@ -597,17 +597,34 @@ impl CoxFit {
     }
 
     /// Harrell's C of the fit (larger linear predictor = shorter survival),
-    /// within strata, as coxph's `concordance`.
+    /// as `coxph`'s `concordance` (`survival::concordance`, `timewt = "n"`).
+    ///
+    /// A pair is comparable when row `i` has an event at `tᵢ` and row `j` of
+    /// the same stratum is still at risk after it: `tⱼ > tᵢ`, or `tⱼ = tᵢ`
+    /// censored, and for `(start, stop]` data `startⱼ < tᵢ`. Pairs with tied
+    /// event times are not comparable. Each pair has weight `wᵢ wⱼ` (case
+    /// weights) and counts as concordant if `ηᵢ > ηⱼ`, ½ if `ηᵢ = ηⱼ`.
     pub fn concordance(&self) -> f64 {
         let lp = self.linear_predictors();
+        let d = &self.data;
         let (mut conc, mut rel) = (0.0, 0.0);
-        for (_, rows, _) in &self.data.groups {
-            let x: Vec<f64> = rows.iter().map(|&i| -lp[i]).collect();
-            let t: Vec<f64> = rows.iter().map(|&i| self.data.stop[i]).collect();
-            let e: Vec<bool> = rows.iter().map(|&i| self.data.event[i]).collect();
-            if let Ok(c) = crate::diagnostics::accuracy::rcorr_cens(&x, &t, &e) {
-                conc += c.concordant;
-                rel += c.relevant_pairs;
+        for (_, rows, _) in &d.groups {
+            for &i in rows.iter().filter(|&&i| d.event[i]) {
+                let ti = d.stop[i];
+                for &j in rows {
+                    let at_risk_after = d.stop[j] > ti || (d.stop[j] == ti && !d.event[j]);
+                    let entered = d.entry.as_ref().is_none_or(|e| e[j] < ti);
+                    if j == i || !at_risk_after || !entered {
+                        continue;
+                    }
+                    let w = d.w[i] * d.w[j];
+                    rel += w;
+                    if lp[i] > lp[j] {
+                        conc += w;
+                    } else if lp[i] == lp[j] {
+                        conc += 0.5 * w;
+                    }
+                }
             }
         }
         conc / rel
