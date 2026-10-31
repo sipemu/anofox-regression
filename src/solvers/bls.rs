@@ -770,6 +770,296 @@ impl BlsRegressor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use faer::linalg::solvers::SolveLstsq;
+
+    /// Brute-force bounded least squares for small `p`: every assignment of
+    /// each variable to free / lower / upper, keeping the feasible one with the
+    /// smallest RSS.
+    fn brute_force(x: &Mat<f64>, y: &Col<f64>, lower: &[f64], upper: &[f64]) -> (Vec<f64>, f64) {
+        let (n, p) = (x.nrows(), x.ncols());
+        let mut best = (vec![f64::NAN; p], f64::INFINITY);
+        for code in 0..3usize.pow(p as u32) {
+            let state: Vec<usize> = (0..p).map(|j| code / 3usize.pow(j as u32) % 3).collect();
+            if (0..p).any(|j| {
+                (state[j] == 1 && !lower[j].is_finite()) || (state[j] == 2 && !upper[j].is_finite())
+            }) {
+                continue;
+            }
+            let mut beta = vec![0.0; p];
+            for j in 0..p {
+                beta[j] = match state[j] {
+                    1 => lower[j],
+                    2 => upper[j],
+                    _ => 0.0,
+                };
+            }
+            let free: Vec<usize> = (0..p).filter(|&j| state[j] == 0).collect();
+            if !free.is_empty() {
+                let r = Col::from_fn(n, |i| {
+                    y[i] - (0..p)
+                        .filter(|&j| state[j] != 0)
+                        .map(|j| x[(i, j)] * beta[j])
+                        .sum::<f64>()
+                });
+                let xf = Mat::from_fn(n, free.len(), |i, k| x[(i, free[k])]);
+                let z = xf
+                    .col_piv_qr()
+                    .solve_lstsq(&Mat::from_fn(n, 1, |i, _| r[i]));
+                let z = Col::from_fn(free.len(), |k| z[(k, 0)]);
+                for (k, &j) in free.iter().enumerate() {
+                    beta[j] = z[k];
+                }
+            }
+            if (0..p).any(|j| beta[j] < lower[j] - 1e-12 || beta[j] > upper[j] + 1e-12) {
+                continue;
+            }
+            let rss: f64 = (0..n)
+                .map(|i| (y[i] - (0..p).map(|j| x[(i, j)] * beta[j]).sum::<f64>()).powi(2))
+                .sum();
+            if rss < best.1 {
+                best = (beta, rss);
+            }
+        }
+        best
+    }
+
+    #[test]
+    fn freed_variables_pushed_below_their_bound_step_back() {
+        // NNLS problem (found by random search) in which a free coefficient
+        // crosses its lower bound after another variable is freed, so the
+        // solver must step back to the boundary.
+        const X: [[f64; 7]; 15] = [
+            [
+                -0.16098249377483176,
+                0.251518704520466,
+                0.42056745927743566,
+                0.22099218443177776,
+                0.3763599348737777,
+                0.21264963775753176,
+                -0.067370308696967,
+            ],
+            [
+                -0.5235181330117988,
+                -0.558329460475367,
+                -0.15495341953678066,
+                -0.5647570969035437,
+                -0.7071233925180227,
+                -0.2328148975722465,
+                -0.5631675392738258,
+            ],
+            [
+                -1.2618736745426027,
+                -0.5838820521487946,
+                -0.5548520177979424,
+                -0.8481490931437942,
+                -0.8705104977220242,
+                -0.5133120433319687,
+                -1.232767502672429,
+            ],
+            [
+                0.20065581112372705,
+                -0.023844084196413956,
+                0.04482706559558597,
+                0.17150416082010894,
+                0.08038557936749248,
+                0.033898985202652776,
+                0.35494885310488944,
+            ],
+            [
+                -0.6147230709068469,
+                -0.21562386000740202,
+                -0.1081878111181242,
+                -0.1364366419410753,
+                -0.6231757723553183,
+                -0.4004300771333976,
+                -0.4681839863650206,
+            ],
+            [
+                -0.5711363145247752,
+                -0.23204499773959725,
+                -0.7055606730428099,
+                -0.3383733919860915,
+                -0.5521283983403111,
+                -0.611866264254344,
+                -0.6158362286436174,
+            ],
+            [
+                0.7295088109528851,
+                0.6772847685548982,
+                0.30403926914888146,
+                0.8827201701365028,
+                0.9384348459104026,
+                0.7454721935544495,
+                0.5363073200586539,
+            ],
+            [
+                0.2603953708381935,
+                0.3063622941370078,
+                0.4243647859163513,
+                0.23740409737313728,
+                0.22399770244524175,
+                0.7739343297586609,
+                0.763342577617762,
+            ],
+            [
+                0.14990081560353863,
+                0.040943874425136695,
+                0.6996295935239851,
+                0.5626198895332492,
+                0.1165980649987336,
+                0.7212102336208046,
+                0.49202555023722305,
+            ],
+            [
+                0.49288222249726354,
+                0.2785821756910104,
+                0.8131969628331341,
+                0.4994565443937768,
+                0.6769510091903232,
+                0.13855185991113872,
+                0.24147222425257997,
+            ],
+            [
+                0.9126092872627465,
+                0.7996417036261565,
+                0.649036236867109,
+                0.6694582481057828,
+                0.8903856043364282,
+                1.1082305962347923,
+                0.8822547791629812,
+            ],
+            [
+                0.4954624305778384,
+                0.12449259996124729,
+                0.2521542825474289,
+                0.10007481192463485,
+                0.5383125614887472,
+                0.735709903677529,
+                0.2746094213932972,
+            ],
+            [
+                0.1390897550430899,
+                -0.421468198614003,
+                0.23346166904309673,
+                -0.3197510057975518,
+                0.05424391093969705,
+                0.045974793423488175,
+                0.21740114902687635,
+            ],
+            [
+                -0.3789536070468992,
+                -0.40388534925621233,
+                -0.06627020507548913,
+                0.22685004228854366,
+                -0.06995164363302857,
+                -0.003401187485030016,
+                -0.3452247767326364,
+            ],
+            [
+                -0.7237357963007621,
+                -0.5676261679381589,
+                -0.4046603250752958,
+                -0.8998458207929134,
+                -0.6156334564360277,
+                -0.4577830328282269,
+                -1.0871254493739018,
+            ],
+        ];
+        const Y: [f64; 15] = [
+            1.1774089120983202,
+            -0.9955973176829187,
+            -1.5948492075103253,
+            1.3397940798783452,
+            -1.4700991813225075,
+            -1.6108340948798596,
+            -0.8557519523774682,
+            1.878548323950867,
+            -1.7631870534989198,
+            1.921340390580684,
+            -0.5877456332458828,
+            0.9348558042344357,
+            0.033977372698815955,
+            -1.1908730927256945,
+            -0.023914390753328352,
+        ];
+        let x = Mat::from_fn(15, 7, |i, j| X[i][j]);
+        let y = Col::from_fn(15, |i| Y[i]);
+        let (lower, upper) = (vec![0.0; 7], vec![f64::INFINITY; 7]);
+        let (expected, _) = brute_force(&x, &y, &lower, &upper);
+        let fit = BlsRegressor::nnls()
+            .with_intercept(false)
+            .build()
+            .fit(&x, &y)
+            .unwrap();
+        for j in 0..7 {
+            assert!(
+                (fit.coefficients()[j] - expected[j]).abs() < 1e-9,
+                "coef {j}: {} vs {}",
+                fit.coefficients()[j],
+                expected[j]
+            );
+        }
+    }
+
+    #[test]
+    fn bvls_matches_brute_force_on_random_problems() {
+        // Deterministic LCG; correlated columns so that freeing one variable
+        // pushes others across their bounds.
+        let mut seed: u64 = 191;
+        let mut rnd = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+        };
+        let bound_sets: [(f64, f64); 5] = [
+            (0.0, f64::INFINITY),
+            (f64::NEG_INFINITY, f64::INFINITY),
+            (-0.5, 0.5),
+            (0.3, 2.0),
+            (f64::NEG_INFINITY, -0.2),
+        ];
+        for case in 0..200 {
+            let (n, p) = (12, 4);
+            let base: Vec<f64> = (0..n).map(|_| rnd()).collect();
+            let mut x = Mat::<f64>::zeros(n, p);
+            for i in 0..n {
+                for j in 0..p {
+                    x[(i, j)] = base[i] + 0.6 * rnd();
+                }
+            }
+            let y = Col::from_fn(n, |_| 2.0 * rnd());
+            let lower: Vec<f64> = (0..p).map(|j| bound_sets[(case + j) % 5].0).collect();
+            let upper: Vec<f64> = (0..p)
+                .map(|j| bound_sets[(case * 3 + j) % 5].1.max(lower[j]))
+                .collect();
+            let (expected, rss_bf) = brute_force(&x, &y, &lower, &upper);
+            let fit = BlsRegressor::builder()
+                .with_intercept(false)
+                .lower_bounds(lower.clone())
+                .upper_bounds(upper.clone())
+                .tolerance(1e-12)
+                .build()
+                .fit(&x, &y)
+                .unwrap();
+            let b = fit.coefficients();
+            let rss: f64 = (0..n)
+                .map(|i| (y[i] - (0..p).map(|j| x[(i, j)] * b[j]).sum::<f64>()).powi(2))
+                .sum();
+            assert!(
+                rss <= rss_bf * (1.0 + 1e-9) + 1e-12,
+                "case {case}: rss {rss} vs brute force {rss_bf}, {b:?} vs {expected:?}"
+            );
+            for j in 0..p {
+                assert!(
+                    (b[j] - expected[j]).abs() < 1e-7,
+                    "case {case}: coef {j} {} vs {}",
+                    b[j],
+                    expected[j]
+                );
+            }
+        }
+    }
 
     #[test]
     fn nnls_recovers_exact_solution_under_nontrivial_pivot() {
