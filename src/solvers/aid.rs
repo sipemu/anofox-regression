@@ -455,8 +455,13 @@ impl AidClassifier {
             return None;
         }
 
-        // RectifiedNormal requires numerical optimization — use ALM fallback
-        if dist == DemandDistribution::RectifiedNormal {
+        // RectifiedNormal and Gamma require numerical optimization — use the
+        // ALM fit `alm(y ~ 1)` (greybox's Gamma profiles the scale
+        // `mean((y/μ − 1)²)` and optimises μ, which is not the sample mean)
+        if matches!(
+            dist,
+            DemandDistribution::RectifiedNormal | DemandDistribution::Gamma
+        ) {
             return self.fit_distribution_via_alm(y, dist);
         }
 
@@ -477,8 +482,10 @@ impl AidClassifier {
                 // ll_negbin: Σ [ln_Γ(y_i+size) - ln_Γ(size) - ln_Γ(y_i+1)
                 //             + size*ln(p) + y_i*ln(1-p)]
                 // With constant mu: only Σ ln_Γ(y_i+size) needs O(n)
+                // Maximum-likelihood size at μ = ȳ (MASS::theta.ml, greybox's
+                // dnbinom), started from the moment estimate.
                 let size = if var > mu && mu > 0.0 {
-                    mu * mu / (var - mu)
+                    nb_size_ml(y, mu, mu * mu / (var - mu))
                 } else {
                     1.0
                 };
@@ -517,39 +524,25 @@ impl AidClassifier {
             }
 
             DemandDistribution::Normal => {
-                // ll_normal: -n/2 * ln(2πσ²) - RSS/(2σ²)
-                // RSS = sum_sq_dev, σ = sqrt(RSS/df)
-                let df = (n - 1) as f64;
-                let sigma = (stats.sum_sq_dev / df).sqrt();
+                // ll_normal: -n/2 * ln(2πσ²) - RSS/(2σ²) at the ML σ = sqrt(RSS/n)
+                let sigma = (stats.sum_sq_dev / n_f).sqrt();
                 let sigma2 = sigma * sigma;
                 let ll = -0.5 * n_f * (2.0 * PI * sigma2).ln() - stats.sum_sq_dev / (2.0 * sigma2);
                 (ll, sigma, None, 2, mu)
             }
 
-            DemandDistribution::Gamma => {
-                // shape = mu²/var, rate = shape/mu
-                // ll_gamma: Σ [shape*ln(rate) + (shape-1)*ln(y_i) - rate*y_i - ln_Γ(shape)]
-                // With constant mu: n*shape*ln(rate) + (shape-1)*sum_ln_y - rate*sum_y - n*ln_Γ(shape)
-                let shape = if var > 0.0 { mu * mu / var } else { 1.0 };
-                let rate = shape / mu;
-                let ll = n_f * shape * rate.ln() + (shape - 1.0) * stats.sum_ln_y
-                    - rate * stats.sum_y
-                    - n_f * ln_gamma(shape);
-                (ll, 1.0, Some(shape), 2, mu)
-            }
-
             DemandDistribution::LogNormal => {
                 // MLE: mu_log = mean(ln(y)), mu_response = exp(mu_log)
-                // σ = sqrt(Σ(ln(y) - mu_log)² / df)
+                // σ = sqrt(Σ(ln(y) - mu_log)² / n)
                 // ll_log_normal: Σ [-ln(y) - ln(σ) - 0.5*ln(2π) - (ln(y)-ln(mu))²/(2σ²)]
                 // = -sum_ln_y - n*ln(σ) - n/2*ln(2π) - log_rss/(2σ²)
                 let mu_resp = stats.log_mean_exp.unwrap_or(mu);
                 let log_mu = mu_resp.ln();
-                let df = (n - 1) as f64;
                 // log_rss = Σ(ln(y) - log_mu)² = sum_ln_y_sq - 2*log_mu*sum_ln_y + n*log_mu²
                 let log_rss =
                     stats.sum_ln_y_sq - 2.0 * log_mu * stats.sum_ln_y + n_f * log_mu * log_mu;
-                let sigma = (log_rss / df).sqrt();
+                // ML σ (denominator n)
+                let sigma = (log_rss / n_f).sqrt();
                 let sigma2 = sigma * sigma;
                 let ll = -stats.sum_ln_y
                     - n_f * sigma.ln()
@@ -558,7 +551,7 @@ impl AidClassifier {
                 (ll, sigma, None, 2, mu_resp)
             }
 
-            DemandDistribution::RectifiedNormal => unreachable!(),
+            DemandDistribution::RectifiedNormal | DemandDistribution::Gamma => unreachable!(),
         };
 
         if !ll.is_finite() {
@@ -623,7 +616,7 @@ impl AidClassifier {
                     DistributionParameters {
                         mean,
                         variance,
-                        shape: None,
+                        shape: (dist == DemandDistribution::Gamma).then(|| 1.0 / scale),
                         zero_prob: Some(zero_prob),
                         scale: Some(scale),
                     },
@@ -826,6 +819,46 @@ impl AidClassifierBuilder {
             ic_type: self.ic_type,
         }
     }
+}
+
+/// Maximum-likelihood negative-binomial size at mean `mu`
+/// (`MASS::theta.ml`): Newton on the score
+/// `Σ [ψ(yᵢ + θ) − ψ(θ)] + n ln(θ / (θ + μ))` in `ln θ`, from `start`.
+fn nb_size_ml(y: &Col<f64>, mu: f64, start: f64) -> f64 {
+    use statrs::function::gamma::digamma;
+    let n = y.nrows() as f64;
+    let trigamma = |x: f64| {
+        // ψ'(x) by recurrence to x ≥ 6 and the asymptotic series
+        let (mut x, mut acc) = (x, 0.0);
+        while x < 6.0 {
+            acc += 1.0 / (x * x);
+            x += 1.0;
+        }
+        let x2 = 1.0 / (x * x);
+        acc + 1.0 / x + x2 / 2.0 + (1.0 / 6.0 - x2 * (1.0 / 30.0 - x2 / 42.0)) * x2 / x
+    };
+    let mut th = start.max(1e-8);
+    for _ in 0..100 {
+        let mut score = n * (th / (th + mu)).ln();
+        let mut info = n * (1.0 / th - 1.0 / (th + mu));
+        for &v in y.iter() {
+            let v = v.round().max(0.0);
+            score += digamma(v + th) - digamma(th);
+            info += trigamma(v + th) - trigamma(th);
+        }
+        // d score / d ln θ = θ · info
+        let step = score / (th * info);
+        let next = th * (-step).exp().min(1e3);
+        if !next.is_finite() || next <= 0.0 {
+            break;
+        }
+        let done = (next / th - 1.0).abs() < 1e-12;
+        th = next;
+        if done {
+            break;
+        }
+    }
+    th
 }
 
 #[cfg(test)]
