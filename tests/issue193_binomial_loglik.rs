@@ -60,6 +60,9 @@ const PROP_LOGIT_BIC: f64 = 109.10792527568614;
 const PROP_PROBIT_LOGLIK: f64 = -50.979046535287551;
 const PROP_PROBIT_AIC: f64 = 105.9580930705751;
 const PROP_PROBIT_BIC: f64 = 108.76048783389942;
+const ZEROW_LOGLIK: f64 = -47.903767916007155;
+const ZEROW_AIC: f64 = 99.80753583201431;
+const ZEROW_BIC: f64 = 102.60993059533862;
 const CASEW_LOGLIK: f64 = -40.346235252271484;
 const CASEW_AIC: f64 = 84.692470504542968;
 const CASEW_BIC: f64 = 87.494865267867283;
@@ -117,6 +120,19 @@ fn proportions_with_trial_weights_match_r() {
         PROP_PROBIT_BIC,
         "probit",
     );
+}
+
+#[test]
+fn zero_trial_weights_contribute_nothing() {
+    let p = Col::from_fn(N, |i| S[i] / M[i]);
+    let w = Col::from_fn(N, |i| if i == 3 || i == 10 { 0.0 } else { M[i] });
+    let fit = BinomialRegressor::logistic()
+        .weights(w)
+        .tolerance(1e-12)
+        .build()
+        .fit(&x(), &p)
+        .unwrap();
+    check(&fit, ZEROW_LOGLIK, ZEROW_AIC, ZEROW_BIC, "zero weights");
 }
 
 #[test]

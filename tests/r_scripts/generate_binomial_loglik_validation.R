@@ -16,5 +16,7 @@ out <- function(tag, f) {
 }
 out("PROP_LOGIT", glm(s / m ~ x, family = binomial, weights = m, control = ctl))
 out("PROP_PROBIT", glm(cbind(s, m - s) ~ x, family = binomial("probit"), control = ctl))
+wz <- m; wz[c(4, 11)] <- 0
+out("ZEROW", glm(s / m ~ x, family = binomial, weights = wz, control = ctl))
 out("CASEW", glm(yb ~ x, family = binomial, weights = wb, control = ctl))
 out("PLAIN", glm(yb ~ x, family = binomial, control = ctl))
