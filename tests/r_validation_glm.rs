@@ -1010,6 +1010,7 @@ fn test_r_validation_negative_binomial() {
     // Use R's estimated theta directly for coefficient comparison
     let fitted = NegativeBinomialRegressor::with_theta(EXPECTED_THETA_NEGBINOM)
         .with_intercept(true)
+        .tolerance(1e-13)
         .build()
         .fit(&x, &y)
         .expect("fit should succeed");
@@ -1017,9 +1018,10 @@ fn test_r_validation_negative_binomial() {
     let intercept = fitted.result().intercept.unwrap();
     let coef = fitted.result().coefficients[0];
 
-    // With fixed theta from R, coefficients should match closely
-    assert_relative_eq!(intercept, EXPECTED_INTERCEPT_NEGBINOM, epsilon = 0.05);
-    assert_relative_eq!(coef, EXPECTED_COEF_NEGBINOM, epsilon = 0.05);
+    // With fixed theta from R the coefficients match glm.nb (#209; fully
+    // converged reference in r_validation_glm_tight.rs)
+    assert_relative_eq!(intercept, EXPECTED_INTERCEPT_NEGBINOM, epsilon = 1e-7);
+    assert_relative_eq!(coef, EXPECTED_COEF_NEGBINOM, epsilon = 1e-7);
 }
 
 /// Test negative binomial with theta estimation - may differ from R due to
