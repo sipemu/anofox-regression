@@ -370,6 +370,13 @@ impl FittedIsotonic {
     }
 
     /// Predict for a single x value using step function interpolation.
+    ///
+    /// Between training points the prediction is the fitted value at the
+    /// nearest training `x` to the left (right-continuous step, R's
+    /// `approx(x, yf, xout, method = "constant", f = 0)`). R's
+    /// `as.stepfun(isoreg(x, y))` instead takes the next block's value in the
+    /// gap after a block, and sklearn interpolates linearly. Outside the
+    /// training range see [`OutOfBounds`].
     pub fn predict_single(&self, x: f64) -> f64 {
         let n = self.x_thresholds.nrows();
         if n == 0 {
