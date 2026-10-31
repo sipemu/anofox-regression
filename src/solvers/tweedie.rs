@@ -466,7 +466,14 @@ impl TweedieRegressor {
         // Compute deviance
         let y_vec: Vec<f64> = (0..n_samples).map(|i| y[i]).collect();
         let deviance = self.family.deviance(&y_vec, mu);
-        let null_deviance = self.family.null_deviance(&y_vec);
+        let off_vec: Option<Vec<f64>> = offset.as_ref().map(|o| o.iter().copied().collect());
+        let null_deviance = crate::core::glm_null_deviance(
+            &self.family,
+            &y_vec,
+            None,
+            off_vec.as_deref(),
+            self.options.with_intercept,
+        );
 
         // Dispersion φ by the Pearson statistic Σ (y − μ)² / V(μ) / (n − p),
         // as R's summary.glm / vcov.glm (and statsmodels scale = "X2").

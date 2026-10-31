@@ -453,7 +453,14 @@ impl NegativeBinomialRegressor {
 
         let y_vec: Vec<f64> = (0..n_samples).map(|i| y[i]).collect();
         let deviance = family.deviance(&y_vec, mu);
-        let null_deviance = family.null_deviance(&y_vec);
+        let off_vec: Option<Vec<f64>> = self.offset.as_ref().map(|o| o.iter().copied().collect());
+        let null_deviance = crate::core::glm_null_deviance(
+            &family,
+            &y_vec,
+            None,
+            off_vec.as_deref(),
+            self.options.with_intercept,
+        );
 
         // The negative binomial variance mu + mu^2/theta already carries the
         // overdispersion, so the dispersion is fixed at 1 — the likelihood
@@ -560,7 +567,12 @@ impl NegativeBinomialRegressor {
                     beta,
                     &se,
                     self.options.with_intercept,
-                    WaldReference::Normal,
+                    // Estimated dispersion: t tests, as `summary.glm`.
+                    if self.estimate_dispersion {
+                        WaldReference::StudentT(df_resid)
+                    } else {
+                        WaldReference::Normal
+                    },
                 );
 
                 xtwx_inverse = Some(xtwx_inv);

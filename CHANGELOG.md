@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tolerance` is glmnet's `thresh`. At least 100 000 passes are allowed regardless of `max_iterations`. `lambda = 0` is OLS (via ridge).
   - Validated against glmnet 5.2 in `tests/issue187_elastic_net_cd.rs` (lasso and elastic net, with and without intercept, `X` rescaled ×100) and against the dataset-4 reference in `validation/validation_output.txt`.
   - **Behaviour change:** coefficients of every fit with `alpha > 0` and `lambda > 0` change.
+- **`PoissonRegressor` used quasi-Poisson standard errors on overdispersed data (#189).** The dispersion was `max(1, Pearson χ²/df)`; it is now 1, as `glm(family = poisson)`, so SEs, z, p-values, CIs, `vcov()`, `predict_with_se` and F match R. The new `estimate_dispersion(true)` gives `glm(family = quasipoisson)` (unfloored Pearson χ²/df, t tests). `NegativeBinomialRegressor::estimate_dispersion(true)` now also uses t tests on n − p df, as `summary.glm`. **Behaviour change:** SEs of overdispersed Poisson fits get smaller.
+- **Null deviance ignored the offset, the intercept setting and prior weights (#190).** Poisson, negative binomial, Tweedie / Gamma and binomial now compute it as `glm.fit`: the intercept-only fit with the offset (IRLS) and weights, or `linkinv(offset)` without an intercept. `r_squared` and the F statistic change accordingly. Validated in `tests/issue189_190_glm_dispersion_null_deviance.rs` (generator `tests/r_scripts/generate_glm_null_deviance_validation.R`).
 
 ## [0.7.0] - 2026-10-30
 

@@ -118,6 +118,79 @@ pub trait GlmFamily {
     }
 }
 
+/// Null deviance as R's `glm.fit` defines it, for any family, with optional
+/// prior weights and offset.
+///
+/// * Intercept, no offset: the deviance at the weighted mean of `y` (the
+///   intercept-only fit for any link).
+/// * Intercept and offset: the deviance of the intercept-only model with the
+///   offset, fitted by IRLS (R refits `glm.fit(x = intercept, offset)`).
+/// * No intercept: the deviance at `mu = linkinv(offset)` (`linkinv(0)`
+///   without an offset).
+pub(crate) fn glm_null_deviance<F: GlmFamily + ?Sized>(
+    family: &F,
+    y: &[f64],
+    weights: Option<&[f64]>,
+    offset: Option<&[f64]>,
+    with_intercept: bool,
+) -> f64 {
+    let n = y.len();
+    let w = |i: usize| weights.map_or(1.0, |w| w[i]);
+    let dev = |mu: &dyn Fn(usize) -> f64| -> f64 {
+        (0..n)
+            .filter(|&i| w(i) > 0.0)
+            .map(|i| w(i) * family.unit_deviance(y[i], mu(i)))
+            .sum()
+    };
+    let off = |i: usize| offset.map_or(0.0, |o| o[i]);
+    if !with_intercept {
+        return dev(&|i| family.link_inverse(off(i)));
+    }
+    let w_sum: f64 = (0..n).map(w).sum();
+    let y_bar = (0..n).map(|i| w(i) * y[i]).sum::<f64>() / w_sum;
+    if offset.is_none() {
+        return dev(&|_| y_bar);
+    }
+    // Scalar IRLS for β₀ in η = β₀ + offset, with step halving.
+    let off_bar = (0..n).map(|i| w(i) * off(i)).sum::<f64>() / w_sum;
+    let mut b0 = family.link(y_bar) - off_bar;
+    let mut d_old = dev(&|i| family.link_inverse(b0 + off(i)));
+    for _ in 0..100 {
+        let (mut num, mut den) = (0.0, 0.0);
+        for i in (0..n).filter(|&i| w(i) > 0.0) {
+            let mu = family.link_inverse(b0 + off(i));
+            let g = family.link_derivative(mu);
+            let ww = w(i) / (family.variance(mu) * g * g);
+            num += ww * (b0 + (y[i] - mu) * g);
+            den += ww;
+        }
+        let target = num / den;
+        let mut step = target - b0;
+        let mut d_new = f64::INFINITY;
+        for _ in 0..30 {
+            let cand = b0 + step;
+            let mu_ok = (0..n).all(|i| family.valid_mu(family.link_inverse(cand + off(i))));
+            if mu_ok {
+                d_new = dev(&|i| family.link_inverse(cand + off(i)));
+                if d_new.is_finite() && d_new <= d_old * (1.0 + 1e-12) {
+                    break;
+                }
+            }
+            step /= 2.0;
+        }
+        if !d_new.is_finite() {
+            break;
+        }
+        b0 += step;
+        let converged = (d_old - d_new).abs() / (d_new.abs() + 0.1) < 1e-14;
+        d_old = d_new;
+        if converged {
+            break;
+        }
+    }
+    d_old
+}
+
 /// Tweedie family for generalized linear models.
 ///
 /// The Tweedie family is parameterized by:

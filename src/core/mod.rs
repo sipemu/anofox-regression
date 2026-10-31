@@ -13,6 +13,7 @@ mod prediction;
 mod result;
 
 pub use binomial::BinomialFamily;
+pub(crate) use family::glm_null_deviance;
 pub use family::{GlmFamily, TweedieFamily};
 pub use link::BinomialLink;
 pub use model_info::{HasModelInfo, ModelInfo};
