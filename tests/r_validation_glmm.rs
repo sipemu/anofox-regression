@@ -27,8 +27,10 @@ include!("fixtures/glmm_validation.rs");
 // The Gaussian LMM is solved in closed form per θ and matches lme4 to 1e-5
 // (lme4's default optimiser stops ~2e-6 short on the nested-factor case).
 const LMM_TOL: f64 = 1e-5;
-// The GLMM Laplace (nAGQ=0) is ~1e-3 from glmer(nAGQ=0) on the Poisson /
-// binomial scenarios, also against a tightly converged glmer (#234).
+// The GLMM Laplace (nAGQ=0) is ~1e-3 from glmer(nAGQ=0) on the Poisson
+// scenario: lme4's nAGQ=0 deviance is not smooth at the 1e-4 level, so its θ is
+// only determined to ~1e-2 (the crate's θ has a lower value of lme4's own
+// objective; #234).
 const GLMM_TOL: f64 = 1e-2;
 
 #[test]
