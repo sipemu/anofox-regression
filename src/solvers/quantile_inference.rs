@@ -344,7 +344,7 @@ pub(crate) fn inference_for_fit(
         .iter()
         .map(|s| {
             if s.is_finite() {
-                2.0 * (1.0 - t.cdf(s.abs()))
+                2.0 * t.sf(s.abs())
             } else {
                 f64::NAN
             }

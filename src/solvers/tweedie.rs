@@ -520,7 +520,7 @@ impl TweedieRegressor {
 
         let f_pvalue = if f_statistic.is_finite() && df_model > 0.0 && df_resid > 0.0 {
             FisherSnedecor::new(df_model, df_resid)
-                .map(|d| 1.0 - d.cdf(f_statistic))
+                .map(|d| d.sf(f_statistic))
                 .unwrap_or(f64::NAN)
         } else {
             f64::NAN

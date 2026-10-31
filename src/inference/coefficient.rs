@@ -73,7 +73,7 @@ impl CoefficientInference {
             } else {
                 // Two-tailed test
                 let abs_t = t_statistics[j].abs();
-                p_vals[j] = 2.0 * (1.0 - t_dist.cdf(abs_t));
+                p_vals[j] = 2.0 * t_dist.sf(abs_t);
             }
         }
 

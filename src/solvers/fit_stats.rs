@@ -155,7 +155,7 @@ pub(crate) fn linear_fit_stats_from_sums(
     let f_pvalue = if f_statistic.is_finite() && df_model > 0.0 && df_resid > 0.0 {
         FisherSnedecor::new(df_model, df_resid)
             .ok()
-            .map_or(f64::NAN, |d| 1.0 - d.cdf(f_statistic))
+            .map_or(f64::NAN, |d| d.sf(f_statistic))
     } else {
         f64::NAN
     };

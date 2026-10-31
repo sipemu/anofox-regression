@@ -1168,7 +1168,7 @@ impl FittedGls {
     pub fn p_values(&self) -> Col<f64> {
         let t = StudentsT::new(0.0, 1.0, self.df_residual).expect("positive df");
         let tv = self.t_values();
-        Col::from_fn(tv.nrows(), |j| 2.0 * (1.0 - t.cdf(tv[j].abs())))
+        Col::from_fn(tv.nrows(), |j| 2.0 * t.sf(tv[j].abs()))
     }
 
     /// Confidence intervals `(lower, upper)` of the coefficients on `N − p`

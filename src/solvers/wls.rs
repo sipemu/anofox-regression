@@ -695,7 +695,7 @@ impl WlsRegressor {
 
                     let t_dist = StudentsT::new(0.0, 1.0, df).ok();
                     let p_int = if t_int.is_finite() {
-                        t_dist.map_or(f64::NAN, |d| 2.0 * (1.0 - d.cdf(t_int.abs())))
+                        t_dist.map_or(f64::NAN, |d| 2.0 * d.sf(t_int.abs()))
                     } else {
                         f64::NAN
                     };
