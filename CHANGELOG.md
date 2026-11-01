@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Packaging (#182):**
+  - The crates.io package ships only `src/`, `examples/`, `benches/`, the README, licence, changelog and third-party notices: 157 files and 723 KB, down from 454 files and 8.7 MB, which included fixtures, R scripts, `js/` and CI configuration.
+  - `rust-version = "1.87"` (set by `basin` 3.1); CI checks the library on 1.87 with and without features, and builds the packaged crate.
+  - docs.rs builds with all features.
+  - The release profile moved to the workspace root, where cargo reads it.
+  - The WASM crate is `publish = false`.
+  - `js/package-lock.json` now matches 0.7.0.
+
 ### Added
 
 - **`FittedHuber::converged()` / `iterations()` and `FittedQuantile::converged()` / `iterations()` (#181).** Huber's IRLS and quantile regression used to stop at `max_iterations` silently. Huber reports whether the coefficient change fell below `tolerance`. Quantile reports whether the simplex pivots after IRLS certified the LP optimum; with a singular basis or the pivot limit the IRLS estimate is kept and `converged()` is `false`. Elastic net already returns `ConvergenceFailed` when coordinate descent hits its pass limit (`tests/issue181_convergence.rs`).
