@@ -160,3 +160,92 @@ fn seeded_resamples_run_end_to_end() {
     let r = Resamples::crossvalidation_seeded(n, 5, 1).unwrap();
     assert!(validate_ols(&x(), &YC, &r).is_ok());
 }
+
+/// #210: `.632` validation of an `ols` fit.
+#[test]
+fn point632_ols_matches_rms() {
+    let n = X1.len();
+    let r = Resamples::point632(n, samples(&P632_IDX)).unwrap();
+    check(
+        "ols .632",
+        &validate_ols(&x(), &YC, &r).unwrap(),
+        &OLS_632,
+        1e-9,
+    );
+}
+
+/// #210: `calibrate(fit, predy = )` with a user grid.
+#[test]
+fn calibration_on_a_user_grid_matches_rms() {
+    let n = X1.len();
+    let r = Resamples::bootstrap(n, samples(&BOOT_IDX)).unwrap();
+    for (id, cal, grid, orig, corr, opt, nn, err) in [
+        (
+            "lrm",
+            calibrate_lrm(&x(), &YB, &r, Some(PREDY_LRM_GRID.to_vec())).unwrap(),
+            &PREDY_LRM_GRID[..],
+            &CAL_LRM_GRID_ORIG[..],
+            &CAL_LRM_GRID_CORR[..],
+            &CAL_LRM_GRID_OPT[..],
+            &CAL_LRM_GRID_N[..],
+            &CAL_LRM_GRID_ERR[..],
+        ),
+        (
+            "ols",
+            calibrate_ols(&x(), &YC, &r, Some(PREDY_OLS_GRID.to_vec())).unwrap(),
+            &PREDY_OLS_GRID[..],
+            &CAL_OLS_GRID_ORIG[..],
+            &CAL_OLS_GRID_CORR[..],
+            &CAL_OLS_GRID_OPT[..],
+            &CAL_OLS_GRID_N[..],
+            &CAL_OLS_GRID_ERR[..],
+        ),
+    ] {
+        assert_eq!(cal.predy.len(), grid.len(), "{id} grid");
+        for k in 0..grid.len() {
+            close(&format!("{id} predy[{k}]"), cal.predy[k], grid[k], 1e-15);
+            close(
+                &format!("{id} orig[{k}]"),
+                cal.calibrated_orig[k],
+                orig[k],
+                1e-7,
+            );
+            close(
+                &format!("{id} corrected[{k}]"),
+                cal.calibrated_corrected[k],
+                corr[k],
+                1e-6,
+            );
+            close(
+                &format!("{id} optimism[{k}]"),
+                cal.optimism[k],
+                opt[k],
+                1e-5,
+            );
+            assert_eq!(cal.n[k] as f64, nn[k], "{id} n[{k}]");
+        }
+        close(
+            &format!("{id} mean abs error"),
+            cal.mean_abs_error,
+            err[0],
+            1e-6,
+        );
+        close(&format!("{id} mse"), cal.mean_squared_error, err[1], 1e-6);
+        close(&format!("{id} q90"), cal.quantile90_abs_error, err[2], 1e-6);
+    }
+}
+
+/// #210: bootstrap rank intervals (RMS §5.4) vs R's `rank` and
+/// `quantile(type = 7)`, with ties in the original statistics.
+#[test]
+fn rank_intervals_match_r() {
+    let m = RANK_ORIG.len();
+    let b = RANK_REPS.len() / m;
+    let reps = Mat::from_fn(b, m, |i, j| RANK_REPS[i * m + j]);
+    let got = anofox_regression::validation::rank_intervals(&RANK_ORIG, &reps, 0.9);
+    for (j, (rank, lo, hi)) in got.iter().enumerate() {
+        close(&format!("rank {j}"), *rank, RANK_TABLE[3 * j], 1e-15);
+        close(&format!("lower {j}"), *lo, RANK_TABLE[3 * j + 1], 1e-12);
+        close(&format!("upper {j}"), *hi, RANK_TABLE[3 * j + 2], 1e-12);
+    }
+}

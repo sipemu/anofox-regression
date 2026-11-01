@@ -50,6 +50,8 @@ pub struct PooledFit {
     /// the Barnard–Rubin d.f. (Rubin's d.f. without a complete-data d.f.),
     /// as `mice::pool`'s `fmi`.
     pub fmi: Col<f64>,
+    /// The complete-data d.f. given to [`pool_rubin`] (`mice`'s `dfcom`).
+    pub df_complete: Option<f64>,
 }
 
 impl PooledFit {
@@ -122,6 +124,7 @@ pub fn pool_rubin(
         df_rubin,
         df_barnard_rubin,
         fmi,
+        df_complete,
     })
 }
 
@@ -142,8 +145,13 @@ pub struct PooledWald {
 
 /// Test that the coefficients `indices` are all zero with the D1 statistic
 /// of Li, Raghunathan and Rubin (1991): `F = Q̄ᵀ T̃⁻¹ Q̄ / k` with
-/// `T̃ = (1 + r₁) Ū` on `k` and `ν₂` d.f. (`mice::D1` without a
-/// complete-data d.f.).
+/// `T̃ = (1 + r₁) Ū` on `k` and `ν₂` d.f., as `mice::D1` (`mitml`'s `.D1`).
+///
+/// With a complete-data d.f. (`df_complete` of [`pool_rubin`]; `mice::D1`
+/// takes it from the model) `ν₂` is Reiter's (2007) small-sample d.f.;
+/// without one it is Li et al.'s `4 + (t − 4)(1 + (1 − 2/t)/r₁)²`,
+/// `t = k(m − 1)` (for `t ≤ 4`: `t(1 + 1/k)(1 + 1/r₁)²/2`). Reiter's d.f.
+/// needs `t > 4`, i.e. enough imputations.
 pub fn pooled_wald_d1(
     pooled: &PooledFit,
     indices: &[usize],
@@ -165,7 +173,9 @@ pub fn pooled_wald_d1(
     let quad = (theta.transpose() * &w_inv * &theta) / (1.0 + r1);
     let f = quad / kf;
     let nu1 = kf * (mf - 1.0);
-    let df2 = if nu1 > 4.0 {
+    let df2 = if let Some(dc) = pooled.df_complete {
+        reiter_df(r1, nu1, dc)
+    } else if nu1 > 4.0 {
         4.0 + (nu1 - 4.0) * (1.0 + (1.0 - 2.0 / nu1) / r1).powi(2)
     } else {
         nu1 * (1.0 + 1.0 / kf) * (1.0 + 1.0 / r1).powi(2) / 2.0
@@ -178,4 +188,21 @@ pub fn pooled_wald_d1(
         p_value,
         riv: r1,
     })
+}
+
+/// Reiter's (2007, Eq. 1–2) denominator d.f. of the D1 test, as `mitml`'s
+/// `.D1` with `df.com`: `a = r t/(t − 2)`, `ν* = (ν_com + 1)/(ν_com + 3) ν_com`.
+fn reiter_df(r: f64, t: f64, df_com: f64) -> f64 {
+    let a = r * t / (t - 2.0);
+    let vstar = (df_com + 1.0) / (df_com + 3.0) * df_com;
+    let c0 = 1.0 / (t - 4.0);
+    let c1 = vstar - 2.0 * (1.0 + a);
+    let c2 = vstar - 4.0 * (1.0 + a);
+    let a2 = a * a;
+    let z = 1.0 / c2
+        + c0 * (a2 * c1 / ((1.0 + a).powi(2) * c2))
+        + c0 * (8.0 * a2 * c1 / ((1.0 + a) * c2 * c2) + 4.0 * a2 / ((1.0 + a) * c2))
+        + c0 * (4.0 * a2 / (c2 * c1) + 16.0 * a2 * c1 / c2.powi(3))
+        + c0 * (8.0 * a2 / (c2 * c2));
+    4.0 + 1.0 / z
 }
