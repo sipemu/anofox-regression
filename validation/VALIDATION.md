@@ -91,6 +91,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_validation_210_part13.R` | Penalized-GLM Laplace priors vs `glmnet(penalty.factor)`, Tweedie p = 1.5 vs `statmod::tweedie` (#210) (`tests/r_validation_210_part13.rs`) |
 | `tests/r_scripts/generate_validation_210_part14.R` | `greybox::alm`: `predict.alm` intervals, log-S, `scale`, no intercept, MAE / HAM / ROLE losses (#210) (`tests/r_validation_210_part14.rs`) |
 | `tests/r_scripts/generate_validation_210_part15.R` | `greybox::lmDynamic` default span: `fFinder` criterion on a grid and the chosen `f` (#210) (`tests/r_validation_210_part15.rs`) |
+| `tests/r_scripts/generate_validation_210_part17.R` | lmDynamic with `plogis` / `pnorm` (combination on converged `glm` fits); ALM non-canonical links vs `glm` (#210) (`tests/r_validation_210_part17.rs`) |
 | `tests/r_scripts/generate_cv_mae_validation.R` | `cv.glmnet(type.measure = "mae")` on fixed folds (#210) (`tests/r_validation_cv_mae.rs`) |
 | `tests/r_scripts/generate_lars_path_validation.R` | LAR / lasso path vs `lars::lars` (#210) (`tests/r_validation_lars_path.rs`) |
 | `tests/r_scripts/generate_hetero_validation.R` | White (3 regressors) and custom-z Breusch–Pagan vs `lmtest::bptest` (#210) (`tests/r_validation_hetero.rs`) |
@@ -833,6 +834,7 @@ Rscript tests/r_scripts/generate_validation_210_part10.R   # -> tests/r_validati
 Rscript tests/r_scripts/generate_validation_210_part13.R   # -> tests/r_validation_210_part13.rs
 Rscript tests/r_scripts/generate_validation_210_part14.R   # -> tests/r_validation_210_part14.rs
 Rscript tests/r_scripts/generate_validation_210_part15.R   # -> tests/r_validation_210_part15.rs
+Rscript tests/r_scripts/generate_validation_210_part17.R   # -> tests/r_validation_210_part17.rs
 Rscript tests/r_scripts/generate_cv_mae_validation.R   # -> tests/r_validation_cv_mae.rs
 Rscript tests/r_scripts/generate_lars_path_validation.R   # -> tests/r_validation_lars_path.rs
 Rscript tests/r_scripts/generate_hetero_validation.R   # -> tests/r_validation_hetero.rs
