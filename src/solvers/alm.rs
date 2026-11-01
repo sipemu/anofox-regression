@@ -865,6 +865,142 @@ pub fn log_likelihood(
 // Numerical Optimization Cost Function for basin
 // ============================================================================
 
+/// The design `[1, X]` (or `X` without intercept) of a cost function.
+fn loss_design(cost: &NegLogLikelihoodCost<'_>) -> Mat<f64> {
+    let (n, p) = (cost.x.nrows(), cost.x.ncols());
+    let off = usize::from(cost.with_intercept);
+    Mat::from_fn(
+        n,
+        p + off,
+        |i, j| {
+            if j < off {
+                1.0
+            } else {
+                cost.x[(i, j - off)]
+            }
+        },
+    )
+}
+
+/// `k` rows of `z` in order of `order`, skipping rows that are linearly
+/// dependent on those already chosen (Gram–Schmidt on the rows).
+fn independent_rows(z: &Mat<f64>, order: &[usize]) -> Option<Vec<usize>> {
+    let k = z.ncols();
+    let (mut rows, mut basis): (Vec<usize>, Vec<Vec<f64>>) = (vec![], vec![]);
+    for &i in order {
+        let mut v: Vec<f64> = (0..k).map(|j| z[(i, j)]).collect();
+        let norm0 = v.iter().map(|a| a * a).sum::<f64>().sqrt();
+        for b in &basis {
+            let d: f64 = v.iter().zip(b).map(|(a, c)| a * c).sum();
+            v.iter_mut().zip(b).for_each(|(a, c)| *a -= d * c);
+        }
+        let norm = v.iter().map(|a| a * a).sum::<f64>().sqrt();
+        if norm > 1e-10 * norm0.max(1.0) {
+            basis.push(v.into_iter().map(|a| a / norm).collect());
+            rows.push(i);
+        }
+        if rows.len() == k {
+            return Some(rows);
+        }
+    }
+    None
+}
+
+/// Rows `rows` of `z` as a square matrix.
+fn rows_of(z: &Mat<f64>, rows: &[usize]) -> Mat<f64> {
+    Mat::from_fn(rows.len(), z.ncols(), |r, j| z[(rows[r], j)])
+}
+
+/// Steps `t = rᵢ / uᵢ` to the vertices along one edge, for rows outside the
+/// basis; with many rows only the [`MAX_EDGE_STEPS`] nearest (smallest |t|).
+fn edge_steps(r: &[f64], u: &Col<f64>, basis: &[usize]) -> Vec<(usize, f64)> {
+    let mut steps: Vec<(usize, f64)> = (0..r.len())
+        .filter(|i| !basis.contains(i) && u[*i].abs() > 1e-12)
+        .map(|i| (i, r[i] / u[i]))
+        .collect();
+    if steps.len() > MAX_EDGE_STEPS {
+        steps.select_nth_unstable_by(MAX_EDGE_STEPS, |a, b| a.1.abs().total_cmp(&b.1.abs()));
+        steps.truncate(MAX_EDGE_STEPS);
+    }
+    steps
+}
+
+/// Vertices tried along each edge by [`ham_vertex_descent`] when there are
+/// more rows (all of them below that).
+const MAX_EDGE_STEPS: usize = 200;
+
+/// One step of [`ham_vertex_descent`]: the best vertex next to the one
+/// interpolating `basis`, as `(cost, coefficients, basis)`, if it improves
+/// on `current`. Leaving basis row `j` moves along `d = Z_B⁻¹ eⱼ`; the
+/// neighbouring vertices are where another residual reaches 0,
+/// `t = rᵢ / (z_i · d)`.
+fn best_neighbour(
+    cost: &LossCost<'_>,
+    z: &Mat<f64>,
+    basis: &[usize],
+    beta: &[f64],
+    current: f64,
+) -> Option<(f64, Vec<f64>, Vec<usize>)> {
+    use faer::linalg::solvers::Solve;
+    let (n, k) = (z.nrows(), z.ncols());
+    let inv = rows_of(z, basis)
+        .partial_piv_lu()
+        .solve(Mat::<f64>::identity(k, k));
+    let fitted = z * Col::from_fn(k, |j| beta[j]);
+    let r: Vec<f64> = (0..n).map(|i| cost.inner.y[i] - fitted[i]).collect();
+    let mut best: Option<(f64, Vec<f64>, Vec<usize>)> = None;
+    for j in 0..k {
+        let d = inv.col(j).to_owned();
+        let u = z * &d;
+        for (i, t) in edge_steps(&r, &u, basis) {
+            let b: Vec<f64> = (0..k).map(|m| beta[m] + t * d[m]).collect();
+            let Ok(v) = cost.cost(&b);
+            let bar = best.as_ref().map_or(current, |c| c.0);
+            if v < bar - 1e-15 * (1.0 + bar.abs()) {
+                let mut nb = basis.to_vec();
+                nb[j] = i;
+                best = Some((v, b, nb));
+            }
+        }
+    }
+    best
+}
+
+/// HAM's mean `√|e|` is concave in the coefficients between the points where
+/// a residual changes sign, so with an identity link its minimum is a fit
+/// through `k` observations (a vertex). From the Nelder–Mead estimate,
+/// start at the vertex of the `k` smallest |residuals| and move to the best
+/// neighbouring vertex while the loss decreases; keep whichever is better.
+fn ham_vertex_descent(cost: &LossCost<'_>, params: Vec<f64>, best: f64) -> Vec<f64> {
+    use faer::linalg::solvers::Solve;
+    let z = loss_design(&cost.inner);
+    let n = z.nrows();
+    let fitted = &z * Col::from_fn(z.ncols(), |j| params[j]);
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| {
+        let ra = (cost.inner.y[a] - fitted[a]).abs();
+        ra.total_cmp(&(cost.inner.y[b] - fitted[b]).abs())
+    });
+    let Some(mut basis) = independent_rows(&z, &order) else {
+        return params;
+    };
+    let yb = Col::from_fn(basis.len(), |r| cost.inner.y[basis[r]]);
+    let start = rows_of(&z, &basis).partial_piv_lu().solve(&yb);
+    let mut beta: Vec<f64> = start.iter().copied().collect();
+    let Ok(mut v) = cost.cost(&beta);
+    for _ in 0..10 * n {
+        let Some((nv, nb, nbasis)) = best_neighbour(cost, &z, &basis, &beta, v) else {
+            break;
+        };
+        (v, beta, basis) = (nv, nb, nbasis);
+    }
+    if v < best {
+        beta
+    } else {
+        params
+    }
+}
+
 /// Negative log-likelihood cost function for numerical optimization.
 ///
 /// This struct holds references to the data and distribution parameters,
@@ -1735,6 +1871,9 @@ impl AlmRegressor {
             }
             params = res.best_param().clone();
             best = v;
+        }
+        if self.loss == AlmLoss::HAM && self.link == LinkFunction::Identity {
+            params = ham_vertex_descent(&cost, params, best);
         }
         let k = beta.nrows();
         (

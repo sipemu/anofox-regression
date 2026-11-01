@@ -94,36 +94,48 @@ fn ham(y: &[f64], b: &[f64]) -> f64 {
 }
 
 /// The global HAM minimum is a line through two observations (√|e| is
-/// concave on each side of 0): the best over all pairs.
-fn ham_global(y: &[f64]) -> f64 {
+/// concave on each side of 0): the best over all pairs, as
+/// `(objective, [intercept, slope])`.
+fn ham_global(y: &[f64]) -> (f64, [f64; 2]) {
     let n = X.len();
     (0..n)
         .flat_map(|i| (i + 1..n).map(move |j| (i, j)))
         .map(|(i, j)| {
             let b1 = (y[j] - y[i]) / (X[j] - X[i]);
-            ham(y, &[y[i] - b1 * X[i], b1])
+            let b = [y[i] - b1 * X[i], b1];
+            (ham(y, &b), b)
         })
-        .fold(f64::INFINITY, f64::min)
+        .fold(
+            (f64::INFINITY, [0.0; 2]),
+            |a, c| if c.0 < a.0 { c } else { a },
+        )
+}
+
+/// The crate reaches the global minimum: the same two-point line (√|e| makes
+/// the objective itself sensitive to rounding, ~1e-8, near a zero residual).
+fn assert_global(y: &[f64], e: &[f64], what: &str) {
+    let (best, b) = ham_global(y);
+    close(&e[..2], &b, 1e-10, what);
+    assert!((ham(y, e) - best).abs() < 1e-8, "{what}");
 }
 
 /// With outliers greybox stops short (mean √|e| 1.75831); the crate reaches
-/// the global minimum, 1.753924 (to 1e-7: Nelder–Mead at a kink).
+/// the global minimum, 1.753924.
 #[test]
 fn ham_with_outliers_reaches_the_global_minimum() {
     let e = estimates(&fit(&YO, AlmLoss::HAM));
     assert!(ham(&YO, &e) <= ham(&YO, &HAM_OUTLIERS));
-    let (got, best) = (ham(&YO, &e), ham_global(&YO));
-    assert!(got - best < 1e-7, "{got} vs global {best}");
+    assert_global(&YO, &e, "HAM, outliers");
     close(&e[..2], &HAM_OUTLIERS[..2], 0.06, "HAM, outliers");
 }
 
-/// greybox reaches 1.43928 here (global minimum 1.43074); the crate stops
-/// at 1.45112.
+/// greybox stops at 1.43928 here; Nelder–Mead alone stopped at 1.45112
+/// (#261). The vertex descent reaches the global minimum, 1.43074.
 #[test]
-#[ignore = "#261: HAM's Nelder–Mead stops at a worse local minimum"]
-fn ham_on_clean_data_reaches_greybox() {
+fn ham_on_clean_data_reaches_the_global_minimum() {
     let e = estimates(&fit(&YC, AlmLoss::HAM));
-    assert!(ham(&YC, &e) <= ham(&YC, &HAM) + 1e-12);
+    assert!(ham(&YC, &e) <= ham(&YC, &HAM));
+    assert_global(&YC, &e, "HAM");
 }
 
 /// Trimmed negative log-likelihood, ×n as greybox (`−meanFast(trim) · n`),
@@ -159,4 +171,70 @@ fn role_is_at_least_as_good_as_greybox() {
             .fold(f64::INFINITY, f64::min);
         assert!(role(&e[..2], e[2], trim) <= greybox + 1e-9, "ROLE {trim}");
     }
+}
+
+/// Two predictors: the best plane through three observations, by brute
+/// force over all triples of `n = 40` points with three outliers.
+#[test]
+fn ham_with_two_predictors_reaches_the_global_minimum() {
+    let n = 40;
+    let x = Mat::from_fn(n, 2, |i, j| {
+        let t = i as f64;
+        if j == 0 {
+            (t * 0.37).sin() * 3.0 + t / 10.0
+        } else {
+            (t * 1.3).cos() * 2.0
+        }
+    });
+    let y: Vec<f64> = (0..n)
+        .map(|i| {
+            let o = match i {
+                5 => 25.0,
+                17 => -30.0,
+                33 => 18.0,
+                _ => 0.0,
+            };
+            1.0 + 2.0 * x[(i, 0)] - 1.5 * x[(i, 1)] + ((i * 7919) % 13) as f64 / 6.0 - 1.0 + o
+        })
+        .collect();
+    let obj = |b: &[f64]| {
+        (0..n)
+            .map(|i| {
+                (y[i] - b[0] - b[1] * x[(i, 0)] - b[2] * x[(i, 1)])
+                    .abs()
+                    .sqrt()
+            })
+            .sum::<f64>()
+            / n as f64
+    };
+    let mut best = f64::INFINITY;
+    for a in 0..n {
+        for b in a + 1..n {
+            for c in b + 1..n {
+                let z = Mat::from_fn(3, 3, |r, j| {
+                    let i = [a, b, c][r];
+                    if j == 0 {
+                        1.0
+                    } else {
+                        x[(i, j - 1)]
+                    }
+                });
+                let rhs = Col::from_fn(3, |r| y[[a, b, c][r]]);
+                use faer::linalg::solvers::Solve;
+                let s = z.partial_piv_lu().solve(&rhs);
+                if s.iter().all(|v| v.is_finite()) {
+                    best = best.min(obj(&[s[0], s[1], s[2]]));
+                }
+            }
+        }
+    }
+    let f = AlmRegressor::builder()
+        .distribution(AlmDistribution::Normal)
+        .loss(AlmLoss::HAM)
+        .build()
+        .fit(&x, &Col::from_fn(n, |i| y[i]))
+        .unwrap();
+    let r = f.result();
+    let got = obj(&[r.intercept.unwrap(), r.coefficients[0], r.coefficients[1]]);
+    assert!((got - best).abs() < 1e-8, "{got} vs global {best}");
 }
