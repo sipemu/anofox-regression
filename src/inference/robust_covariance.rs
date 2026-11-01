@@ -366,7 +366,7 @@ mod tests {
 
         let n = x_data.len();
         let x = Mat::from_fn(n, 1, |i, _| x_data[i]);
-        let y = Col::from_fn(n, |i| y_data[i]);
+        let _y = Col::from_fn(n, |i| y_data[i]);
 
         // Fit OLS manually: compute coefficients
         let x_mean: f64 = x_data.iter().sum::<f64>() / n as f64;

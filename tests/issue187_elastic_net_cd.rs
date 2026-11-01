@@ -104,12 +104,12 @@ fn elastic_net_with_intercept_matches_glmnet() {
             (r.intercept.unwrap() - b0).abs() < 1e-7,
             "alpha {alpha}, lambda {lam}"
         );
-        for j in 0..3 {
+        for (j, &want) in b.iter().enumerate() {
             assert!(
-                (r.coefficients[j] - b[j]).abs() < 1e-7,
+                (r.coefficients[j] - want).abs() < 1e-7,
                 "alpha {alpha}, lambda {lam}, coef {j}: {} vs {}",
                 r.coefficients[j],
-                b[j]
+                want
             );
         }
         // Exact zeros of the lasso are kept.

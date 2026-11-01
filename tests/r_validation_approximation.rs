@@ -1,4 +1,4 @@
-#![allow(clippy::excessive_precision)]
+#![allow(clippy::large_const_arrays, clippy::excessive_precision)]
 
 //! #108: heuristic shrinkage and model approximation (RMS §4.5, §5.5.2,
 //! Ch 19) against rms. Reference values come from

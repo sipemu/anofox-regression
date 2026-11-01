@@ -349,9 +349,9 @@ mod tests {
         }
         // H⁺ of a full-rank matrix is its inverse.
         let inv = scaled_pseudo_inverse(&m, 1.0);
-        for r in 0..3 {
+        for (r, row) in m.iter().enumerate() {
             for c in 0..3 {
-                let prod: f64 = (0..3).map(|j| m[r][j] * inv[j][c]).sum();
+                let prod: f64 = row.iter().zip(&inv).map(|(a, inv_j)| a * inv_j[c]).sum();
                 let expect = if r == c { 1.0 } else { 0.0 };
                 assert!((prod - expect).abs() < 1e-12);
             }

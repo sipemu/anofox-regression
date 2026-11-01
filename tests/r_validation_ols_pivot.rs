@@ -71,12 +71,12 @@ fn ols_no_intercept_matches_r_under_nontrivial_pivot() {
         .unwrap();
     let r = fit.result();
 
-    for j in 0..B_P {
+    for (j, &want) in B_COEF.iter().enumerate().take(B_P) {
         assert!(
-            (r.coefficients[j] - B_COEF[j]).abs() < TOL,
+            (r.coefficients[j] - want).abs() < TOL,
             "coef[{j}] = {} vs {}",
             r.coefficients[j],
-            B_COEF[j]
+            want
         );
     }
     let se = r.std_errors.as_ref().unwrap();

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use anofox_regression::solvers::{AidClassifier, AidClassifierBuilder};
+use anofox_regression::solvers::AidClassifier;
 use faer::Col;
 
 /// Generate Poisson-like count demand data.

@@ -995,12 +995,12 @@ mod tests {
             .build()
             .fit(&x, &y)
             .unwrap();
-        for j in 0..7 {
+        for (j, &want) in expected.iter().enumerate().take(7) {
             assert!(
-                (fit.coefficients()[j] - expected[j]).abs() < 1e-9,
+                (fit.coefficients()[j] - want).abs() < 1e-9,
                 "coef {j}: {} vs {}",
                 fit.coefficients()[j],
-                expected[j]
+                want
             );
         }
     }
@@ -1084,12 +1084,12 @@ mod tests {
             .build()
             .fit(&x, &y)
             .unwrap();
-        for j in 0..3 {
+        for (j, &want) in truth.iter().enumerate() {
             assert!(
-                (fit.coefficients()[j] - truth[j]).abs() < 1e-6,
+                (fit.coefficients()[j] - want).abs() < 1e-6,
                 "coef[{j}] = {} vs {}",
                 fit.coefficients()[j],
-                truth[j]
+                want
             );
         }
     }

@@ -36,3 +36,9 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [[bench]]
 name = "aid_benchmark"
 harness = false
+
+[lints.clippy]
+# Reference values from R / scikit-learn are printed with 17 significant
+# digits (`%.17g`) so they round-trip exactly; truncating them would change
+# the references.
+excessive_precision = "allow"

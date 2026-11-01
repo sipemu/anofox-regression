@@ -255,6 +255,21 @@ pub(crate) fn binomial_saturated_log_likelihood(y: &[f64], trials: Option<&[f64]
         .sum()
 }
 
+/// Ridge penalty `λ Σ βⱼ²` of the penalised IRLS GLMs, over the design
+/// coefficients `beta` (intercept first and unpenalised when
+/// `with_intercept`). `deviance + ridge_penalty` is the objective the
+/// iteration `(X'WX + λI)β = X'Wz` minimises (`−2ℓ + λ‖β‖²`).
+pub(crate) fn ridge_penalty(beta: &Col<f64>, lambda: f64, with_intercept: bool) -> f64 {
+    if lambda == 0.0 {
+        return 0.0;
+    }
+    let start = usize::from(with_intercept);
+    lambda
+        * (start..beta.nrows())
+            .map(|j| beta[j] * beta[j])
+            .sum::<f64>()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,19 +294,4 @@ mod tests {
         assert!((s.log_likelihood - expected).abs() < 1e-12);
         assert!((s.aic - (6.0 - 2.0 * expected)).abs() < 1e-12);
     }
-}
-
-/// Ridge penalty `λ Σ βⱼ²` of the penalised IRLS GLMs, over the design
-/// coefficients `beta` (intercept first and unpenalised when
-/// `with_intercept`). `deviance + ridge_penalty` is the objective the
-/// iteration `(X'WX + λI)β = X'Wz` minimises (`−2ℓ + λ‖β‖²`).
-pub(crate) fn ridge_penalty(beta: &Col<f64>, lambda: f64, with_intercept: bool) -> f64 {
-    if lambda == 0.0 {
-        return 0.0;
-    }
-    let start = usize::from(with_intercept);
-    lambda
-        * (start..beta.nrows())
-            .map(|j| beta[j] * beta[j])
-            .sum::<f64>()
 }

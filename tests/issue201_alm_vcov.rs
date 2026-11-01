@@ -299,11 +299,21 @@ const FNORM_SE: [f64; 2] = [0.094912603381068925, 0.099359823891601903];
 
 const N: usize = 80;
 
+/// Distribution, response, extra parameter, coefficients, SEs and name.
+type AlmCase<'a> = (
+    AlmDistribution,
+    &'a [f64; N],
+    Option<f64>,
+    [f64; 2],
+    [f64; 2],
+    &'a str,
+);
+
 #[test]
 fn alm_standard_errors_match_greybox() {
     use AlmDistribution as D;
     let x = Mat::from_fn(N, 1, |i, _| X[i]);
-    let cases: [(D, &[f64; N], Option<f64>, [f64; 2], [f64; 2], &str); 12] = [
+    let cases: [AlmCase; 12] = [
         (D::Normal, &YN, None, NORMAL_COEF, NORMAL_SE, "normal"),
         (
             D::LogNormal,

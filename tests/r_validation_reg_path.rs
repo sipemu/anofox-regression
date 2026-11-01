@@ -129,13 +129,14 @@ fn elastic_net_path_matches_glmnet_objective() {
 fn lasso_path_matches_grpreg() {
     let (x, _) = data();
     let ys = Col::from_fn(N, |i| YS[i]);
-    for (name, alpha, lam, beta, a0) in [(
-        "grpreg lasso",
-        1.0,
-        &GRP_LASSO_LAMBDA[..],
-        &GRP_LASSO_BETA[..],
-        &GRP_LASSO_A0[..],
-    )] {
+    {
+        let (name, alpha, lam, beta, a0) = (
+            "grpreg lasso",
+            1.0,
+            &GRP_LASSO_LAMBDA[..],
+            &GRP_LASSO_BETA[..],
+            &GRP_LASSO_A0[..],
+        );
         let opts = PathOptions::elastic_net(alpha).with_standardize(true);
         let path = fit_path(&x, &ys, lam, &opts).unwrap();
         let (db, da) = path_diff(&path, beta, a0);

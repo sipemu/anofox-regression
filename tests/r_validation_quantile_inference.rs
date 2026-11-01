@@ -29,10 +29,13 @@ fn max_abs_diff(a: &[f64], b: &[f64]) -> f64 {
         .fold(0.0_f64, |m, (u, v)| m.max((u - v).abs()))
 }
 
+/// Coefficients, SEs, t and p values of one `summary.rq` table.
+type RqTable<'a> = (&'a [f64; 3], &'a [f64; 3], &'a [f64; 3], &'a [f64; 3]);
+
 #[test]
 fn iid_and_nid_match_summary_rq() {
     let (x, y) = data();
-    let refs: [[(&[f64; 3], &[f64; 3], &[f64; 3], &[f64; 3]); 2]; 3] = [
+    let refs: [[RqTable; 2]; 3] = [
         [
             (&T1_IID_COEF, &T1_IID_SE, &T1_IID_T, &T1_IID_P),
             (&T1_NID_COEF, &T1_NID_SE, &T1_NID_T, &T1_NID_P),
@@ -116,11 +119,11 @@ fn bootstrap_is_seeded_and_close_to_r() {
     assert_eq!(a.std_error, b.std_error);
     assert_eq!(a.n_boot, 400);
     // Different RNG than R: compare to R's R = 4000 bootstrap SE within 20 %.
-    for j in 0..3 {
-        let rel = (a.std_error[j] / BOOT_MEDIAN_SE[j] - 1.0).abs();
+    for (j, &want) in BOOT_MEDIAN_SE.iter().enumerate() {
+        let rel = (a.std_error[j] / want - 1.0).abs();
         eprintln!(
             "boot se[{j}] = {:.4} vs R {:.4} (rel {rel:.3})",
-            a.std_error[j], BOOT_MEDIAN_SE[j]
+            a.std_error[j], want
         );
         assert!(rel < 0.2, "boot se {j}: rel diff {rel}");
     }

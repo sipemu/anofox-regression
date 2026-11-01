@@ -1,4 +1,4 @@
-#![allow(clippy::excessive_precision)]
+#![allow(clippy::large_const_arrays, clippy::excessive_precision)]
 
 //! #104: bootstrap covariance against `rms::bootcov`, replaying R's
 //! ordinary and cluster resamples.

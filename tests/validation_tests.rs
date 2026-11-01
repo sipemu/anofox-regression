@@ -1120,8 +1120,8 @@ fn test_elastic_net_glmnet_scaling_matches_r() {
             .fit(&x, &y)
             .expect("fit should succeed");
         assert_relative_eq!(fitted.intercept().unwrap(), b0, epsilon = 1e-6);
-        for j in 0..5 {
-            assert_relative_eq!(fitted.coefficients()[j], b[j], epsilon = 1e-6);
+        for (j, &want) in b.iter().enumerate() {
+            assert_relative_eq!(fitted.coefficients()[j], want, epsilon = 1e-6);
         }
     }
 }

@@ -137,9 +137,14 @@ fn poisson_with_offset_matches_glm() {
 #[test]
 fn poisson_sqrt_link_matches_glm() {
     let f = fit(PenalizedGlmFamily::Poisson(PoissonLink::Sqrt), &Y_POIS);
-    rel_close(f.intercept().unwrap(), POIS_SQRT_COEF[0], 1e-6, "sqrt b0");
-    rel_close(f.coefficients()[0], POIS_SQRT_COEF[1], 1e-6, "sqrt b1");
-    rel_close(f.deviance(), POIS_SQRT_DEV[0], 1e-7, "sqrt deviance");
+    check_glm(
+        &f,
+        POIS_SQRT_COEF,
+        POIS_SQRT_SE,
+        POIS_SQRT_DEV,
+        POIS_SQRT_LL_AIC,
+        "poisson sqrt",
+    );
 }
 
 #[test]

@@ -457,10 +457,10 @@ fn weighted_isotonic_matches_pava() {
         .build()
         .fit(&x, &y)
         .unwrap();
-    for i in 0..N {
+    for (i, &want) in ISO_W.iter().enumerate().take(N) {
         close(
             f.result().fitted_values[i],
-            ISO_W[i],
+            want,
             1e-10,
             &format!("fitted[{i}]"),
         );

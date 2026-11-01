@@ -669,7 +669,7 @@ mod tests {
     #[test]
     fn test_separation_type_clone() {
         let sep = SeparationType::Complete;
-        let cloned = sep.clone();
+        let cloned = sep;
         assert_eq!(sep, cloned);
     }
 
@@ -684,8 +684,10 @@ mod tests {
 
     #[test]
     fn test_separation_check_clone() {
-        let mut check = SeparationCheck::default();
-        check.has_separation = true;
+        let mut check = SeparationCheck {
+            has_separation: true,
+            ..Default::default()
+        };
         check.separated_predictors.push(0);
         check.separation_types.push(SeparationType::Complete);
         check.warning_message = Some("test".to_string());
