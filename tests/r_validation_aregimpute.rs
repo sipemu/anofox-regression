@@ -83,7 +83,7 @@ fn closest_matching_replays_aregimpute() {
 
 /// #210: `I(x1)` (always linear) and `burnin = 1`.
 #[test]
-fn linear_target_and_burnin_replay_aregimpute() {
+fn linear_targets_and_burnin_replay_aregimpute() {
     let mut linear = kinds();
     linear[1] = ImputeVariable::Linear;
     let opts = AregImputeOptions {
@@ -92,7 +92,13 @@ fn linear_target_and_burnin_replay_aregimpute() {
         ..Default::default()
     };
     check_kinds("I(x1)", &linear, opts, &L_X1, &L_X2, &L_G, &L_RSQ);
-    // tlinear = FALSE (T_*) does not replay yet: see the follow-up issue.
+    let opts = AregImputeOptions {
+        n_impute: 3,
+        tlinear: false,
+        seed: 10,
+        ..Default::default()
+    };
+    check("tlinear = FALSE", opts, &T_X1, &T_X2, &T_G, &T_RSQ);
     let opts = AregImputeOptions {
         n_impute: 2,
         burnin: Some(1),

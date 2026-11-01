@@ -232,11 +232,19 @@ pub fn areg_impute(
             };
             let rows = |idx: &[usize]| Mat::from_fn(idx.len(), p - 1, |r, c| xo[(idx[r], c)]);
             let ys = |idx: &[usize]| idx.iter().map(|&r| xf[(r, i)]).collect::<Vec<f64>>();
-            let f = areg(&rows(&boot), &ys(&boot), &opts)?;
+            // a spline target: areg draws among the inverses of a
+            // non-monotone transformation (`yinv(what = "sample")`)
+            let fit = |idx: &[usize], rng: &mut RRng| {
+                let a = areg(&rows(idx), &ys(idx), &opts)?;
+                let lp: Vec<f64> = a.linear_predictors.iter().copied().collect();
+                a.sample_inverse_y(&lp, rng);
+                Ok::<_, RegressionError>(a)
+            };
+            let f = fit(&boot, &mut rng)?;
             r_squared[i] = f.r_squared;
             let mut pti = f.predict(&xo);
             // pmmtype 1: donors' predictions from a fit to all observed rows
-            let g = areg(&rows(&obs), &ys(&obs), &opts)?;
+            let g = fit(&obs, &mut rng)?;
             let pobs = g.predict(&rows(&obs));
             for (k, &r) in obs.iter().enumerate() {
                 pti[r] = pobs[k];
