@@ -14,6 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`PSplineRegressor` is now `mgcv`'s `bs = "ps"` smooth (#210).** Before:
+  - the basis used clamped knots at the data range;
+  - λ was the best of 17 grid points (whole decades);
+  - predictions clamped x outside the range (constant extrapolation);
+  - `rmse` used `RSS/n` while `mse` used `RSS/(n − edf)`;
+  - the docs claimed parity with ggplot2's `geom_smooth(method = "gam")`, which is `bs = "cs"` with REML.
+
+  Now:
+  - the knots follow `smooth.construct.ps.smooth.spec`: evenly spaced, extending beyond the range widened by 0.1 %;
+  - GCV is minimised continuously (grid plus golden section in `log λ`);
+  - predictions extend linearly outside the range, as `Predict.matrix.pspline.smooth`;
+  - `rmse = √mse`;
+  - the new `FittedPSpline::lambda()` returns the smoothing parameter.
+
+  `edf`, `σ²`, the GCV score, fitted values and predictions with standard errors match `gam(y ~ s(x, bs = "ps", k, m = c(2, m)), method = "GCV.Cp")` at 1e-8, and at 1e-10 for a fixed λ (`tests/r_validation_pspline.rs`, generator `tests/r_scripts/generate_pspline_validation.R`). **Behaviour change:** fitted values of every P-spline fit change.
 - **`RansacRegressor` kept the first of several subsets with the same inlier count (#210).** The result depended on the sampling order. Ties are now broken as in sklearn's `RANSACRegressor`: the subset model with the higher R² on its inliers wins, the later one on an exact tie (`tests/issue210_ransac_ties.rs`).
 - **`TheilSenRegressor` rejected `n_subsamples` above the parameter count and differed from sklearn for one coefficient (#210).** Subsets larger than `p` (+ intercept) were all skipped, so the fit failed with `SingularMatrix`; they are now solved by least squares, as sklearn's `lstsq`. With a single coefficient (one feature, no intercept) the spatial median is now the ordinary median, as sklearn's `_spatial_median`. Weiszfeld stopped at an arbitrary point between the two middle values when their count was even. Validated against sklearn 1.9.1 in `tests/issue210_theil_sen.rs` (generator `validation/python/generate_theil_sen_210_validation.py`).
 - **`GlsRegressor` with `corGaus` and a nugget stopped below the maximum (#210).** From nlme's starting values, L-BFGS stepped onto the nearly flat range → ∞ plateau (range 86 800, logLik 1.4e-3 below `nlme::gls`'s range 47). For the spatial structures the optimiser now also runs its Nelder–Mead → L-BFGS path from the start and keeps the better optimum. Other structures are unaffected. New `nlme` comparisons in `tests/r_validation_gls_210.rs` (generator `tests/r_scripts/generate_gls_validation_210.R`): AR(1) REML, continuous AR(1) ML, `corExp` without nugget, `corGaus` / `corLin` / `corSpher` with nugget, `varIdent` alone, no intercept, `predict_with_se`.

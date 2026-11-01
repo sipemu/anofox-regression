@@ -1,10 +1,28 @@
 //! Penalized B-spline (P-spline) smoother — GAM-style one-dimensional smoothing.
 //!
-//! A cubic B-spline basis over the predictor range with an order-2 difference
-//! penalty (Eilers & Marx, 1996). The smoothing parameter λ is selected by
-//! minimizing GCV, and pointwise standard errors use the Bayesian posterior
-//! covariance `σ²·(BᵀB + λP)⁻¹` — the default in `mgcv`. This is the estimator
-//! behind ggplot2's `geom_smooth(method = "gam")`.
+//! The Eilers & Marx (1996) P-spline as `mgcv`'s `bs = "ps"` smooth:
+//! `mgcv::gam(y ~ s(x, bs = "ps", k = n_basis, m = c(2, penalty_order)),
+//! method = "GCV.Cp")`.
+//!
+//! * Basis: `n_basis` cubic B-splines on evenly spaced knots. The data range
+//!   is widened by 0.1 % on each side and the knots continue three spacings
+//!   beyond it, as `smooth.construct.ps.smooth.spec`.
+//! * Penalty: `λ ‖Dₘ β‖²` with the order-`m` difference matrix `Dₘ`
+//!   (default `m = 2`).
+//! * Smoothing parameter: fixed, or the minimiser of
+//!   `GCV(λ) = n · RSS / (n − edf)²` (a grid over 16 decades, then a
+//!   golden-section refinement in `log λ`). `edf` is the trace of the
+//!   smoother matrix (it counts the intercept, as `sum(gam$edf)`).
+//! * `σ² = RSS / (n − edf)` (`gam$sig2`). Standard errors of the mean use the
+//!   Bayesian posterior covariance `σ² (BᵀB + λ DᵀD)⁻¹` (`predict.gam(se.fit =
+//!   TRUE)`).
+//! * Outside the data range the smooth is extended linearly from the
+//!   boundary, as `Predict.matrix.pspline.smooth`.
+//!
+//! mgcv's sum-to-zero constraint with a separate intercept spans the same
+//! model, so fitted values, `edf`, `σ²` and the GCV score agree; mgcv's `sp`
+//! is `λ · S.scale`. (ggplot2's `geom_smooth(method = "gam")` is a different
+//! smooth — `bs = "cs"` with REML.)
 //!
 //! The design matrix passed to [`Regressor::fit`] is the raw predictor as a
 //! single column (n × 1); the basis is built internally.
@@ -103,7 +121,7 @@ impl Regressor for PSplineRegressor {
             self.n_basis
         }
         .max(DEGREE + self.penalty_order + 1);
-        let knots = clamped_knots(xmin, xmax, p);
+        let knots = ps_knots(xmin, xmax, p);
 
         // Basis matrix rows, BᵀB and Bᵀy.
         let brows: Vec<Vec<f64>> = xs.iter().map(|&x| bspline_basis(x, &knots, p)).collect();
@@ -121,7 +139,7 @@ impl Regressor for PSplineRegressor {
 
         let tr_btb: f64 = (0..p).map(|i| btb[i][i]).sum();
         let tr_pen: f64 = (0..p).map(|i| pen[i][i]).sum::<f64>().max(1e-12);
-        let scale = tr_btb / tr_pen;
+        let ln_scale = (tr_btb / tr_pen).ln();
 
         // Choose λ (fixed or GCV-optimal), keeping the winning Cholesky factor.
         let solve_at = |lambda: f64| -> Option<Solved> {
@@ -135,26 +153,22 @@ impl Regressor for PSplineRegressor {
             Some((beta, l, rss, edf))
         };
 
-        let (beta, l, rss, edf) = match self.lambda {
-            Some(lambda) => solve_at(lambda).ok_or(RegressionError::SingularMatrix)?,
+        let lambda = match self.lambda {
+            Some(lambda) => lambda,
             None => {
-                let mut best: Option<(f64, Solved)> = None;
-                for e in -8..=8 {
-                    let lambda = 10f64.powi(e) * scale;
-                    if let Some(sol) = solve_at(lambda) {
-                        let denom = n as f64 - sol.3;
-                        if denom <= 0.0 {
-                            continue;
+                let gcv = |rho: f64| -> f64 {
+                    match solve_at(rho.exp()) {
+                        Some(sol) if (n as f64) - sol.3 > 0.0 => {
+                            let denom = n as f64 - sol.3;
+                            n as f64 * sol.2 / (denom * denom)
                         }
-                        let gcv = n as f64 * sol.2 / (denom * denom);
-                        if best.as_ref().map(|(g, _)| gcv < *g).unwrap_or(true) {
-                            best = Some((gcv, sol));
-                        }
+                        _ => f64::INFINITY,
                     }
-                }
-                best.ok_or(RegressionError::SingularMatrix)?.1
+                };
+                minimise_gcv(&gcv, ln_scale).exp()
             }
         };
+        let (beta, l, rss, edf) = solve_at(lambda).ok_or(RegressionError::SingularMatrix)?;
 
         let sigma2 = rss / (n as f64 - edf).max(1.0);
         let fitted: Vec<f64> = brows
@@ -172,8 +186,8 @@ impl Regressor for PSplineRegressor {
             ys.iter().map(|v| (v - ym).powi(2)).sum()
         };
         result.r_squared = if tss > 0.0 { 1.0 - rss / tss } else { 0.0 };
-        result.rmse = (rss / n as f64).sqrt();
         result.mse = sigma2;
+        result.rmse = sigma2.sqrt();
 
         Ok(FittedPSpline {
             knots,
@@ -183,8 +197,7 @@ impl Regressor for PSplineRegressor {
             edf,
             n,
             p,
-            xmin,
-            xmax,
+            lambda,
             result,
         })
     }
@@ -200,8 +213,7 @@ pub struct FittedPSpline {
     edf: f64,
     n: usize,
     p: usize,
-    xmin: f64,
-    xmax: f64,
+    lambda: f64,
     result: RegressionResult,
 }
 
@@ -220,13 +232,17 @@ impl FittedPSpline {
     pub fn sigma2(&self) -> f64 {
         self.sigma2
     }
+    /// The smoothing parameter `λ` of the difference penalty.
+    pub fn lambda(&self) -> f64 {
+        self.lambda
+    }
     fn eval(&self, x: f64) -> f64 {
-        let b = bspline_basis(x.clamp(self.xmin, self.xmax), &self.knots, self.p);
+        let b = design_row(x, &self.knots, self.p);
         b.iter().zip(&self.beta).map(|(bi, ci)| bi * ci).sum()
     }
     /// Pointwise SE of the mean response at `x` (Bayesian posterior).
     fn mean_se(&self, x: f64) -> f64 {
-        let b = bspline_basis(x.clamp(self.xmin, self.xmax), &self.knots, self.p);
+        let b = design_row(x, &self.knots, self.p);
         let z = chol_solve(&self.chol_l, &b);
         let var: f64 = b.iter().zip(&z).map(|(bi, zi)| bi * zi).sum();
         (self.sigma2 * var).max(0.0).sqrt()
@@ -298,38 +314,27 @@ fn trace_influence(btb: &[Vec<f64>], l: &[Vec<f64>], p: usize) -> f64 {
         .sum()
 }
 
-fn clamped_knots(xmin: f64, xmax: f64, p: usize) -> Vec<f64> {
-    let n_interior = p - DEGREE - 1;
-    let mut k = Vec::with_capacity(p + DEGREE + 1);
-    for _ in 0..=DEGREE {
-        k.push(xmin);
-    }
-    for i in 1..=n_interior {
-        k.push(xmin + (xmax - xmin) * i as f64 / (n_interior as f64 + 1.0));
-    }
-    for _ in 0..=DEGREE {
-        k.push(xmax);
-    }
-    k
+/// `smooth.construct.ps.smooth.spec`'s knots for `p` cubic B-splines: the
+/// range widened by 0.1 % on each side, `p − 2` evenly spaced knots over it
+/// and three more spacings beyond each end (`p + 4` knots in all).
+fn ps_knots(xmin: f64, xmax: f64, p: usize) -> Vec<f64> {
+    let nk = p - (DEGREE - 1);
+    let xr = xmax - xmin;
+    let (xl, xu) = (xmin - 0.001 * xr, xmax + 0.001 * xr);
+    let dx = (xu - xl) / (nk as f64 - 1.0);
+    let m = p + DEGREE + 1;
+    let start = xl - dx * DEGREE as f64;
+    (0..m).map(|i| start + dx * i as f64).collect()
 }
 
-fn bspline_basis(x: f64, knots: &[f64], p: usize) -> Vec<f64> {
+/// B-splines of degree `degree` on `knots` at `x` (Cox–de Boor; half-open
+/// knot intervals): `knots.len() − degree − 1` values.
+fn bspline_basis_degree(x: f64, knots: &[f64], degree: usize) -> Vec<f64> {
     let m = knots.len();
-    let mut b = vec![0.0; m - 1];
-    for i in 0..m - 1 {
-        if knots[i] <= x && x < knots[i + 1] {
-            b[i] = 1.0;
-        }
-    }
-    if x >= knots[m - 1] {
-        for i in (0..m - 1).rev() {
-            if knots[i] < knots[i + 1] {
-                b[i] = 1.0;
-                break;
-            }
-        }
-    }
-    for d in 1..=DEGREE {
+    let mut b: Vec<f64> = (0..m - 1)
+        .map(|i| f64::from(u8::from(knots[i] <= x && x < knots[i + 1])))
+        .collect();
+    for d in 1..=degree {
         for i in 0..m - 1 - d {
             let d1 = knots[i + d] - knots[i];
             let d2 = knots[i + d + 1] - knots[i + 1];
@@ -346,8 +351,85 @@ fn bspline_basis(x: f64, knots: &[f64], p: usize) -> Vec<f64> {
             b[i] = t1 + t2;
         }
     }
+    b.truncate(m - degree - 1);
+    b
+}
+
+fn bspline_basis(x: f64, knots: &[f64], p: usize) -> Vec<f64> {
+    let mut b = bspline_basis_degree(x, knots, DEGREE);
     b.truncate(p);
     b
+}
+
+/// Derivative of the cubic basis: `3 (B_{i,2}/(t_{i+3} − t_i) −
+/// B_{i+1,2}/(t_{i+4} − t_{i+1}))`.
+fn bspline_basis_derivative(x: f64, knots: &[f64], p: usize) -> Vec<f64> {
+    let q = bspline_basis_degree(x, knots, DEGREE - 1);
+    let k = DEGREE as f64;
+    (0..p)
+        .map(|i| {
+            let a = q[i] / (knots[i + DEGREE] - knots[i]);
+            let b = q[i + 1] / (knots[i + DEGREE + 1] - knots[i + 1]);
+            k * (a - b)
+        })
+        .collect()
+}
+
+/// Basis row at `x`; outside `[knots[3], knots[p]]` (the widened data range)
+/// the linear extension from the nearer end, as
+/// `Predict.matrix.pspline.smooth`.
+fn design_row(x: f64, knots: &[f64], p: usize) -> Vec<f64> {
+    let (ll, ul) = (knots[DEGREE], knots[p]);
+    let edge = if x < ll {
+        ll
+    } else if x > ul {
+        ul
+    } else {
+        return bspline_basis(x, knots, p);
+    };
+    let b = bspline_basis(edge, knots, p);
+    let d = bspline_basis_derivative(edge, knots, p);
+    b.iter()
+        .zip(&d)
+        .map(|(bi, di)| bi + (x - edge) * di)
+        .collect()
+}
+
+/// Minimise the GCV score over `ρ = ln λ`: a grid of 16 decades around
+/// `ln_scale` (`ln tr(BᵀB)/tr(P)`) in steps of a quarter decade, then golden
+/// sections on the bracket around the best grid point. A minimum at the end
+/// of the grid is kept there (λ → 0 or ∞).
+fn minimise_gcv(gcv: &dyn Fn(f64) -> f64, ln_scale: f64) -> f64 {
+    let step = std::f64::consts::LN_10 / 4.0;
+    let grid: Vec<f64> = (-32..=32).map(|k| ln_scale + step * k as f64).collect();
+    let vals: Vec<f64> = grid.iter().map(|&r| gcv(r)).collect();
+    let best = (0..grid.len())
+        .min_by(|&a, &b| vals[a].total_cmp(&vals[b]))
+        .unwrap_or(0);
+    if best == 0 || best == grid.len() - 1 {
+        return grid[best];
+    }
+    let (mut a, mut b) = (grid[best - 1], grid[best + 1]);
+    let g = (5f64.sqrt() - 1.0) / 2.0;
+    let mut c = b - g * (b - a);
+    let mut d = a + g * (b - a);
+    let (mut fc, mut fd) = (gcv(c), gcv(d));
+    while b - a > 1e-10 {
+        if fc < fd {
+            b = d;
+            d = c;
+            fd = fc;
+            c = b - g * (b - a);
+            fc = gcv(c);
+        } else {
+            a = c;
+            c = d;
+            fc = fd;
+            d = a + g * (b - a);
+            fd = gcv(d);
+        }
+    }
+    (a + b) / 2.0
 }
 
 /// Difference penalty P = Dₖᵀ Dₖ (p × p) for difference order `k`.
@@ -426,7 +508,7 @@ mod tests {
 
     #[test]
     fn basis_partition_of_unity() {
-        let knots = clamped_knots(0.0, 10.0, 8);
+        let knots = ps_knots(0.0, 10.0, 8);
         for &x in &[0.0, 2.5, 5.0, 7.3, 10.0] {
             let sum: f64 = bspline_basis(x, &knots, 8).iter().sum();
             assert!((sum - 1.0).abs() < 1e-9, "sum at {x} = {sum}");
