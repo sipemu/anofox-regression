@@ -924,8 +924,10 @@ The table below is the original per-estimator summary; the [inventory](#validati
 The R fixtures written by redirecting a generator (`validation/r_fixtures.txt`)
 are regenerated monthly by the `Validation fixtures` workflow
 (`.github/workflows/validation.yml`, also runnable by hand) and compared value
-by value with the committed files (`validation/compare_fixtures.py`, which
-ignores layout and comment headers). `validation/R_VERSIONS.md` records the R
+by value with the committed files (`validation/compare_fixtures.py`: a value
+differs when it moves by more than `1e-8 · (1 + |old|)`, above the last-digit
+noise between machines and R patch releases; layout and comment headers are
+ignored). `validation/R_VERSIONS.md` records the R
 and package versions they were last reproduced with
 (`validation/record_r_versions.R`). Locally:
 

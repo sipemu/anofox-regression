@@ -9,7 +9,7 @@ pkgs <- c("bda", "broom", "car", "greybox", "grpreg", "Hmisc", "lavaan", "lme4",
 cat("# R environment of the reference fixtures\n\n")
 cat("Recorded with `Rscript validation/record_r_versions.R` on", format(Sys.Date()),
     "after `validation/regenerate_r_fixtures.sh` reproduced the fixtures in\n",
-    "`validation/r_fixtures.txt` (values compared by `validation/compare_fixtures.py`).\n\n")
+    "`validation/r_fixtures.txt` (values compared by `validation/compare_fixtures.py`, tolerance 1e-8).\n\n")
 cat("| Package | Version |\n|---|---|\n")
 cat(sprintf("| R | %s.%s |\n", R.version$major, R.version$minor))
 for (p in pkgs) {
