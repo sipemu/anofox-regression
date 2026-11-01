@@ -20,7 +20,7 @@ This library provides sklearn-style regression estimators with full statistical 
   - Ordinary Least Squares (OLS) with full inference
   - Weighted Least Squares (WLS)
   - Ridge Regression (L2 regularization)
-  - Elastic Net (L1 + L2 regularization via L-BFGS)
+  - Elastic Net (L1 + L2 regularization, coordinate descent as `glmnet`)
   - Huber Regression (robust to outliers, IRLS with Huber loss)
   - Recursive Least Squares (RLS) with online learning
   - Bounded Least Squares (BLS/NNLS) with box constraints
@@ -78,6 +78,35 @@ This library provides sklearn-style regression estimators with full statistical 
 - **Generalized Linear Mixed Models**
   - GLMM with a random intercept, optional random slopes, and crossed / nested factors (`GlmmRegressor`): Gaussian (profiled REML/ML, matches `lme4::lmer`), Poisson and Binomial (Laplace PIRLS, matches `glmer(nAGQ=0)`). Unstructured random-effects covariance profiled by golden-section (intercept) or Nelder–Mead (slopes / multiple factors); `fit_crossed` handles `(1|a) + (1|b)` and `(1|a/b)`.
 
+- **Correlated, ordinal and survival outcomes**
+  - Generalized least squares (`GlsRegressor`, `nlme::gls`): AR(1), continuous AR(1),
+    compound symmetry, spatial structures with nugget, `varIdent` / `varPower` / `varExp`
+    variance functions, REML / ML
+  - Ordinal regression (`OrdinalRegressor`, `rms::orm` / `MASS::polr`) with logit, probit,
+    cloglog and loglog links, and the continuation-ratio model (`ContinuationRatioRegressor`,
+    `rms::cr.setup`)
+  - Accelerated failure time models (`AftRegressor`, `survival::survreg`): Weibull,
+    exponential, log-normal, log-logistic, with censoring
+
+- **Penalized and smooth models**
+  - Penalized GLMs with Normal / Laplace priors and Laplace-approximation inference
+    (`PenalizedGlmRegressor`), penalty selection by effective AIC (`pentrace`, `rms::pentrace`)
+  - P-splines (`PSplineRegressor`, `mgcv` `bs = "ps"`) and partial least squares (`PlsRegressor`, `pls::plsr`)
+
+- **Regression modeling strategies** (Harrell, *RMS*)
+  - Effects, contrasts and prediction grids on the covariate scale, simultaneous bands and
+    nomograms (`effects`: `summary.rms`, `contrast`, `Predict`, `nomogram`)
+  - Multiple imputation (`imputation::areg_impute`, `Hmisc::aregImpute`) and Rubin's rules
+    with D1 Wald tests (`inference::pool_rubin`, `mice::pool`)
+  - Data reduction before modelling (`reduction`): `varclus`, `redun`, `spearman2`,
+    Hoeffding's D, principal components, `transcan`
+  - Response transformations (`transform`): Box–Cox profiles, `areg` optimal transformations,
+    smearing estimates
+  - Likelihood-ratio and score tests, profile-likelihood intervals (`inference::lr_test`,
+    `glm_score_test`, `profile_confint`), fast backward elimination (`fastbw`), model
+    approximation, bootstrap covariance (`bootcov`), causal mediation (`mediate`) and
+    empirical-Bayes shrinkage (`eb_shrink`)
+
 - **Online Learning**
   - Passive-Aggressive Regressor (PA-I and PA-II) with `partial_fit`
 
@@ -86,7 +115,7 @@ This library provides sklearn-style regression estimators with full statistical 
   - Based on the [greybox R package](https://github.com/config-i1/greybox)
 
 - **Quantile & Monotonic Regression**
-  - Quantile Regression (IRLS with asymmetric weights, any τ ∈ (0,1))
+  - Quantile Regression (any τ ∈ (0,1); IRLS start polished to the exact LP optimum as `quantreg::rq`, with iid / nid / bootstrap inference)
   - Isotonic Regression (PAVA algorithm for monotonic constraints)
 
 - **Smoothing & Classification**
@@ -106,8 +135,11 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-anofox-regression = "0.6"
+anofox-regression = "0.7"
 ```
+
+The minimum supported Rust version is 1.87. The optional `parallel` feature runs
+bootstrap and validation resamples on rayon.
 
 ## Examples
 
@@ -125,6 +157,8 @@ cargo run --example pls                 # Partial Least Squares
 cargo run --example streaming_ridge     # Streaming fit via MomentAccumulator
 cargo run --example lars                # LARS and LassoLars
 cargo run --example lm_dynamic          # Dynamic Linear Model
+cargo run --example collinearity_intervals  # Intervals with aliased columns
+cargo run --release --example many_small_fits  # 100K small OLS fits (allocation benchmark)
 
 # Robust & Bayesian
 cargo run --example huber               # Huber regression (robust)
@@ -153,107 +187,103 @@ cargo run --example isotonic            # Isotonic regression
 
 ## Quick Start
 
-### OLS Regression
+Every block below is a complete program (they run as doctests).
+
+### OLS Regression with Inference and Prediction Intervals
 
 ```rust
 use anofox_regression::prelude::*;
-use faer::{Mat, Col};
+use faer::{Col, Mat};
 
-let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64 * 0.1);
-let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64 * 0.1);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let x = Mat::from_fn(50, 2, |i, j| if j == 0 { i as f64 } else { (i as f64).sin() });
+    let y = Col::from_fn(50, |i| 1.0 + 2.0 * x[(i, 0)] - 0.5 * x[(i, 1)] + 0.1 * (i % 3) as f64);
 
-let fitted = OlsRegressor::builder()
-    .with_intercept(true)
-    .build()
-    .fit(&x, &y)?;
+    let fitted = OlsRegressor::builder()
+        .with_intercept(true)
+        .compute_inference(true)
+        .build()
+        .fit(&x, &y)?;
 
-println!("R² = {:.4}", fitted.r_squared());
-println!("Coefficients: {:?}", fitted.coefficients());
+    let r = fitted.result();
+    println!("R² = {:.4}, coefficients = {:?}", r.r_squared, r.coefficients);
+    println!("standard errors = {:?}, p-values = {:?}", r.std_errors, r.p_values);
+
+    let x_new = Mat::from_fn(2, 2, |i, j| if j == 0 { 50.0 + i as f64 } else { 0.0 });
+    let pred = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+    println!("fit {:?}, lower {:?}, upper {:?}", pred.fit, pred.lower, pred.upper);
+    Ok(())
+}
 ```
 
-### Prediction Intervals
+### Poisson and Logistic GLMs
 
 ```rust
-let result = fitted.predict_with_interval(
-    &x_new,
-    Some(IntervalType::Prediction),
-    0.95,
-);
-println!("Fit: {:?}", result.fit);
-println!("Lower: {:?}", result.lower);
-println!("Upper: {:?}", result.upper);
+use anofox_regression::prelude::*;
+use faer::{Col, Mat};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let x = Mat::from_fn(60, 1, |i, _| i as f64 / 20.0);
+    let counts = Col::from_fn(60, |i| ((0.5 + 0.8 * x[(i, 0)]).exp() + (i % 3) as f64).floor());
+    let poisson = PoissonRegressor::log().build().fit(&x, &counts)?;
+    println!("deviance = {}", poisson.deviance);
+    println!("expected counts = {:?}", poisson.predict_count(&x));
+
+    let events = Col::from_fn(60, |i| if (i * 7) % 10 < 6 * i / 60 + 2 { 1.0 } else { 0.0 });
+    let logistic = BinomialRegressor::logistic().build().fit(&x, &events)?;
+    println!("probabilities = {:?}", logistic.predict_probability(&x));
+    Ok(())
+}
 ```
 
-### Poisson GLM
+### Robust and Quantile Regression
 
 ```rust
-let fitted = PoissonRegressor::log()
-    .with_intercept(true)
-    .build()
-    .fit(&x, &y)?;
+use anofox_regression::prelude::*;
+use faer::{Col, Mat};
 
-println!("Deviance: {}", fitted.deviance);
-let counts = fitted.predict_count(&x_new);
-```
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let x = Mat::from_fn(40, 1, |i, _| i as f64);
+    // a linear trend with two gross outliers
+    let y = Col::from_fn(40, |i| {
+        2.0 + 0.5 * i as f64 + if i == 5 || i == 30 { 25.0 } else { (i % 4) as f64 * 0.2 }
+    });
 
-### Logistic Regression
+    // Laplace (least absolute deviation) ALM
+    let laplace = AlmRegressor::builder()
+        .distribution(AlmDistribution::Laplace)
+        .build()
+        .fit(&x, &y)?;
+    println!("ALM log-likelihood = {}", laplace.result().log_likelihood);
 
-```rust
-let fitted = BinomialRegressor::logistic()
-    .with_intercept(true)
-    .build()
-    .fit(&x, &y)?;
-
-let probs = fitted.predict_probability(&x_new);
-```
-
-### Augmented Linear Model
-
-```rust
-// Laplace regression (robust to outliers)
-let fitted = AlmRegressor::builder()
-    .distribution(AlmDistribution::Laplace)
-    .with_intercept(true)
-    .build()
-    .fit(&x, &y)?;
-
-println!("Log-likelihood: {}", fitted.log_likelihood);
-```
-
-### Quantile Regression
-
-```rust
-// Median regression (tau = 0.5)
-let fitted = QuantileRegressor::builder()
-    .tau(0.5)
-    .build()
-    .fit(&x, &y)?;
-
-println!("Median coefficients: {:?}", fitted.coefficients());
-
-// 90th percentile regression
-let fitted_90 = QuantileRegressor::builder()
-    .tau(0.9)
-    .build()
-    .fit(&x, &y)?;
+    // median and 90th-percentile regression
+    for tau in [0.5, 0.9] {
+        let q = QuantileRegressor::builder().tau(tau).build().fit(&x, &y)?;
+        println!("τ = {tau}: slope = {:.3}", q.result().coefficients[0]);
+    }
+    Ok(())
+}
 ```
 
 ### Isotonic Regression
 
 ```rust
-// Fit monotonically increasing function
-let fitted = IsotonicRegressor::builder()
-    .increasing(true)
-    .build()
-    .fit_1d(&x, &y)?;
+use anofox_regression::prelude::*;
+use faer::Col;
 
-println!("R² = {:.4}", fitted.result().r_squared);
-let predictions = fitted.predict_1d(&x_new);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let x = Col::from_fn(20, |i| i as f64);
+    let y = Col::from_fn(20, |i| (i as f64).sqrt() + if i % 5 == 0 { -0.8 } else { 0.0 });
+    let fitted = IsotonicRegressor::builder().increasing(true).build().fit_1d(&x, &y)?;
+    println!("R² = {:.4}", fitted.result().r_squared);
+    println!("monotone fit at new points = {:?}", fitted.predict_1d(&Col::from_fn(3, |i| 2.5 + 5.0 * i as f64)));
+    Ok(())
+}
 ```
 
 ## Validation
 
-This library is developed using Test-Driven Development (TDD) against established statistical oracles. Most estimators are validated against R; the sklearn-style estimators added in v0.5.5 are validated against scikit-learn 1.5.2 via a pinned reproducible Python environment under [`validation/python/`](validation/python/).
+This library is developed using Test-Driven Development (TDD) against established statistical oracles. Most estimators are validated against R; the sklearn-style estimators are validated against scikit-learn 1.9.1 via a pinned reproducible Python environment under [`validation/python/`](validation/python/).
 
 ### R-validated estimators
 
@@ -274,6 +304,14 @@ This library is developed using Test-Driven Development (TDD) against establishe
 | `AlmRegressor` | `alm()` | greybox |
 | `QuantileRegressor` | `rq()` | quantreg |
 | `IsotonicRegressor` | `isoreg()` | stats |
+| `GlsRegressor` | `gls()` | nlme |
+| `OrdinalRegressor`, `ContinuationRatioRegressor` | `orm()`, `polr()`, `lrm(cr.setup)` | rms, MASS |
+| `AftRegressor` | `survreg()` | survival |
+| `survival::cox` | `coxph()`, `survfit()` | survival |
+| `PenalizedGlmRegressor`, `pentrace` | `glmnet()` with penalty factors, `pentrace()` | glmnet, rms |
+| `PSplineRegressor` | `gam(s(x, bs = "ps"))` | mgcv |
+| `imputation`, `inference::pool_rubin` | `aregImpute()`, `pool()` | Hmisc, mice |
+| `effects`, `validation`, `reduction` | `summary.rms`, `validate`, `calibrate`, `varclus`, `redun` | rms, Hmisc |
 | Diagnostics | `cooks.distance()`, `hatvalues()`, `vif()` | stats, car |
 
 ### scikit-learn-validated estimators
@@ -287,7 +325,7 @@ This library is developed using Test-Driven Development (TDD) against establishe
 | `BayesianRidge` | `linear_model.BayesianRidge` |
 | `ArdRegression` | `linear_model.ARDRegression` |
 
-All 499+ test cases ensure numerical agreement with the chosen oracle within appropriate tolerances.
+745 reference comparisons check numerical agreement with the chosen oracle within documented tolerances; [`validation/VALIDATION.md`](validation/VALIDATION.md) maps every reference script to its tests.
 
 **For complete transparency on the validation process, see [`validation/VALIDATION.md`](validation/VALIDATION.md)**, which documents the per-estimator tolerance rationale and reproduction instructions for both the R and Python pipelines.
 
@@ -295,7 +333,8 @@ All 499+ test cases ensure numerical agreement with the chosen oracle within app
 
 - [faer](https://crates.io/crates/faer) - High-performance linear algebra
 - [statrs](https://crates.io/crates/statrs) - Statistical distributions
-- [basin](https://crates.io/crates/basin) - Numerical optimization (L-BFGS)
+- [basin](https://crates.io/crates/basin) - Numerical optimization (L-BFGS, Nelder–Mead)
+- [rayon](https://crates.io/crates/rayon) - Parallel resampling (optional `parallel` feature)
 
 ## Attribution
 
