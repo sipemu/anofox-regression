@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 out="${OUT_DIR:-tests/fixtures}"
 mkdir -p "$out"
 status=0
-while read -r script fixture; do
+while read -r script fixture _tolerance; do
   [[ -z "$script" || "$script" == \#* ]] && continue
   target="$out/$(basename "$fixture")"
   if ! Rscript "$script" > "$target.tmp" 2> "$target.log"; then
