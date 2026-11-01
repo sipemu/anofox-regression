@@ -1429,8 +1429,9 @@ fn compute_role(
     // Sort ascending (worst/most negative first)
     point_lls.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Number of observations to trim
-    let n_trim = ((n as f64 * trim).ceil() as usize).min(n - 1);
+    // greybox keeps the floor(n (1 − trim)) largest (`meanFast(trim = )`)
+    let n_keep = ((n as f64 * (1.0 - trim)).floor() as usize).max(1);
+    let n_trim = n - n_keep.min(n);
 
     // Sum the kept observations (skip the worst n_trim)
     point_lls.iter().skip(n_trim).sum()

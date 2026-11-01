@@ -4,6 +4,8 @@
 //! glm(family = binomial(link = "logit")) output. Since LogisticRegression
 //! wraps BinomialRegressor (which is already R-validated), coefficients
 //! should match very closely.
+//!
+//! Generator: `tests/r_scripts/generate_logistic_validation.R`.
 
 use anofox_regression::solvers::LogisticRegression;
 use faer::{Col, Mat};

@@ -8,6 +8,8 @@
 //! - Outlier robustness comparison
 //! - Heavy-tailed distributions
 //! - Small sample edge cases
+//!
+//! Generator: `tests/r_scripts/generate_quantile_extended_validation.R`.
 
 use anofox_regression::solvers::{FittedRegressor, QuantileRegressor, Regressor};
 use faer::{Col, Mat};

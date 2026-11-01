@@ -9,6 +9,8 @@
 //! - Obsolete product detection (trailing zeros)
 //! - Stockout detection
 //! - Different information criteria (AIC, BIC, AICc)
+//!
+//! Generator: `tests/r_scripts/generate_aid_validation.R`.
 
 use anofox_regression::solvers::{AidClassifier, DemandType, InformationCriterion};
 use faer::Col;

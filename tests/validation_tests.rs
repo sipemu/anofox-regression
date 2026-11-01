@@ -3,6 +3,8 @@
 //! These tests use data generated from R with fixed seeds to validate
 //! that our implementations produce results consistent with established
 //! statistical software.
+//!
+//! Generator: `validation/generate_validation_data.R`.
 
 use anofox_regression::diagnostics::{compute_leverage, cooks_distance, variance_inflation_factor};
 use anofox_regression::solvers::{
