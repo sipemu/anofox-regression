@@ -23,6 +23,7 @@
 //! let stats = fitted.result();
 //! println!("R² = {}", stats.r_squared);
 //! ```
+#![forbid(unsafe_code)]
 
 pub mod core;
 pub mod design;

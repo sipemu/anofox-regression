@@ -518,27 +518,17 @@ impl OrdinalRegressor {
     pub fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedOrdinal, RegressionError> {
         let n = x.nrows();
         let p = x.ncols();
-        if y.nrows() != n {
-            return Err(RegressionError::DimensionMismatch {
-                x_rows: n,
-                y_len: y.nrows(),
-            });
-        }
-        for v in [&self.weights, &self.offset].into_iter().flatten() {
-            if v.nrows() != n {
-                return Err(RegressionError::DimensionMismatch {
-                    x_rows: n,
-                    y_len: v.nrows(),
-                });
+        crate::core::validate_xy(x, y)?;
+        for (name, v) in [("weights", &self.weights), ("offset", &self.offset)] {
+            if let Some(v) = v {
+                if v.nrows() != n {
+                    return Err(RegressionError::DimensionMismatch {
+                        x_rows: n,
+                        y_len: v.nrows(),
+                    });
+                }
+                crate::core::validate_finite_extra(name, v)?;
             }
-        }
-        if y.iter()
-            .chain(x.col_iter().flat_map(|c| c.iter()))
-            .any(|v| !v.is_finite())
-        {
-            return Err(RegressionError::NumericalError(
-                "non-finite values in x or y".to_string(),
-            ));
         }
         let weights: Vec<f64> = match &self.weights {
             Some(w) => w.iter().copied().collect(),

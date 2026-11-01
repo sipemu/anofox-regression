@@ -383,6 +383,7 @@ impl Regressor for BayesianRidge {
     type Fitted = FittedBayesianRidge;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         check_dims(x, y, 1)?;
         let n = x.nrows();
         let p = x.ncols();
@@ -706,6 +707,7 @@ impl Regressor for ArdRegression {
     type Fitted = FittedArd;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         check_dims(x, y, 2)?;
         let n = x.nrows();
         let p = x.ncols();

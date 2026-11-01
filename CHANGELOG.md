@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bad input could panic, abort or come back as NaN coefficients in `Ok` (#181).** A table-driven test in `tests/issue181_robustness.rs` fed a NaN, ±∞, mismatched lengths and no rows to every estimator. It found:
+  - Huber, LARS, passive-aggressive, PLS, P-spline, quantile and Theil–Sen returned NaN or nonsense coefficients.
+  - RANSAC panicked on a NaN response.
+  - Isotonic regression allocated memory without bound on a NaN `x`.
+  - ALM, BLS, the GLMs, ridge, elastic net, RLS and `lmDynamic` accepted infinite values.
+  - LARS and passive-aggressive accepted an empty input.
+
+  All estimators now share one check (`core::validate_xy`): matching lengths, at least one row, finite values. It also covers weights, offsets and GLS `time`, and runs after the `NaAction` step, so NaN rows are still dropped (`na.omit`) while ±∞ is an error, as R's `lm.fit` rejects `NA/NaN/Inf`. The same check now guards `LogisticRegression`, `IsotonicRegressor::fit_1d`, ordinal, continuation-ratio, GLMM and GLS fits. Also fixed:
+  - NaN degrees of freedom no longer panic in `CoefficientInference`, `compute_prediction_intervals` or `lmDynamic` intervals; they give NaN.
+  - `compute_hc_standard_errors` checks the length of `aliased`.
+  - `profile_confint` no longer underflows `n − k`.
+
+  The crate is now `#![forbid(unsafe_code)]`, and a compile-time test asserts every `Fitted*` model is `Send + Sync`. **Behaviour change:** infinite values are an error everywhere, and NaN is an error in estimators without an `NaAction`.
 - **ALM's HAM loss could stop at a local minimum (#261).** Its mean `√|e|` is concave between the points where a residual changes sign. Nelder–Mead therefore got stuck: on the clean data of `tests/r_validation_alm_loss.rs` it gave 1.45112, where greybox reaches 1.43928 and the global minimum is 1.43074. With an identity link, the minimum is a fit through `k` observations. After Nelder–Mead the crate now walks from vertex to vertex while the loss decreases, trying at most 200 vertices along each edge for large `n`. The test cases (one and two predictors, with and without outliers) reach the global minimum, as checked by brute force over all pairs and triples, and are at least as good as greybox.
 - **ALM's ROLE loss trimmed `⌈n · trim⌉` observations; greybox keeps `⌊n (1 − trim)⌋` (`meanFast`).** The two agree except where `n · trim` lands just above an integer in floating point (e.g. n = 100, trim = 0.07: the crate dropped 8 instead of 7). The crate now keeps the same count as greybox. New `tests/r_validation_alm_loss.rs` tests the previously unused `generate_alm_loss_validation.R` (now at tight tolerances). The likelihood, MSE and MAE fits match greybox; for ROLE the crate's objective is at least as small as greybox's; `validation/VALIDATION.md` gains a full inventory of generators, tests and reference packages.
 - **`areg_impute` with `tlinear = false` did not replay `Hmisc::aregImpute` (#254).** With a spline-transformed target, `areg` back-transforms the linear predictors with `inverseFunction(..., what = "sample")`. Where the transformation is not monotone, it draws one of several inverses with `sample`, which advances R's random stream. The crate did not take these draws, so every later bootstrap sample and donor diverged. The branch-wise inverse is now ported (`BranchInverse`, checked against `inverseFunction`), and `areg_impute` takes the same draws after each spline-target fit. `tlinear = FALSE` imputations now equal R's exactly (`tests/r_validation_aregimpute.rs`).

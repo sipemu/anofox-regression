@@ -31,7 +31,8 @@ pub fn compute_prediction_intervals(
 ) -> PredictionResult {
     let n_new = x_new.nrows();
 
-    if df <= 0.0 || mse < 0.0 {
+    // NaN df would panic in `StudentsT::new`
+    if df.is_nan() || df <= 0.0 || mse.is_nan() || mse < 0.0 {
         return create_nan_result(predictions, n_new);
     }
 

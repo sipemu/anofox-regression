@@ -106,6 +106,7 @@ impl IsotonicRegressor {
         if n < 2 {
             return Err(RegressionError::InsufficientObservations { needed: 2, got: n });
         }
+        crate::core::validate_finite(&Mat::from_fn(n, 1, |i, _| x[i]), y)?;
 
         // Validate weights if provided
         let weights = if let Some(ref w) = self.weights {
@@ -115,6 +116,7 @@ impl IsotonicRegressor {
                     y_len: w.nrows(),
                 });
             }
+            crate::core::validate_finite_extra("weights", w)?;
             if w.iter().any(|&wi| wi < 0.0) {
                 return Err(RegressionError::InvalidWeights);
             }
@@ -314,6 +316,7 @@ impl Regressor for IsotonicRegressor {
     type Fitted = FittedIsotonic;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         // For matrix input, use only the first column
         if x.ncols() != 1 {
             return Err(RegressionError::NumericalError(

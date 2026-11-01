@@ -500,7 +500,7 @@ pub fn profile_confint<F: GlmFamily + ?Sized>(
         Dispersion::Fixed(_) => Normal::new(0.0, 1.0)
             .expect("normal")
             .inverse_cdf(1.0 - alpha / 2.0),
-        Dispersion::Estimated => StudentsT::new(0.0, 1.0, (n - k) as f64)
+        Dispersion::Estimated => StudentsT::new(0.0, 1.0, n.saturating_sub(k) as f64)
             .map_err(|_| LikelihoodError::Data("too few residual degrees of freedom".into()))?
             .inverse_cdf(1.0 - alpha / 2.0),
     };

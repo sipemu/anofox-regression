@@ -77,6 +77,7 @@ impl LogisticRegression {
     /// than 0.0 and 1.0. May also return errors from the underlying binomial
     /// regression fit.
     pub fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedLogistic, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         // Validate that y is binary (only 0.0 and 1.0)
         for i in 0..y.nrows() {
             let val = y[i];

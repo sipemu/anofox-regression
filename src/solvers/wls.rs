@@ -136,6 +136,7 @@ impl Regressor for WlsRegressor {
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
         }
+        crate::core::validate_xy(x, y)?;
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
@@ -163,6 +164,7 @@ impl Regressor for WlsRegressor {
                         y_len: w.nrows(),
                     });
                 }
+                crate::core::validate_finite_extra("weights", w)?;
                 // Validate weights are non-negative
                 for i in 0..n_samples {
                     if w[i] < 0.0 {

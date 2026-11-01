@@ -153,6 +153,7 @@ impl Regressor for RidgeRegressor {
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
         }
+        crate::core::validate_xy(x, y)?;
         // Conditioning-aware λ (#258): resolve λ for this design, then fit
         // with that fixed λ.
         if self.conditioning.is_some() {

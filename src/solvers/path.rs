@@ -250,14 +250,7 @@ pub(crate) fn validate_xy(x: &Mat<f64>, y: &Col<f64>) -> Result<(), RegressionEr
             "x must have at least one column".to_string(),
         ));
     }
-    let finite = y.iter().all(|v| v.is_finite())
-        && (0..x.ncols()).all(|j| (0..x.nrows()).all(|i| x[(i, j)].is_finite()));
-    if !finite {
-        return Err(RegressionError::NumericalError(
-            "x and y must be finite".to_string(),
-        ));
-    }
-    Ok(())
+    crate::core::validate_finite(x, y)
 }
 
 fn prepare(x: &Mat<f64>, y: &Col<f64>, opts: &PathOptions) -> Prepared {

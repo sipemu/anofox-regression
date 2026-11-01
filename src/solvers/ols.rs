@@ -326,6 +326,7 @@ impl Regressor for OlsRegressor {
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
         }
+        crate::core::validate_xy(x, y)?;
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
@@ -358,31 +359,6 @@ impl Regressor for OlsRegressor {
                 needed: n_params,
                 got: n_samples,
             });
-        }
-
-        // Reject inputs that contain non-finite values. Without this guard
-        // a single NaN or ±∞ in `x`/`y` can propagate silently through the
-        // centering + QR/SVD path and produce coefficients that look like
-        // legitimate floats (often huge values in the 1e120+ range). Catching
-        // it here turns a confusing downstream symptom into a clean error.
-        // See #21.
-        for j in 0..n_features {
-            for i in 0..n_samples {
-                if !x[(i, j)].is_finite() {
-                    return Err(RegressionError::NumericalError(format!(
-                        "X contains a non-finite value at row {}, column {}",
-                        i, j
-                    )));
-                }
-            }
-        }
-        for i in 0..n_samples {
-            if !y[i].is_finite() {
-                return Err(RegressionError::NumericalError(format!(
-                    "y contains a non-finite value at row {}",
-                    i
-                )));
-            }
         }
 
         // Constant columns are collinear with the intercept, so they are

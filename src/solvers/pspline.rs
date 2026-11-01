@@ -94,6 +94,7 @@ impl Regressor for PSplineRegressor {
     type Fitted = FittedPSpline;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         let n = x.nrows();
         if n != y.nrows() {
             return Err(RegressionError::DimensionMismatch {

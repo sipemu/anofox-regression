@@ -74,6 +74,7 @@ impl Regressor for PassiveAggressiveRegressor {
     type Fitted = FittedPassiveAggressive;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         let n = x.nrows();
         let p = x.ncols();
         if n != y.nrows() {
