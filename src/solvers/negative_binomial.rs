@@ -89,6 +89,14 @@ impl NegativeBinomialRegressor {
     }
 
     /// Create a builder with a fixed theta value.
+    ///
+    /// `θ` is the size parameter of `MASS::negative.binomial(theta)`:
+    /// `Var(y) = μ + μ²/θ`. The coefficient covariance uses dispersion 1 by
+    /// default, i.e. the likelihood covariance at the given `θ`, as
+    /// `summary(glm.nb(...))`. R's `summary.glm` for
+    /// `glm(family = negative.binomial(θ))` instead estimates a Pearson
+    /// dispersion; enable that with
+    /// `estimate_dispersion(true)`.
     pub fn with_theta(theta: f64) -> NegativeBinomialRegressorBuilder {
         NegativeBinomialRegressorBuilder::default()
             .theta(theta)

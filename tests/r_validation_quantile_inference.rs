@@ -14,6 +14,7 @@ use anofox_regression::solvers::quantile_inference::{
 use anofox_regression::solvers::{QuantileRegressor, Regressor};
 use faer::{Col, Mat};
 use refs::*;
+use statrs::distribution::{ContinuousCDF, StudentsT};
 
 fn data() -> (Mat<f64>, Col<f64>) {
     (
@@ -63,9 +64,14 @@ fn iid_and_nid_match_summary_rq() {
             assert!(ds < 1e-8, "se {ds}");
             assert!(dt < 1e-6, "t {dt}");
             assert!(dp < 1e-8, "p {dp}");
-            // CI is estimate ± t_{n-k} se
+            // Limits are R's estimate ± t_{n−k, 0.975} · se (#210)
+            let q = StudentsT::new(0.0, 1.0, (N - 3) as f64)
+                .unwrap()
+                .inverse_cdf(0.975);
             for j in 0..3 {
-                assert!(inf.conf_low[j] < inf.estimate[j] && inf.estimate[j] < inf.conf_high[j]);
+                let (lo, hi) = (coef[j] - q * sev[j], coef[j] + q * sev[j]);
+                assert!((inf.conf_low[j] - lo).abs() < 1e-8, "lower {j}");
+                assert!((inf.conf_high[j] - hi).abs() < 1e-8, "upper {j}");
             }
         }
     }

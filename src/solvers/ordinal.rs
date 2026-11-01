@@ -866,6 +866,79 @@ impl FittedOrdinal {
         Mat::from_fn(d, d, |r, c| v[(r, c)] - correction[(r, c)])
     }
 
+    /// Per-observation score contributions `∂ wᵢ log P(Yᵢ = yᵢ) / ∂(α, β)`
+    /// at the estimate: `n × (k − 1 + p)`, intercepts first (the penalty
+    /// term is not included). `x` and `y` must be the data of the fit; its
+    /// weights and offset are used.
+    pub fn score_contributions(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+    ) -> Result<Mat<f64>, crate::inference::ClusterError> {
+        use crate::inference::ClusterError;
+        let (n, p, m) = (
+            x.nrows(),
+            self.coefficients.nrows(),
+            self.intercepts.nrows(),
+        );
+        if y.nrows() != n || x.ncols() != p {
+            return Err(ClusterError::Dimension(format!(
+                "x is {n}x{}, y has {} rows, the model {p} slopes",
+                x.ncols(),
+                y.nrows()
+            )));
+        }
+        let lp = self.linear_predictor(x);
+        let link = self.link;
+        let finite = |v: f64| if v.is_finite() { link.pdf(v) } else { 0.0 };
+        let mut u = Mat::zeros(n, m + p);
+        for i in 0..n {
+            let c = self.levels.iter().position(|&l| l == y[i]).ok_or_else(|| {
+                ClusterError::Dimension(format!("y[{i}] is not a level of the fit"))
+            })?;
+            let eta = lp[i] + self.offset.as_ref().map_or(0.0, |o| o[i]);
+            let w = self.weights.as_ref().map_or(1.0, |w| w[i]);
+            let a = if c == 0 {
+                f64::INFINITY
+            } else {
+                self.intercepts[c - 1] + eta
+            };
+            let b = if c + 1 == m + 1 {
+                f64::NEG_INFINITY
+            } else {
+                self.intercepts[c] + eta
+            };
+            let pr = link.prob_between(a, b);
+            let (fa, fb) = (finite(a), finite(b));
+            if c > 0 {
+                u[(i, c - 1)] = w * fa / pr;
+            }
+            if c < m {
+                u[(i, c)] = -w * fb / pr;
+            }
+            for r in 0..p {
+                u[(i, m + r)] = w * x[(i, r)] * (fa - fb) / pr;
+            }
+        }
+        Ok(u)
+    }
+
+    /// Cluster-robust covariance of `(α, β)`, intercepts first: the sandwich
+    /// `V (Σ_g u_g u_gᵀ) V` with `V` = [`Self::vcov`] and `u_g` the summed
+    /// [`Self::score_contributions`] of cluster `g`.
+    /// [`ClusterOptions::robcov`](crate::inference::ClusterOptions::robcov)
+    /// gives `rms::robcov(fit, cluster)` for `orm` / `lrm`.
+    pub fn cluster_vcov(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        clusters: &[&[usize]],
+        options: &crate::inference::ClusterOptions,
+    ) -> Result<Mat<f64>, crate::inference::ClusterError> {
+        let scores = self.score_contributions(x, y)?;
+        crate::inference::cluster_sandwich(&self.vcov(), &scores, clusters, options)
+    }
+
     /// `xᵀβ` for each row of `x` (no intercept, no offset).
     pub fn linear_predictor(&self, x: &Mat<f64>) -> Col<f64> {
         x * &self.coefficients
