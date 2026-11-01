@@ -25,7 +25,7 @@
 
 use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
-use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
+use crate::solvers::traits::{Convergence, FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
 
 /// Quantile Regression estimator.
@@ -91,7 +91,7 @@ impl QuantileRegressor {
         &self,
         x: &Mat<f64>,
         y: &Col<f64>,
-    ) -> Result<(Col<f64>, Option<f64>), RegressionError> {
+    ) -> Result<(Col<f64>, Option<f64>, Convergence), RegressionError> {
         let n = x.nrows();
         let p = x.ncols();
 
@@ -112,9 +112,10 @@ impl QuantileRegressor {
 
         // Initialize with OLS solution
         let mut beta = self.ols_solve(&x_aug, y)?;
+        let mut iterations = 0;
 
         // IRLS iterations
-        for _iter in 0..self.max_iterations {
+        for iter in 0..self.max_iterations {
             // Compute residuals
             let mut residuals = Col::zeros(n);
             for i in 0..n {
@@ -152,6 +153,7 @@ impl QuantileRegressor {
             }
 
             beta = beta_new;
+            iterations = iter + 1;
 
             if max_change < self.tolerance {
                 break;
@@ -161,7 +163,12 @@ impl QuantileRegressor {
         // IRLS with a smoothed weight only approaches the LP optimum; finish
         // with exact simplex pivots on the check loss (the solution of the
         // quantile-regression LP is a vertex interpolating p observations).
-        let beta = self.exact_polish(&x_aug, y, beta);
+        // The fit has converged when the pivots certify the optimum.
+        let (beta, converged) = self.exact_polish(&x_aug, y, beta);
+        let status = Convergence {
+            converged,
+            iterations,
+        };
 
         // Extract intercept and coefficients
         if self.with_intercept {
@@ -170,9 +177,9 @@ impl QuantileRegressor {
             for j in 0..p {
                 coefficients[j] = beta[j + 1];
             }
-            Ok((coefficients, Some(intercept)))
+            Ok((coefficients, Some(intercept), status))
         } else {
-            Ok((beta, None))
+            Ok((beta, None, status))
         }
     }
 
@@ -322,15 +329,17 @@ impl QuantileRegressor {
     /// median of the breakpoints — where a new observation enters the basis
     /// (Barrodale–Roberts / Koenker–d'Orey). It stops when no edge descends,
     /// which is the optimality certificate of the LP. The better of the
-    /// polished and the starting point is returned.
-    fn exact_polish(&self, x: &Mat<f64>, y: &Col<f64>, beta0: Col<f64>) -> Col<f64> {
+    /// polished and the starting point is returned, with whether it is the
+    /// certified optimum.
+    fn exact_polish(&self, x: &Mat<f64>, y: &Col<f64>, beta0: Col<f64>) -> (Col<f64>, bool) {
         use faer::linalg::solvers::Solve;
 
         let n = x.nrows();
         let p = x.ncols();
         let tau = self.tau;
         if p == 0 || n < p || !(tau > 0.0 && tau < 1.0) || beta0.iter().any(|b| !b.is_finite()) {
-            return beta0;
+            // nothing to fit is trivially optimal; otherwise no certificate
+            return (beta0, p == 0);
         }
         let w = |i: usize| self.weights.as_ref().map_or(1.0, |w| w[i]);
         let y_scale = (0..n).fold(0.0_f64, |m, i| m.max(y[i].abs())).max(1.0);
@@ -366,7 +375,7 @@ impl QuantileRegressor {
             }
         }
         if basis.len() < p {
-            return beta0; // rank-deficient design: keep the IRLS solution
+            return (beta0, false); // rank-deficient design: keep the IRLS solution
         }
 
         let mut in_basis = vec![false; n];
@@ -376,6 +385,7 @@ impl QuantileRegressor {
         let identity = Mat::<f64>::identity(p, p);
         let max_pivots = 50 * p + 1000;
         let mut best: Option<Col<f64>> = None;
+        let mut optimal = false;
         let mut breaks: Vec<(f64, f64, usize)> = Vec::new();
 
         for _ in 0..max_pivots {
@@ -440,6 +450,7 @@ impl QuantileRegressor {
                 Some(e) if best_g < -1e-12 * scale => e,
                 _ => {
                     best = Some(beta);
+                    optimal = true;
                     break; // optimal vertex
                 }
             };
@@ -479,8 +490,8 @@ impl QuantileRegressor {
         }
 
         match best {
-            Some(b) if self.objective(x, y, &b) <= self.objective(x, y, &beta0) => b,
-            _ => beta0,
+            Some(b) if self.objective(x, y, &b) <= self.objective(x, y, &beta0) => (b, optimal),
+            _ => (beta0, false),
         }
     }
 
@@ -552,7 +563,7 @@ impl Regressor for QuantileRegressor {
         }
 
         // Fit using IRLS
-        let (coefficients, intercept) = self.fit_irls(x, y)?;
+        let (coefficients, intercept, status) = self.fit_irls(x, y)?;
 
         // Compute fitted values and residuals
         let mut fitted_values = Col::zeros(n_samples);
@@ -606,6 +617,7 @@ impl Regressor for QuantileRegressor {
             weighted: self.weights.is_some(),
             result,
             check_loss: full_loss,
+            status,
         })
     }
 }
@@ -643,6 +655,7 @@ pub struct FittedQuantile {
     result: RegressionResult,
     /// Check function loss (quantile loss)
     check_loss: f64,
+    status: Convergence,
 }
 
 impl HasModelInfo for FittedQuantile {
@@ -652,6 +665,19 @@ impl HasModelInfo for FittedQuantile {
 }
 
 impl FittedQuantile {
+    /// Whether the fit is the certified optimum of the quantile-regression
+    /// LP: the simplex pivots after IRLS stopped at a vertex where no edge
+    /// descends. `false` when they stopped early (a singular basis or the
+    /// pivot limit) and the IRLS estimate was kept.
+    pub fn converged(&self) -> bool {
+        self.status.converged
+    }
+
+    /// IRLS iterations before the simplex polish.
+    pub fn iterations(&self) -> usize {
+        self.status.iterations
+    }
+
     /// Get the quantile (tau) that was estimated.
     pub fn tau(&self) -> f64 {
         self.tau

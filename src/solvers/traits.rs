@@ -153,3 +153,11 @@ pub trait FittedRegressor {
         level: f64,
     ) -> PredictionResult;
 }
+
+/// Convergence of an iterative fit: whether it met its stopping rule and
+/// after how many iterations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Convergence {
+    pub(crate) converged: bool,
+    pub(crate) iterations: usize,
+}

@@ -25,7 +25,7 @@
 
 use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
-use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
+use crate::solvers::traits::{Convergence, FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
 
 /// Huber M-estimator regression.
@@ -92,7 +92,7 @@ impl HuberRegressor {
         &self,
         x: &Mat<f64>,
         y: &Col<f64>,
-    ) -> Result<(Col<f64>, Option<f64>, f64), RegressionError> {
+    ) -> Result<(Col<f64>, Option<f64>, f64, Convergence), RegressionError> {
         let n = x.nrows();
         let p = x.ncols();
 
@@ -115,9 +115,13 @@ impl HuberRegressor {
         let mut beta = self.ols_solve(&x_aug, y)?;
 
         let mut sigma = 1.0;
+        let mut status = Convergence {
+            converged: false,
+            iterations: 0,
+        };
 
         // IRLS iterations
-        for _iter in 0..self.max_iterations {
+        for iter in 0..self.max_iterations {
             // Compute residuals
             let mut residuals = Col::zeros(n);
             for i in 0..n {
@@ -154,8 +158,10 @@ impl HuberRegressor {
             }
 
             beta = beta_new;
+            status.iterations = iter + 1;
 
             if max_change < self.tolerance {
+                status.converged = true;
                 break;
             }
         }
@@ -167,9 +173,9 @@ impl HuberRegressor {
             for j in 0..p {
                 coefficients[j] = beta[j + 1];
             }
-            Ok((coefficients, Some(intercept), sigma))
+            Ok((coefficients, Some(intercept), sigma, status))
         } else {
-            Ok((beta, None, sigma))
+            Ok((beta, None, sigma, status))
         }
     }
 
@@ -506,7 +512,7 @@ impl Regressor for HuberRegressor {
         }
 
         // Fit using IRLS
-        let (coefficients, intercept, sigma) = self.fit_irls(x, y)?;
+        let (coefficients, intercept, sigma, status) = self.fit_irls(x, y)?;
 
         // Compute fitted values and residuals
         let mut fitted_values = Col::zeros(n_samples);
@@ -555,6 +561,7 @@ impl Regressor for HuberRegressor {
             scale: sigma,
             epsilon: self.epsilon,
             outlier_mask,
+            status,
         })
     }
 }
@@ -570,6 +577,7 @@ pub struct FittedHuber {
     epsilon: f64,
     /// Boolean mask: true if |r_i| > epsilon * scale (outlier).
     outlier_mask: Vec<bool>,
+    status: Convergence,
 }
 
 impl HasModelInfo for FittedHuber {
@@ -579,6 +587,17 @@ impl HasModelInfo for FittedHuber {
 }
 
 impl FittedHuber {
+    /// Whether IRLS converged: the largest coefficient change fell below
+    /// `tolerance` within `max_iterations`.
+    pub fn converged(&self) -> bool {
+        self.status.converged
+    }
+
+    /// IRLS iterations used.
+    pub fn iterations(&self) -> usize {
+        self.status.iterations
+    }
+
     /// Get the estimated scale (sigma) from the MAD estimator.
     pub fn scale(&self) -> f64 {
         self.scale
