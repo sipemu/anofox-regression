@@ -54,7 +54,8 @@ pub enum SeparationType {
 /// Check for quasi-separation in binary response data.
 ///
 /// This function examines each predictor to detect patterns that indicate
-/// separation or quasi-separation.
+/// separation or quasi-separation. It is a per-column heuristic: separation
+/// by a combination of predictors is not seen (use [`detect_separation`]).
 ///
 /// # Arguments
 ///
@@ -232,6 +233,145 @@ fn check_predictor_separation(x: &[f64], y: &[f64]) -> SeparationType {
     }
 
     SeparationType::None
+}
+
+/// Result of [`detect_separation`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinearSeparation {
+    /// Whether the classes are (quasi-)separated by a linear combination of
+    /// the columns, i.e. the logistic maximum-likelihood estimate does not
+    /// exist.
+    pub separated: bool,
+    /// `+∞` / `−∞` for the coefficients that diverge along the separating
+    /// direction found, `0` otherwise (intercept first when fitted), as
+    /// `detectseparation::detect_separation`'s `coefficients`.
+    pub infinite: Vec<f64>,
+    /// The separating direction `β` (`|βⱼ| ≤ 1`, all zero without
+    /// separation).
+    pub direction: Vec<f64>,
+}
+
+/// Exact detection of (quasi-)complete separation for a binary response by
+/// the linear program of Konis (2007), as `detectseparation`: maximise
+/// `Σᵢ sᵢ xᵢᵀβ` subject to `sᵢ xᵢᵀβ ≥ 0` for every row and `−1 ≤ βⱼ ≤ 1`,
+/// with `sᵢ = 2yᵢ − 1` and an intercept column when `with_intercept`. The
+/// optimum is 0 unless a direction `β ≠ 0` weakly separates the classes, in
+/// which case the logistic MLE does not exist and the coefficients that are
+/// non-zero along `β` go to `±∞`.
+///
+/// Unlike [`check_binary_separation`] this sees separation by a combination
+/// of predictors. `y` must be 0/1. Solved by a condensed-tableau simplex
+/// with Bland's rule (memory O(n·p)).
+pub fn detect_separation(x: &Mat<f64>, y: &Col<f64>, with_intercept: bool) -> LinearSeparation {
+    let n = x.nrows();
+    let off = usize::from(with_intercept);
+    let p = x.ncols() + off;
+    let xij = |i: usize, j: usize| if j < off { 1.0 } else { x[(i, j - off)] };
+    let s: Vec<f64> = (0..n)
+        .map(|i| if y[i] >= 0.5 { 1.0 } else { -1.0 })
+        .collect();
+    // Variables z = (β⁺, β⁻) ≥ 0, β = β⁺ − β⁻. Constraints A z ≤ b:
+    // −sᵢ xᵢᵀ(β⁺ − β⁻) ≤ 0 (n rows), β⁺ⱼ ≤ 1, β⁻ⱼ ≤ 1 (2p rows).
+    let (m, k) = (n + 2 * p, 2 * p);
+    let mut t = vec![vec![0.0; k + 1]; m + 1];
+    for i in 0..n {
+        for j in 0..p {
+            let a = -s[i] * xij(i, j);
+            t[i][j] = a;
+            t[i][p + j] = -a;
+        }
+    }
+    for j in 0..k {
+        t[n + j][j] = 1.0;
+        t[n + j][k] = 1.0;
+    }
+    // Objective row: −c with c = Σᵢ sᵢ xᵢ for β⁺ and its negative for β⁻.
+    for j in 0..p {
+        let c: f64 = (0..n).map(|i| s[i] * xij(i, j)).sum();
+        t[m][j] = -c;
+        t[m][p + j] = c;
+    }
+    let scale = 1.0
+        + (0..n)
+            .map(|i| (0..p).map(|j| xij(i, j).abs()).sum::<f64>())
+            .sum::<f64>();
+    let eps = 1e-12 * scale;
+    // Labels: 0..k are z, k..k+m the slacks.
+    let mut col_label: Vec<usize> = (0..k).collect();
+    let mut row_label: Vec<usize> = (k..k + m).collect();
+    for _ in 0..50 * (m + k) {
+        // Bland: entering column with negative reduced cost and smallest label.
+        let Some(q) = (0..k)
+            .filter(|&j| t[m][j] < -eps)
+            .min_by_key(|&j| col_label[j])
+        else {
+            break;
+        };
+        let mut r: Option<usize> = None;
+        for i in 0..m {
+            if t[i][q] > eps {
+                let ratio = t[i][k] / t[i][q];
+                let better = match r {
+                    None => true,
+                    Some(r0) => {
+                        let best = t[r0][k] / t[r0][q];
+                        ratio < best - 1e-15 * (1.0 + best.abs())
+                            || (ratio <= best + 1e-15 * (1.0 + best.abs())
+                                && row_label[i] < row_label[r0])
+                    }
+                };
+                if better {
+                    r = Some(i);
+                }
+            }
+        }
+        let Some(r) = r else { break };
+        let piv = t[r][q];
+        let prow = t[r].clone();
+        for (i, row) in t.iter_mut().enumerate() {
+            if i == r || row[q] == 0.0 {
+                continue;
+            }
+            let f = row[q] / piv;
+            for (v, &pv) in row.iter_mut().zip(&prow) {
+                *v -= f * pv;
+            }
+            row[q] = -f;
+        }
+        for v in t[r].iter_mut() {
+            *v /= piv;
+        }
+        t[r][q] = 1.0 / piv;
+        std::mem::swap(&mut row_label[r], &mut col_label[q]);
+    }
+    let mut z = vec![0.0; k];
+    for i in 0..m {
+        if row_label[i] < k {
+            z[row_label[i]] = t[i][k];
+        }
+    }
+    let objective = t[m][k];
+    let separated = objective > 1e-9 * scale;
+    let direction: Vec<f64> = (0..p)
+        .map(|j| if separated { z[j] - z[p + j] } else { 0.0 })
+        .collect();
+    let infinite = direction
+        .iter()
+        .map(|&b| {
+            if b > 1e-8 {
+                f64::INFINITY
+            } else if b < -1e-8 {
+                f64::NEG_INFINITY
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    LinearSeparation {
+        separated,
+        infinite,
+        direction,
+    }
 }
 
 /// Check for sparsity issues in count data.

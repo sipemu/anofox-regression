@@ -30,3 +30,17 @@ for (rule in c("aic", "p")) {
     emit(sprintf("%s_COEF", id), b$Coefficients[length(b$factors.deleted), ])
   }
 }
+# #210: non-default sls / aics / k.aic, and an ols fit
+emit_case <- function(id, b) {
+  emit_usize(sprintf("%s_DELETED", id), b$factors.deleted - 1)
+  emit(sprintf("%s_RESULT", id), if (is.null(b$result)) numeric(0) else t(b$result))
+  emit(sprintf("%s_COEF", id), b$Coefficients[length(b$factors.deleted), ])
+}
+emit_case("P20_RESIDUAL", fastbw(f, rule = "p", sls = 0.2))
+emit_case("AICS2_LOGN_INDIVIDUAL", fastbw(f, rule = "aic", type = "individual", aics = 2, k.aic = log(n)))
+yc <- -0.3 + 0.8 * x1 + 0.3 * x1^2 - 0.6 * x2 + 0.15 * x3 + c(0, 0.4, 0.1)[g] + rnorm(n)
+d$yc <- yc
+fo <- ols(yc ~ rcs(x1, 4) + x2 + x3 + x4 + x5 + g, data = d)
+emit("OLS_COEF", coef(fo)); emit("OLS_VCOV", t(vcov(fo)))
+emit_case("OLS_AIC_RESIDUAL", fastbw(fo))
+emit_case("OLS_P_INDIVIDUAL", fastbw(fo, rule = "p", type = "individual", sls = 0.1))
