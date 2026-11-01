@@ -14,3 +14,4 @@ Thumbs.db
 
 # Test artifacts
 *.profraw
+__pycache__/
