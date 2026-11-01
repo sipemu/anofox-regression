@@ -672,9 +672,14 @@ impl Predictor {
 /// (`U` uniform on the sphere); then `P = E_U[F((c / maxᵢ|aᵢᵀU|)²)]` with
 /// `F` the χ²ᵣ (normal) or `r·F(r, ν)` (t) distribution function. The
 /// expectation is exact for `r = 1`, a dense angular rule for `r = 2` and a
-/// deterministic Halton rule (2¹⁷ antithetic points) above, so it is
-/// reproducible to about 1e-4; `mvtnorm`'s randomised Genz–Bretz algorithm
-/// used by R is accurate to about 1e-3.
+/// deterministic Halton rule (2¹⁷ points, one prime base per dimension)
+/// above, so it is reproducible to about 1e-4; `mvtnorm`'s randomised
+/// Genz–Bretz algorithm used by R is accurate to about 1e-3.
+///
+/// Cost: for `r ≥ 3`, 2¹⁷ directions × `rows.len()` combinations × `r`, about
+/// 10⁸ operations for 50 combinations of rank 15. A Halton rule loses
+/// uniformity as `r` grows; for a rank in the dozens, treat the result as
+/// approximate.
 pub fn simultaneous_critical(
     rows: &[Vec<f64>],
     vcov: &Mat<f64>,
@@ -761,6 +766,23 @@ fn unit_directions(rows: &[Vec<f64>], vcov: &Mat<f64>) -> Vec<Vec<f64>> {
         .collect()
 }
 
+/// The first `k` primes.
+fn first_primes(k: usize) -> Vec<u64> {
+    let mut primes: Vec<u64> = Vec::with_capacity(k);
+    let mut c = 2;
+    while primes.len() < k {
+        if primes
+            .iter()
+            .take_while(|&&p| p * p <= c)
+            .all(|&p| c % p != 0)
+        {
+            primes.push(c);
+        }
+        c += 1;
+    }
+    primes
+}
+
 /// `maxᵢ |aᵢᵀU|` over a deterministic set of directions `U` on the sphere
 /// in `ℝʳ` (equally weighted).
 fn sphere_maxima(dirs: &[Vec<f64>], r: usize) -> Vec<f64> {
@@ -779,10 +801,9 @@ fn sphere_maxima(dirs: &[Vec<f64>], r: usize) -> Vec<f64> {
             })
             .collect();
     }
-    const PRIMES: [u64; 30] = [
-        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
-        97, 101, 103, 107, 109, 113,
-    ];
+    // one distinct prime base per dimension (repeated bases would give
+    // identical coordinates)
+    let primes = first_primes(r);
     let normal = Normal::new(0.0, 1.0).expect("standard normal");
     let halton = |mut i: u64, b: u64| -> f64 {
         let (mut f, mut x) = (1.0, 0.0);
@@ -796,7 +817,7 @@ fn sphere_maxima(dirs: &[Vec<f64>], r: usize) -> Vec<f64> {
     (1..=(1u64 << 17))
         .map(|i| {
             let z: Vec<f64> = (0..r)
-                .map(|d| normal.inverse_cdf(halton(i, PRIMES[d % PRIMES.len()])))
+                .map(|d| normal.inverse_cdf(halton(i, primes[d])))
                 .collect();
             let norm = z.iter().map(|x| x * x).sum::<f64>().sqrt();
             let u: Vec<f64> = z.iter().map(|x| x / norm).collect();
@@ -852,5 +873,12 @@ mod tests {
     fn limits_follow_datadist_for_few_values() {
         let l = Limits::numeric(&[1.0, 2.0, 2.0, 3.0]);
         assert_eq!((l.low_effect, l.adjust_to, l.high_effect), (1.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn first_primes_are_distinct_beyond_thirty() {
+        let p = first_primes(35);
+        assert_eq!(&p[..10], &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29]);
+        assert_eq!(&p[29..], &[113, 127, 131, 137, 139, 149]);
     }
 }

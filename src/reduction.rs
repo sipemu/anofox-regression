@@ -214,6 +214,11 @@ fn hoeffding_p(d: f64, n: f64) -> f64 {
 /// Hoeffding's D between every pair of columns of `x` (`hoeffd(x)`): a
 /// rank measure of dependence that also detects non-monotone association.
 /// Needs five or more rows.
+///
+/// Cost: each of the `p(p − 1)/2` pairs takes `O(n²)` (bivariate ranks by
+/// pairwise comparison, as Hmisc's Fortran), so `O(p² n²)` overall: about
+/// 10⁸ operations for `n = 1000`, `p = 20`. Screen a subset of columns or
+/// rows for larger data.
 pub fn hoeffding_d(x: &Mat<f64>) -> Result<HoeffdingD, RegressionError> {
     let (n, p) = (x.nrows(), x.ncols());
     if n < 5 {

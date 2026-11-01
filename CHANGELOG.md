@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`(X'X)⁻¹` for standard errors and intervals is computed from a QR of the design (#181).** `compute_xtx_inverse*` and `compute_xtwx_inverse*`, used for coefficient SEs, prediction and confidence intervals and leverage of OLS, WLS, elastic net and `lmDynamic`, formed `X'X` and inverted it, which squares the condition number. They now take a thin QR of the column-equilibrated (√W-weighted) design and return `D R⁻¹ R⁻ᵀ D`. On a raw degree-6 polynomial in `x = 1:30` (κ = 3.2e9), the prediction SEs now match `predict.lm` to 7e-10 instead of 2e-9 (`tests/issue181_qr_inverse.rs`). The singular-column cutoff is the square root of the previous one, so the same designs count as singular.
+- **`simultaneous_critical` reused Halton bases above rank 30 (#181).** Dimensions `d` and `d + 30` shared a prime base, so their coordinates were identical and the directions degenerate. Each dimension now has its own prime. The doc comments of `simultaneous_critical` and `hoeffding_d` now state their cost (2¹⁷ directions × combinations × rank; `O(p² n²)`).
 - **Bad input could panic, abort or come back as NaN coefficients in `Ok` (#181).** A table-driven test in `tests/issue181_robustness.rs` fed a NaN, ±∞, mismatched lengths and no rows to every estimator. It found:
   - Huber, LARS, passive-aggressive, PLS, P-spline, quantile and Theil–Sen returned NaN or nonsense coefficients.
   - RANSAC panicked on a NaN response.
