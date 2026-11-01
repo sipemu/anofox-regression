@@ -5,7 +5,7 @@
 //! Reference values come from `tests/r_scripts/generate_effects_validation.R`.
 
 use anofox_regression::effects::{Critical, ModelSpec};
-use anofox_regression::splines::Rcs;
+use anofox_regression::splines::{Lsp, Rcs};
 use faer::{Col, Mat};
 
 include!("fixtures/effects_validation.rs");
@@ -192,5 +192,112 @@ fn lrm_effects_and_odds_ratios_match_rms() {
         close("OR", row.effect.estimate.exp(), LRM_OR[3 * r], 1e-9);
         close("OR lower", row.effect.lower.exp(), LRM_OR[3 * r + 1], 1e-9);
         close("OR upper", row.effect.upper.exp(), LRM_OR[3 * r + 2], 1e-9);
+    }
+}
+
+/// #210: `lsp(x2, c(3, 6))` and the restricted interaction
+/// `rcs(x1, 4) %ia% rcs(x2, 3)` (ols): summary, a contrast and `Predict(x2)`.
+#[test]
+fn linear_spline_and_restricted_interaction_match_rms() {
+    let lsp = |s: &mut ModelSpec| s.lsp("x2", Lsp::new(&[3.0, 6.0]).unwrap(), &X2);
+    let ia = |s: &mut ModelSpec| s.rcs("x2", Rcs::new(&IA_KNOTS_X2).unwrap(), &X2);
+    type Case<'a> = (
+        &'a str,
+        &'a dyn Fn(&mut ModelSpec) -> usize,
+        bool,
+        [&'a [f64]; 8],
+    );
+    let cases: [Case; 2] = [
+        (
+            "lsp",
+            &lsp,
+            false,
+            [
+                &LSP_COEF,
+                &LSP_VCOV,
+                &LSP_SUMMARY,
+                &LSP_CONTRAST,
+                &LSP_PRED_X2,
+                &LSP_PRED_YHAT,
+                &LSP_PRED_LOWER,
+                &LSP_PRED_UPPER,
+            ],
+        ),
+        (
+            "%ia%",
+            &ia,
+            true,
+            [
+                &IA_COEF,
+                &IA_VCOV,
+                &IA_SUMMARY,
+                &IA_CONTRAST,
+                &IA_PRED_X2,
+                &IA_PRED_YHAT,
+                &IA_PRED_LOWER,
+                &IA_PRED_UPPER,
+            ],
+        ),
+    ];
+    for (id, x2_term, restricted, [coef, vcov, summary, contrast, px, py, pl, pu]) in cases {
+        let mut s = ModelSpec::new();
+        let x1 = s.rcs("x1", Rcs::new(&OLS_KNOTS).unwrap(), &X1);
+        let x2 = x2_term(&mut s);
+        s.categorical("g", &G);
+        if restricted {
+            s.restricted_interaction(x1, x2);
+        }
+        let k = coef.len();
+        let beta = Col::from_fn(k, |j| coef[j]);
+        let v = Mat::from_fn(k, k, |a, b| vcov[a * k + b]);
+        let crit = Critical::StudentT(X1.len() as f64 - k as f64);
+        let rows = s.summary(&beta, &v, true, crit, 0.95);
+        assert_eq!(rows.len() * 7, summary.len(), "{id} rows");
+        for (r, row) in rows.iter().enumerate() {
+            let w = &summary[r * 7..r * 7 + 7];
+            close(
+                &format!("{id} {} effect", row.label),
+                row.effect.estimate,
+                w[3],
+                1e-9,
+            );
+            close(&format!("{id} {} se", row.label), row.effect.se, w[4], 1e-9);
+            close(
+                &format!("{id} {} lower", row.label),
+                row.effect.lower,
+                w[5],
+                1e-9,
+            );
+            close(
+                &format!("{id} {} upper", row.label),
+                row.effect.upper,
+                w[6],
+                1e-9,
+            );
+        }
+        let c = s.contrast(
+            &beta,
+            &v,
+            true,
+            &[(0, 60.0), (1, 7.0)],
+            &[(0, 45.0), (1, 2.0)],
+            crit,
+            0.95,
+        );
+        for (name, a, b) in [
+            ("est", c.estimate, contrast[0]),
+            ("se", c.se, contrast[1]),
+            ("lo", c.lower, contrast[2]),
+            ("hi", c.upper, contrast[3]),
+        ] {
+            close(&format!("{id} contrast {name}"), a, b, 1e-9);
+        }
+        let (vals, est) = s.predict_grid(&beta, &v, true, 1, None, crit, 0.95);
+        for i in 0..px.len() {
+            close(&format!("{id} grid x2[{i}]"), vals[i], px[i], 1e-12);
+            close(&format!("{id} yhat[{i}]"), est[i].estimate, py[i], 1e-9);
+            close(&format!("{id} lower[{i}]"), est[i].lower, pl[i], 1e-8);
+            close(&format!("{id} upper[{i}]"), est[i].upper, pu[i], 1e-8);
+        }
     }
 }

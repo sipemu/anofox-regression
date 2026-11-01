@@ -51,3 +51,17 @@ for (m in c("ols", "lrm")) {
   emit(sprintf("%s_PRED_X1", id), p$x1); emit(sprintf("%s_PRED_YHAT", id), p$yhat)
   emit(sprintf("%s_PRED_LOWER", id), p$lower); emit(sprintf("%s_PRED_UPPER", id), p$upper)
 }
+# #210: a linear spline and a restricted interaction (%ia%)
+for (m in c("LSP", "IA")) {
+  f <- if (m == "LSP") ols(yc ~ rcs(x1, 4) + lsp(x2, c(3, 6)) + g, data = d) else
+    ols(yc ~ rcs(x1, 4) + rcs(x2, 3) + g + rcs(x1, 4) %ia% rcs(x2, 3), data = d)
+  emit(sprintf("%s_COEF", m), coef(f)); emit(sprintf("%s_VCOV", m), t(vcov(f)))
+  if (m == "IA") emit("IA_KNOTS_X2", attr(rcs(x2, 3), "parms"))
+  s <- summary(f)
+  emit(sprintf("%s_SUMMARY", m), t(s[s[, "Type"] == 1, c("Low", "High", "Diff.", "Effect", "S.E.", "Lower 0.95", "Upper 0.95"), drop = FALSE]))
+  k <- contrast(f, list(x1 = 60, x2 = 7), list(x1 = 45, x2 = 2))
+  emit(sprintf("%s_CONTRAST", m), c(k$Contrast, k$SE, k$Lower, k$Upper))
+  p <- Predict(f, x2)
+  emit(sprintf("%s_PRED_X2", m), p$x2); emit(sprintf("%s_PRED_YHAT", m), p$yhat)
+  emit(sprintf("%s_PRED_LOWER", m), p$lower); emit(sprintf("%s_PRED_UPPER", m), p$upper)
+}

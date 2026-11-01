@@ -590,3 +590,73 @@ fn aft_survival_curves_match_psurvreg() {
         assert!(r.survival_curve(&[0.4], &[1.0])[0].is_nan());
     }
 }
+
+/// #210: partial residuals of binomial, Gamma(log) and negative binomial fits
+/// (`residuals(glm, type = "partial")`).
+#[test]
+fn partial_residuals_of_binomial_gamma_and_nb_match_r() {
+    let x = x_cols();
+    let bin = fit_binomial(
+        &Y_BIN,
+        &x,
+        &BinomialOptions {
+            tolerance: ETOL,
+            max_iterations: 200,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let gam = fit_gamma(
+        &Y_GAMMA,
+        &x,
+        &GammaOptions {
+            tolerance: ETOL,
+            max_iterations: 200,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let nb = fit_negbinomial(
+        &Y_NB,
+        &x,
+        &NegBinomialOptions {
+            tolerance: ETOL,
+            max_iterations: 200,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // Gamma's IRLS stops ~1e-7 short of glm (see the predict_se tests above),
+    // which the partial residuals inherit.
+    for (name, fit, y, want, tol) in [
+        (
+            "binomial",
+            &bin,
+            &Y_BIN,
+            [&PARTIAL_BIN_X1, &PARTIAL_BIN_X2],
+            1e-8,
+        ),
+        (
+            "Gamma",
+            &gam,
+            &Y_GAMMA,
+            [&PARTIAL_GAMMA_X1, &PARTIAL_GAMMA_X2],
+            1e-6,
+        ),
+        ("NB", &nb, &Y_NB, [&PARTIAL_NB_X1, &PARTIAL_NB_X2], 1e-8),
+    ] {
+        let p = partial_residuals_glm(fit, y, &x).unwrap();
+        cmp(
+            &format!("partial {name} x1"),
+            &p[0].partial_residual,
+            want[0],
+            tol,
+        );
+        cmp(
+            &format!("partial {name} x2"),
+            &p[1].partial_residual,
+            want[1],
+            tol,
+        );
+    }
+}

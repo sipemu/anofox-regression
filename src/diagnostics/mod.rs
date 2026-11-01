@@ -84,7 +84,8 @@ pub use partial_residuals::{
     added_variable, partial_residuals, partial_residuals_glm, AddedVariable, PartialResiduals,
 };
 pub use quasi_separation::{
-    check_binary_separation, check_count_sparsity, SeparationCheck, SeparationType,
+    check_binary_separation, check_count_sparsity, detect_separation, LinearSeparation,
+    SeparationCheck, SeparationType,
 };
 pub use residuals::{
     externally_studentized_residuals, residual_outliers, standardized_residuals,

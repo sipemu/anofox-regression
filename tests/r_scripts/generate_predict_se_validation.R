@@ -12,7 +12,7 @@
 #  * survival::psurvreg (S = 1 - psurvreg) and predict(survreg, type = "quantile")
 #    for Weibull, lognormal and loglogistic;
 #  * residuals(fit, type = "partial") (what car::crPlots draws) for lm, weighted lm
-#    and a Poisson glm; added-variable coordinates computed with car::avPlot.lm's
+#    and Poisson, binomial, Gamma and negative binomial glms; added-variable coordinates computed with car::avPlot.lm's
 #    own formula, lsfit(X[, -j], cbind(X[, j], y), wt = w)$residuals (car itself is
 #    not required).
 suppressPackageStartupMessages({ library(MASS); library(survival); library(lmtest) })
@@ -100,6 +100,11 @@ pr_pois <- residuals(m_pois, type = "partial")
 emit("PARTIAL_OLS_X1", pr_ols[, "x1"]); emit("PARTIAL_OLS_X2", pr_ols[, "x2"])
 emit("PARTIAL_WLS_X1", pr_wls[, "x1"]); emit("PARTIAL_WLS_X2", pr_wls[, "x2"])
 emit("PARTIAL_POIS_X1", pr_pois[, "x1"]); emit("PARTIAL_POIS_X2", pr_pois[, "x2"])
+# binomial, Gamma(log) and glm.nb (#210)
+for (m in list(list("BIN", m_bin), list("GAMMA", m_gam), list("NB", m_nb))) {
+  pr <- residuals(m[[2]], type = "partial")
+  emit(paste0("PARTIAL_", m[[1]], "_X1"), pr[, "x1"]); emit(paste0("PARTIAL_", m[[1]], "_X2"), pr[, "x2"])
+}
 X <- cbind(x1, x2)
 av <- function(j, wt) lsfit(X[, -j, drop = FALSE], cbind(X[, j], y_lin), wt = wt)$residuals
 a1 <- av(1, NULL); a2 <- av(2, NULL); b1 <- av(1, w)

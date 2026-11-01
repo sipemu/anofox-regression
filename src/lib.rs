@@ -50,11 +50,11 @@ pub mod prelude {
     pub use crate::diagnostics::{
         augment, augment_with, check_binary_separation, check_count_sparsity,
         classify_condition_number, compute_leverage, condition_diagnostic, condition_number,
-        cooks_distance, deviance_residuals, high_leverage_points, influential_cooks,
-        pearson_residuals, standardized_residuals, studentized_residuals,
+        cooks_distance, detect_separation, deviance_residuals, high_leverage_points,
+        influential_cooks, pearson_residuals, standardized_residuals, studentized_residuals,
         variance_decomposition_proportions, variance_inflation_factor, working_residuals, Augment,
-        Augmentable, ConditionDiagnostic, ConditionSeverity, ResidualType, SeparationCheck,
-        SeparationType,
+        Augmentable, ConditionDiagnostic, ConditionSeverity, LinearSeparation, ResidualType,
+        SeparationCheck, SeparationType,
     };
     pub use crate::inference::{
         anova_table, nested_f_test, nested_f_test_indices, AnovaTable, AnovaTableError,
