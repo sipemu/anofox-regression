@@ -231,6 +231,23 @@ class TweedieRegressor {
 }
 ```
 
+### Missing values, offsets and prior weights
+
+```typescript
+// OLS, WLS, Ridge, ElasticNet, Poisson, NegativeBinomial, Tweedie, Gamma, Binomial
+setNaAction(action: 'omit' | 'exclude' | 'fail' | 'pass'): void;  // R's na.action, default 'omit'
+// Poisson, NegativeBinomial, Tweedie, Gamma, Binomial
+setOffset(offset: Float64Array): void;  // per-row offset, e.g. log(exposure)
+// on the fitted model: predictions with a new offset
+predictWithOffset(x: Float64Array, nRows: number, offset: Float64Array): Float64Array;
+// Binomial: prior weights (numbers of trials for a proportion response)
+setWeights(weights: Float64Array): void;
+```
+
+With `'exclude'`, `residuals` and `fittedValues` of `getResult()` are padded with
+`NaN` at the dropped rows. Rows with `NaN` cannot be dropped when an offset or
+weights are set: remove them from all inputs first.
+
 ### BlsRegressor
 
 Bounded/Non-Negative Least Squares using Lawson-Hanson algorithm.

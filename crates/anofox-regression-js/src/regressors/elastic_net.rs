@@ -1,5 +1,6 @@
 //! Elastic Net wrapper for WebAssembly.
 
+use anofox_regression::core::NaAction;
 use anofox_regression::solvers::{
     ElasticNetRegressor as RustElasticNetRegressor, FittedElasticNet as RustFittedElasticNet,
     FittedRegressor, Regressor,
@@ -7,6 +8,8 @@ use anofox_regression::solvers::{
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+use super::parse_na_action;
 
 /// Result from fitting an Elastic Net model.
 #[derive(Serialize, Deserialize)]
@@ -43,8 +46,8 @@ impl FittedElasticNet {
             lambda: self.lambda,
             alpha: self.alpha,
             n_observations: result.n_observations,
-            residuals: result.residuals.iter().copied().collect(),
-            fitted_values: result.fitted_values.iter().copied().collect(),
+            residuals: result.residuals_expanded().iter().copied().collect(),
+            fitted_values: result.fitted_expanded().iter().copied().collect(),
         };
         serde_wasm_bindgen::to_value(&en_result).map_err(|e| JsError::new(&e.to_string()))
     }
@@ -80,6 +83,7 @@ impl FittedElasticNet {
 /// alpha=1.0 is Lasso, alpha=0.0 is Ridge
 #[wasm_bindgen]
 pub struct ElasticNetRegressor {
+    na_action: NaAction,
     with_intercept: bool,
     lambda: f64,
     alpha: f64,
@@ -92,6 +96,7 @@ impl ElasticNetRegressor {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
+            na_action: NaAction::default(),
             with_intercept: true,
             lambda: 1.0,
             alpha: 0.5,
@@ -127,6 +132,15 @@ impl ElasticNetRegressor {
         self.tolerance = tol;
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`):
+    /// "omit" (default), "exclude" (residuals and fitted values padded with
+    /// NaN at the dropped rows), "fail" or "pass".
+    #[wasm_bindgen(js_name = setNaAction)]
+    pub fn set_na_action(&mut self, action: &str) -> Result<(), JsError> {
+        self.na_action = parse_na_action(action)?;
+        Ok(())
+    }
+
     #[wasm_bindgen]
     pub fn fit(
         &self,
@@ -146,6 +160,7 @@ impl ElasticNetRegressor {
         let y_col = Col::from_fn(n_rows, |i| y[i]);
 
         let model = RustElasticNetRegressor::builder()
+            .na_action(self.na_action)
             .with_intercept(self.with_intercept)
             .lambda(self.lambda)
             .alpha(self.alpha)

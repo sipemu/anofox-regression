@@ -544,6 +544,13 @@ impl ElasticNetRegressorBuilder {
         self
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`;
+    /// default [`NaAction::Omit`](crate::core::NaAction::Omit)).
+    pub fn na_action(mut self, action: crate::core::NaAction) -> Self {
+        self.builder = self.builder.na_action(action);
+        self
+    }
+
     /// Build the Elastic Net regressor.
     pub fn build(self) -> ElasticNetRegressor {
         ElasticNetRegressor::new(self.builder.build_unchecked())

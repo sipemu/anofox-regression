@@ -1,9 +1,12 @@
 //! OLS Regression wrapper for WebAssembly.
 
+use anofox_regression::core::NaAction;
 use anofox_regression::solvers::{FittedRegressor, OlsRegressor as RustOlsRegressor, Regressor};
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+use super::parse_na_action;
 
 /// Result from fitting an OLS regression model.
 #[derive(Serialize, Deserialize)]
@@ -81,8 +84,8 @@ impl FittedOls {
             residual_df: result.residual_df(),
             aic: result.aic,
             bic: result.bic,
-            residuals: result.residuals.iter().copied().collect(),
-            fitted_values: result.fitted_values.iter().copied().collect(),
+            residuals: result.residuals_expanded().iter().copied().collect(),
+            fitted_values: result.fitted_expanded().iter().copied().collect(),
             std_errors: result
                 .std_errors
                 .as_ref()
@@ -180,6 +183,7 @@ impl FittedOls {
 /// ```
 #[wasm_bindgen]
 pub struct OlsRegressor {
+    na_action: NaAction,
     with_intercept: bool,
     compute_inference: bool,
     confidence_level: f64,
@@ -192,6 +196,7 @@ impl OlsRegressor {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
+            na_action: NaAction::default(),
             with_intercept: true,
             compute_inference: true,
             confidence_level: 0.95,
@@ -221,6 +226,15 @@ impl OlsRegressor {
     #[wasm_bindgen(js_name = setRankTolerance)]
     pub fn set_rank_tolerance(&mut self, tol: f64) {
         self.rank_tolerance = tol;
+    }
+
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`):
+    /// "omit" (default), "exclude" (residuals and fitted values padded with
+    /// NaN at the dropped rows), "fail" or "pass".
+    #[wasm_bindgen(js_name = setNaAction)]
+    pub fn set_na_action(&mut self, action: &str) -> Result<(), JsError> {
+        self.na_action = parse_na_action(action)?;
+        Ok(())
     }
 
     /// Fit the OLS model to the data.
@@ -267,6 +281,7 @@ impl OlsRegressor {
 
         // Build and fit the model
         let model = RustOlsRegressor::builder()
+            .na_action(self.na_action)
             .with_intercept(self.with_intercept)
             .compute_inference(self.compute_inference)
             .confidence_level(self.confidence_level)
