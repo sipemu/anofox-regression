@@ -101,13 +101,13 @@ jobs:
   semver:
     name: Semver (report)
     runs-on: ubuntu-latest
-    # Reports API changes against the latest release. Not blocking before
-    # 1.0: the 0.8 cleanup (#177-#180) is breaking by design; make this
-    # blocking once 1.0 is out.
-    continue-on-error: true
+    # Reports API changes against the latest release (see the step log). Not
+    # blocking before 1.0: the 0.8 cleanup (#177-#180) is breaking by design;
+    # drop `continue-on-error` once 1.0 is out.
     steps:
       - uses: actions/checkout@v4
       - uses: obi1kenobi/cargo-semver-checks-action@v2
+        continue-on-error: true
         with:
           package: anofox-regression
 
