@@ -1,29 +1,48 @@
-//! A robust statistics library for regression analysis.
+//! A robust statistics library for regression analysis, validated against R
+//! and scikit-learn.
 //!
-//! This library provides sklearn-style regression estimators with full statistical
-//! inference support including standard errors, t-statistics, p-values, and
-//! confidence intervals.
+//! Estimators follow a builder / `fit` / fitted-model pattern with full
+//! statistical inference: standard errors, t or z statistics, p-values,
+//! confidence and prediction intervals. Most are checked against their R
+//! equivalent (`lm`, `glm`, `glmnet`, `MASS`, `quantreg`, `lme4`, `nlme`,
+//! `survival`, `rms`, `Hmisc`, `greybox`, …); see `validation/VALIDATION.md`
+//! in the repository.
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use statistics::prelude::*;
+//! ```rust
+//! use anofox_regression::prelude::*;
+//! use faer::{Col, Mat};
 //!
-//! // Create and fit an OLS model
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // y = 1 + 2·x₁ − 0.5·x₂ plus a little deterministic noise
+//! let x = Mat::from_fn(30, 2, |i, j| if j == 0 { i as f64 } else { (i as f64 * 0.7).sin() });
+//! let y = Col::from_fn(30, |i| {
+//!     1.0 + 2.0 * x[(i, 0)] - 0.5 * x[(i, 1)] + 0.1 * ((i * 7) % 5) as f64
+//! });
+//!
 //! let fitted = OlsRegressor::builder()
 //!     .with_intercept(true)
+//!     .compute_inference(true)
 //!     .confidence_level(0.95)
 //!     .build()
 //!     .fit(&x, &y)?;
 //!
-//! // Make predictions
-//! let predictions = fitted.predict(&x_new);
+//! let result = fitted.result();
+//! assert!((result.coefficients[0] - 2.0).abs() < 0.01);
+//! assert!(result.r_squared > 0.99);
+//! let se = result.std_errors.as_ref().expect("inference was requested");
+//! assert!(se[0] > 0.0);
 //!
-//! // Access statistics
-//! let stats = fitted.result();
-//! println!("R² = {}", stats.r_squared);
+//! // Predictions with 95 % prediction intervals
+//! let x_new = Mat::from_fn(2, 2, |i, j| if j == 0 { 31.0 + i as f64 } else { 0.0 });
+//! let pred = fitted.predict_with_interval(&x_new, Some(IntervalType::Prediction), 0.95);
+//! assert!(pred.lower[0] < pred.fit[0] && pred.fit[0] < pred.upper[0]);
+//! # Ok(())
+//! # }
 //! ```
 #![forbid(unsafe_code)]
+#![deny(missing_docs)]
 
 pub mod core;
 pub mod design;
@@ -97,3 +116,8 @@ pub use crate::solvers::{
     NegativeBinomialRegressor, OutOfBounds, PSplineRegressor, PoissonRegressor, QuantileRegressor,
     Regressor,
 };
+
+// The README's code blocks run as doctests, so they cannot go stale.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

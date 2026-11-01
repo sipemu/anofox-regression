@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `cargo-semver-checks` reports API changes against the last release; it doesn't block until 1.0.
   - The coverage job fails below 94 % line coverage. `codecov.yml` requires 95 % on changed lines and tolerates a 0.1 % drop in total coverage.
   - The library tests also run without features.
+- **Documentation (#182):**
+  - Every public item is documented, and the crate is now `#![deny(missing_docs)]` (174 items documented).
+  - All doc examples run: 59 were `ignore`d, and several had wrong paths (`statistics::`) or called accessors that don't exist.
+  - The crate-level example is a working OLS fit with inference and prediction intervals.
+  - The README Quick Start is now complete programs that run as doctests. The README itself is updated: version 0.7 and MSRV 1.87; elastic net is coordinate descent and quantile regression is exact; GLS, ordinal / continuation-ratio, AFT, penalized GLMs, P-splines, PLS and the RMS modules (effects, nomograms, imputation, pooling, data reduction, transforms, likelihood tests, validation) are listed; the scikit-learn version and test count are corrected; and every example is listed.
 
 ### Added
 
