@@ -6,9 +6,12 @@ hold the generation date and versions, and string literals are ignored, so
 layout does not matter). A value differs when `|new - old| > tol (1 + |old|)`
 (default `tol = 1e-8`): looser than the last-digit noise between machines,
 BLAS builds and R patch releases (up to ~1e-9), tighter than any test
-tolerance. Exits 1 and lists the constants whose values changed.
+tolerance. A fixture can set its own tolerance in the optional third
+column of `--list` (validation/r_fixtures.txt). Exits 1 and lists the
+constants whose values changed.
 
-    python3 validation/compare_fixtures.py REGENERATED_DIR [tests/fixtures] [--tol 1e-8]
+    python3 validation/compare_fixtures.py REGENERATED_DIR [tests/fixtures] \
+        [--tol 1e-8] [--list validation/r_fixtures.txt]
 """
 import argparse
 import pathlib
@@ -41,24 +44,38 @@ def differences(old: dict, new: dict, tol: float) -> list:
     return diffs
 
 
+def tolerances(listing: pathlib.Path) -> dict:
+    """Per-fixture tolerances from the third column of the generator list."""
+    out = {}
+    if listing and listing.exists():
+        for line in listing.read_text().splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and not line.startswith("#"):
+                out[pathlib.Path(parts[1]).name] = float(parts[2])
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("new_dir", type=pathlib.Path)
     ap.add_argument("old_dir", type=pathlib.Path, nargs="?", default=pathlib.Path("tests/fixtures"))
     ap.add_argument("--tol", type=float, default=1e-8)
+    ap.add_argument("--list", type=pathlib.Path, default=pathlib.Path("validation/r_fixtures.txt"))
     args = ap.parse_args()
+    per_file = tolerances(args.list)
     files = sorted(args.new_dir.glob("*.rs"))
     changed = 0
     for new in files:
         old = args.old_dir / new.name
+        tol = per_file.get(new.name, args.tol)
         diffs = ["fixture not committed"] if not old.exists() else differences(
-            constants(old), constants(new), args.tol)
+            constants(old), constants(new), tol)
         if diffs:
             changed += 1
             print(f"{new.name}:")
             for d in diffs:
                 print(f"  {d}")
-    print(f"{changed} of {len(files)} fixtures changed beyond {args.tol:g}")
+    print(f"{changed} of {len(files)} fixtures changed beyond their tolerance (default {args.tol:g})")
     return 1 if changed else 0
 
 

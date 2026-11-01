@@ -1562,7 +1562,9 @@ impl FittedGlmm {
         self.cov[0][0]
     }
 
-    /// Deviance (−2 log-likelihood); the REML criterion for a REML Gaussian fit.
+    /// Deviance: `−2 log-likelihood` for the Gaussian LMM (the REML criterion
+    /// for a REML fit), `−2 (logLik − saturated logLik)` for Poisson / binomial
+    /// GLMMs (lme4's `deviance()` is a different, conditional quantity).
     pub fn deviance(&self) -> f64 {
         self.deviance
     }

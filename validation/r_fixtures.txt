@@ -1,4 +1,10 @@
-# generator  fixture  (stdout of the generator is the fixture)
+# generator  fixture  [tolerance]  (stdout of the generator is the fixture)
+#
+# The optional tolerance overrides compare_fixtures.py's 1e-8 for fixtures
+# whose reference is not reproducible across machines:
+# - gls_validation*: nlme's estimates on flat likelihoods move by up to 6e-5
+#   and its intervals() (finite-difference Hessian) by up to 2e-3 between
+#   machines, while the log-likelihoods agree to 1e-8 (#274).
 tests/r_scripts/generate_accuracy_validation.R tests/fixtures/accuracy_validation.rs
 tests/r_scripts/generate_alm_greybox_parity.R tests/fixtures/alm_greybox_parity.rs
 tests/r_scripts/generate_anova_validation.R tests/fixtures/anova_validation.rs
@@ -18,8 +24,8 @@ tests/r_scripts/generate_gamma_validation.R tests/fixtures/gamma_validation.rs
 tests/r_scripts/generate_glmm_nagq_validation.R tests/fixtures/glmm_nagq_validation.rs
 tests/r_scripts/generate_glmm_validation.R tests/fixtures/glmm_validation.rs
 tests/r_scripts/generate_glm_vcov_validation.R tests/fixtures/glm_vcov_validation.rs
-tests/r_scripts/generate_gls_validation_210.R tests/fixtures/gls_validation_210.rs
-tests/r_scripts/generate_gls_validation.R tests/fixtures/gls_validation.rs
+tests/r_scripts/generate_gls_validation_210.R tests/fixtures/gls_validation_210.rs 1e-4
+tests/r_scripts/generate_gls_validation.R tests/fixtures/gls_validation.rs 5e-3
 tests/r_scripts/generate_likelihood_validation.R tests/fixtures/likelihood_validation.rs
 tests/r_scripts/generate_lm_dynamic_validation.R tests/fixtures/lm_dynamic_validation.rs
 tests/r_scripts/generate_loo_press_validation.R tests/fixtures/loo_press_validation.rs
