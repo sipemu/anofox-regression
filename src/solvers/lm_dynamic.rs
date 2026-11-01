@@ -24,8 +24,10 @@
 //!
 //! With the normal distribution this reproduces `greybox::lmDynamic(data,
 //! ic, bruteforce = TRUE, lowess, f)` (validated in
-//! `tests/r_validation_lm_dynamic.rs`). greybox picks `f` by optimisation
-//! when it is not given; here the span is always explicit. Fitted values use
+//! `tests/r_validation_lm_dynamic.rs`). Without a fixed span the span is
+//! chosen as greybox does with `f = NULL`, by minimising its criterion
+//! ([`FittedLmDynamic::span_criterion`]); every LOWESS window size is tried.
+//! Fitted values use
 //! the per-observation coefficients, `x_tᵀ β_t` (greybox's `fitted()` uses
 //! the time-averaged coefficients).
 //!
@@ -40,7 +42,7 @@
 //!
 //! let fitted = LmDynamicRegressor::builder()
 //!     .ic(InformationCriterion::AICc)
-//!     .lowess_span(0.3)
+//!     .lowess_span(0.3) // or leave out to choose the span automatically
 //!     .build()
 //!     .fit(&x, &y)?;
 //!
@@ -113,6 +115,8 @@ pub struct LmDynamicRegressor {
     ic_type: InformationCriterion,
     distribution: AlmDistribution,
     lowess_span: Option<f64>,
+    /// Choose the span by greybox's criterion (`f = NULL`).
+    auto_span: bool,
     max_models: Option<usize>,
 }
 
@@ -129,7 +133,8 @@ impl Default for LmDynamicRegressor {
             options: RegressionOptionsBuilder::default().build_unchecked(),
             ic_type: InformationCriterion::default(),
             distribution: AlmDistribution::Normal,
-            lowess_span: Some(0.3), // Default LOWESS smoothing
+            lowess_span: Some(0.3),
+            auto_span: true,
             max_models: Some(DEFAULT_MAX_MODELS),
         }
     }
@@ -156,9 +161,19 @@ impl LmDynamicRegressor {
         self.distribution
     }
 
-    /// Get the LOWESS span (None if no smoothing).
+    /// Get the fixed LOWESS span (None if no smoothing or with
+    /// [`Self::auto_span`]).
     pub fn lowess_span(&self) -> Option<f64> {
-        self.lowess_span
+        if self.auto_span {
+            None
+        } else {
+            self.lowess_span
+        }
+    }
+
+    /// Whether the span is chosen by greybox's criterion (the default).
+    pub fn auto_span(&self) -> bool {
+        self.auto_span && self.lowess_span.is_some()
     }
 
     /// Generate all candidate model specifications: every subset of the
@@ -283,10 +298,19 @@ impl LmDynamicRegressor {
             }
         }
 
-        // Optional LOWESS smoothing
-        let smoothed_weights = self
-            .lowess_span
-            .map(|span| smooth_weights(&model_weights, span));
+        // Optional LOWESS smoothing; with `auto_span` the span minimises
+        // greybox's criterion (lmDynamic with `f = NULL`)
+        let ic_means: Vec<f64> = (0..n_models)
+            .map(|m| (0..n).map(|i| pointwise_ic[(i, m)]).sum::<f64>() / n as f64)
+            .collect();
+        let span = self.lowess_span.map(|f| {
+            if self.auto_span {
+                choose_span(&model_weights, &ic_means)
+            } else {
+                f
+            }
+        });
+        let smoothed_weights = span.map(|f| smooth_weights(&model_weights, f));
 
         // Compute dynamic coefficients
         let weights_to_use = smoothed_weights.as_ref().unwrap_or(&model_weights);
@@ -321,6 +345,8 @@ impl LmDynamicRegressor {
             smoothed_weights,
             model_specs,
             pointwise_ic,
+            ic_means,
+            span,
             n_features: p,
             original_x: x.to_owned(),
             has_intercept: self.options.with_intercept,
@@ -630,6 +656,44 @@ fn smooth_weights(weights: &Mat<f64>, span: f64) -> Mat<f64> {
     smoothed
 }
 
+/// greybox's span criterion `Σₘ mean_t(w̃ₜₘ) · mean_t(pICₜₘ)` of the weights
+/// smoothed with span `f` (lmDynamic's `fFinder`).
+fn span_criterion(weights: &Mat<f64>, ic_means: &[f64], f: f64) -> f64 {
+    let s = smooth_weights(weights, f);
+    let n = s.nrows() as f64;
+    (0..s.ncols())
+        .map(|m| (0..s.nrows()).map(|i| s[(i, m)]).sum::<f64>() / n * ic_means[m])
+        .filter(|v| v.is_finite())
+        .sum()
+}
+
+/// The span minimising [`span_criterion`]. LOWESS uses the window
+/// `⌊f·n + 10⁻⁵⌋`, so the criterion is a step function of `f`: every window
+/// `k = 2 … n` is tried (for `n > 500` a grid of 200 windows, then every
+/// window around the best one) and the span `k/n` of the best returned.
+/// greybox minimises the same criterion with `nloptr` from 0.9 under a loose
+/// tolerance (`ftol_rel = 1e-4`, 100 evaluations), so its span can stop short.
+fn choose_span(weights: &Mat<f64>, ic_means: &[f64]) -> f64 {
+    let n = weights.nrows();
+    if n < 3 {
+        return 1.0;
+    }
+    let crit = |k: usize| span_criterion(weights, ic_means, k as f64 / n as f64);
+    let best_of = |ks: &mut dyn Iterator<Item = usize>| {
+        ks.map(|k| (k, crit(k)))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map_or(n, |(k, _)| k)
+    };
+    let k = if n <= 500 {
+        best_of(&mut (2..=n))
+    } else {
+        let step = n / 200;
+        let coarse = best_of(&mut (2..=n).step_by(step));
+        best_of(&mut (coarse.saturating_sub(step).max(2)..=(coarse + step).min(n)))
+    };
+    k as f64 / n as f64
+}
+
 /// Result from fitting lmDynamic.
 #[derive(Debug, Clone)]
 pub struct FittedLmDynamic {
@@ -650,6 +714,10 @@ pub struct FittedLmDynamic {
     model_specs: Vec<ModelSpec>,
     /// Pointwise IC values (n_obs x n_models matrix)
     pointwise_ic: Mat<f64>,
+    /// Mean pointwise IC of each candidate model.
+    ic_means: Vec<f64>,
+    /// LOWESS span used (`None` without smoothing).
+    span: Option<f64>,
     /// Number of original features
     #[allow(dead_code)]
     n_features: usize,
@@ -692,6 +760,18 @@ impl FittedLmDynamic {
     /// Get the candidate model specifications.
     pub fn model_specs(&self) -> &[ModelSpec] {
         &self.model_specs
+    }
+
+    /// LOWESS span used to smooth the weights (the chosen one with
+    /// `auto_span`), `None` without smoothing.
+    pub fn span(&self) -> Option<f64> {
+        self.span
+    }
+
+    /// greybox's span criterion at span `f`: `Σₘ mean_t(w̃ₜₘ) · mean_t(pICₜₘ)`
+    /// with the weights smoothed at `f`. `auto_span` minimises it.
+    pub fn span_criterion(&self, f: f64) -> f64 {
+        span_criterion(&self.model_weights, &self.ic_means, f)
     }
 
     /// Get the pointwise information criteria matrix.
@@ -935,6 +1015,7 @@ pub struct LmDynamicRegressorBuilder {
     ic_type: InformationCriterion,
     distribution: AlmDistribution,
     lowess_span: Option<f64>,
+    auto_span: bool,
     max_models: Option<usize>,
 }
 
@@ -945,6 +1026,7 @@ impl Default for LmDynamicRegressorBuilder {
             ic_type: InformationCriterion::default(),
             distribution: AlmDistribution::default(),
             lowess_span: Some(0.3),
+            auto_span: true,
             max_models: Some(DEFAULT_MAX_MODELS),
         }
     }
@@ -968,17 +1050,28 @@ impl LmDynamicRegressorBuilder {
         self
     }
 
-    /// Set the LOWESS smoothing span (fraction of data, 0 to 1).
-    ///
-    /// Use `None` to disable smoothing.
+    /// Set a fixed LOWESS smoothing span (fraction of data, 0 to 1), as
+    /// `lmDynamic(f = span)`. By default the span is chosen automatically
+    /// (see [`Self::auto_span`]).
     pub fn lowess_span(mut self, span: f64) -> Self {
         self.lowess_span = Some(span.clamp(0.05, 1.0));
+        self.auto_span = false;
+        self
+    }
+
+    /// Choose the span (the default) by minimising greybox's criterion
+    /// `Σₘ mean_t(w̃ₜₘ) · mean_t(pICₜₘ)` over `[2/n, 1]`, as `lmDynamic`
+    /// with `f = NULL`; see [`FittedLmDynamic::span_criterion`].
+    pub fn auto_span(mut self) -> Self {
+        self.lowess_span = Some(0.3);
+        self.auto_span = true;
         self
     }
 
     /// Disable LOWESS smoothing.
     pub fn no_smoothing(mut self) -> Self {
         self.lowess_span = None;
+        self.auto_span = false;
         self
     }
 
@@ -1012,6 +1105,7 @@ impl LmDynamicRegressorBuilder {
             ic_type: self.ic_type,
             distribution: self.distribution,
             lowess_span: self.lowess_span,
+            auto_span: self.auto_span,
             max_models: self.max_models,
         }
     }
@@ -1039,7 +1133,7 @@ mod tests {
 
         assert_eq!(model.ic_type(), InformationCriterion::AICc);
         assert_eq!(model.distribution(), AlmDistribution::Normal);
-        assert!(model.lowess_span().is_some());
+        assert!(model.auto_span() && model.lowess_span().is_none());
     }
 
     #[test]
