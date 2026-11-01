@@ -10,6 +10,7 @@
 use crate::diagnostics::accuracy::quantile7;
 use crate::solvers::RegressionError;
 use crate::splines::Rcs;
+use crate::utils::RRng;
 use faer::{Col, Mat};
 
 /// How a variable enters [`areg`] (`xtype` / `ytype`).
@@ -382,6 +383,173 @@ impl Inverse {
     }
 }
 
+/// `approx(x, y, xout = v)` with `rule = 1` on `(x, y)` sorted by `x`
+/// (NaN outside the range of `x`).
+fn approx_rule1(x: &[f64], y: &[f64], v: f64) -> f64 {
+    let k = x.len();
+    if k == 0 || v < x[0] || v > x[k - 1] {
+        return f64::NAN;
+    }
+    let j = x.partition_point(|t| *t <= v).min(k - 1);
+    if j == 0 || x[j] == v {
+        return y[j];
+    }
+    let i = j - 1;
+    if x[i] == v {
+        return y[i];
+    }
+    y[i] + (y[j] - y[i]) * ((v - x[i]) / (x[j] - x[i]))
+}
+
+/// `(x, y)` ordered by `x` with the `y` of tied `x` averaged
+/// (`regularize.values(ties = mean)`).
+fn regularize(x: &[f64], y: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let mut idx: Vec<usize> = (0..x.len()).collect();
+    idx.sort_by(|&a, &b| x[a].total_cmp(&x[b]));
+    let (mut xs, mut ys, mut counts): (Vec<f64>, Vec<f64>, Vec<f64>) = (vec![], vec![], vec![]);
+    for i in idx {
+        if xs.last() == Some(&x[i]) {
+            *ys.last_mut().unwrap() += y[i];
+            *counts.last_mut().unwrap() += 1.0;
+        } else {
+            xs.push(x[i]);
+            ys.push(y[i]);
+            counts.push(1.0);
+        }
+    }
+    ys.iter_mut().zip(&counts).for_each(|(v, c)| *v /= c);
+    (xs, ys)
+}
+
+/// `Hmisc::approxExtrap(x, y, xout = 0, na.rm = TRUE)`: linear
+/// interpolation, extrapolated linearly beyond the ends.
+fn approx_extrap_at_zero(x: &[f64], y: &[f64]) -> f64 {
+    let mut pts: Vec<(f64, f64)> = Vec::new();
+    for (&a, &b) in x.iter().zip(y) {
+        if !(a + b).is_nan() && pts.iter().all(|p| p.0 != a) {
+            pts.push((a, b));
+        }
+    }
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let n = pts.len();
+    if n < 2 {
+        return pts.first().map_or(f64::NAN, |p| p.1);
+    }
+    let line = |a: (f64, f64), b: (f64, f64)| (b.1 - a.1) / (b.0 - a.0) * (0.0 - a.0) + a.1;
+    if 0.0 < pts[0].0 {
+        return line(pts[0], pts[1]);
+    }
+    if 0.0 > pts[n - 1].0 {
+        return line(pts[n - 2], pts[n - 1]);
+    }
+    let (xs, ys): (Vec<f64>, Vec<f64>) = pts.into_iter().unzip();
+    approx_rule1(&xs, &ys, 0.0)
+}
+
+/// `Hmisc::inverseFunction` of a transformation `t` tabulated on an
+/// increasing `grid`, split into its monotone pieces; a value inside the
+/// range of several pieces has several inverses.
+struct BranchInverse {
+    /// Per piece: transformation values (sorted) and their grid points.
+    pieces: Vec<(Vec<f64>, Vec<f64>)>,
+    /// Per piece: range of the transformation (`yrange`).
+    ranges: Vec<(f64, f64)>,
+    /// End points of the pieces, column-major (`as.vector(xrange)`,
+    /// `as.vector(yrange)`).
+    ends: (Vec<f64>, Vec<f64>),
+}
+
+/// Grid index range `[lo, hi]` of the points between `a` and `b`.
+fn grid_span(grid: &[f64], a: f64, b: f64) -> Vec<usize> {
+    (0..grid.len())
+        .filter(|&i| grid[i] >= a && grid[i] <= b)
+        .collect()
+}
+
+impl BranchInverse {
+    /// The turning points (0-based grid indices, `ic`), empty when `t` is
+    /// monotone.
+    fn turns(t: &[f64]) -> Vec<usize> {
+        let d: Vec<f64> = t.windows(2).map(|w| w[1] - w[0]).collect();
+        (1..d.len())
+            .filter(|&m| {
+                let (d, dl) = (d[m], d[m - 1]);
+                d >= 0.0 && dl < 0.0
+                    || d > 0.0 && dl <= 0.0
+                    || d <= 0.0 && dl > 0.0
+                    || d < 0.0 && dl >= 0.0
+            })
+            .collect()
+    }
+
+    fn new(grid: &[f64], t: &[f64], ic: &[usize]) -> Self {
+        let bounds = |turns: &[f64]| {
+            let mut e = vec![f64::NEG_INFINITY];
+            e.extend_from_slice(turns);
+            e.push(f64::INFINITY);
+            e
+        };
+        let coarse = bounds(&ic.iter().map(|&m| grid[m]).collect::<Vec<_>>());
+        let k = ic.len() + 1;
+        let (mut xl, mut yl) = (vec![0.0; 2 * k], vec![0.0; 2 * k]);
+        let mut ranges = Vec::with_capacity(k);
+        for j in 0..k {
+            let l = grid_span(grid, coarse[j], coarse[j + 1]);
+            let (a, b) = (l[0], l[l.len() - 1]);
+            (xl[j], xl[k + j], yl[j], yl[k + j]) = (grid[a], grid[b], t[a], t[b]);
+            ranges.push((t[a].min(t[b]), t[a].max(t[b])));
+        }
+        let d: Vec<f64> = t.windows(2).map(|w| w[1] - w[0]).collect();
+        let at = |v: &[f64], i: usize| v.get(i).copied().unwrap_or(f64::NAN);
+        let refined: Vec<f64> = ic
+            .iter()
+            .map(|&m| {
+                let l = [m - 1, m, m + 1];
+                let dv: Vec<f64> = l.iter().map(|&i| at(&d, i)).collect();
+                let xv: Vec<f64> = l.iter().map(|&i| at(grid, i + 1)).collect();
+                approx_extrap_at_zero(&dv, &xv)
+            })
+            .collect();
+        let fine = bounds(&refined);
+        let pieces = (0..k)
+            .map(|i| {
+                let l = grid_span(grid, fine[i], fine[i + 1]);
+                let tv: Vec<f64> = l.iter().map(|&m| t[m]).collect();
+                let gv: Vec<f64> = l.iter().map(|&m| grid[m]).collect();
+                regularize(&tv, &gv)
+            })
+            .collect();
+        Self {
+            pieces,
+            ranges,
+            ends: (xl, yl),
+        }
+    }
+
+    /// Every inverse of `v` (`what = "all"`, NaNs dropped).
+    fn all(&self, v: f64) -> Vec<f64> {
+        let inside: Vec<usize> = (0..self.ranges.len())
+            .filter(|&i| v >= self.ranges[i].0 && v <= self.ranges[i].1)
+            .collect();
+        if inside.is_empty() {
+            let (xl, yl) = &self.ends;
+            let c = (0..yl.len()).fold(0, |b, k| {
+                if (yl[k] - v).abs() < (yl[b] - v).abs() {
+                    k
+                } else {
+                    b
+                }
+            });
+            return vec![xl[c]];
+        }
+        inside
+            .iter()
+            .map(|&i| approx_rule1(&self.pieces[i].0, &self.pieces[i].1, v))
+            .filter(|z| !z.is_nan())
+            .collect()
+    }
+}
+
 impl Areg {
     /// Knots of the response spline (`yparms`), `None` for a linear response.
     pub fn y_knots(&self) -> Option<&[f64]> {
@@ -431,17 +599,47 @@ impl Areg {
             .map(|inv| inv.eval_all(t.iter().copied()))
     }
 
-    /// Tabulated inverse of the `y` transformation with coefficients `coef`.
-    fn inverse_with(&self, coef: &Col<f64>) -> Option<Inverse> {
+    /// The `y` transformation with coefficients `coef` on 1000 points over
+    /// the range of `y` (`seq(min(y), max(y), length.out = 1000)`).
+    fn y_grid(&self, coef: &Col<f64>) -> (Vec<f64>, Vec<f64>) {
         let lo = self.y.iter().copied().fold(f64::INFINITY, f64::min);
         let hi = self.y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let by = (hi - lo) / 999.0;
         let grid: Vec<f64> = (0..1000)
-            .map(|k| lo + (hi - lo) * k as f64 / 999.0)
+            .map(|k| if k == 999 { hi } else { lo + k as f64 * by })
             .collect();
         let t: Vec<f64> = affine(&self.y_expansion.columns(&grid), coef)
             .iter()
             .copied()
             .collect();
+        (grid, t)
+    }
+
+    /// `yinv(t, what = "sample")` of a spline response, as `areg` uses it
+    /// for the mean |error|: where the transformation is not monotone and
+    /// a value has several inverses, one is drawn with `sample` from `rng`.
+    /// `None` for a linear or categorical response (no draws).
+    pub(crate) fn sample_inverse_y(&self, t: &[f64], rng: &mut RRng) -> Option<Vec<f64>> {
+        if !matches!(self.y_expansion, Expansion::Spline(_)) {
+            return None;
+        }
+        let (grid, ty) = self.y_grid(&self.y_coefficients);
+        let ic = BranchInverse::turns(&ty);
+        if ic.is_empty() {
+            return self.inverse_y(t);
+        }
+        let inv = BranchInverse::new(&grid, &ty, &ic);
+        let pick = |z: Vec<f64>, rng: &mut RRng| match z.len() {
+            0 => f64::NAN,
+            1 => z[0],
+            m => z[rng.unif_index(m)],
+        };
+        Some(t.iter().map(|&v| pick(inv.all(v), rng)).collect())
+    }
+
+    /// Tabulated inverse of the `y` transformation with coefficients `coef`.
+    fn inverse_with(&self, coef: &Col<f64>) -> Option<Inverse> {
+        let (grid, t) = self.y_grid(coef);
         let increasing = t.windows(2).all(|w| w[1] >= w[0]);
         let decreasing = t.windows(2).all(|w| w[1] <= w[0]);
         match (increasing, decreasing) {
@@ -527,5 +725,44 @@ impl Areg {
             med_optimism: medo / b,
             med_corrected: med - medo / b,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BranchInverse;
+
+    /// `Hmisc::inverseFunction(x, y)(v, what = "all")` for
+    /// `x <- seq(-1, 2, length.out = 1000); y <- (x - 0.3)^2 - 0.2 * x`.
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn branch_inverse_replays_inverse_function() {
+        let grid: Vec<f64> = (0..1000)
+            .map(|k| {
+                if k == 999 {
+                    2.0
+                } else {
+                    -1.0 + k as f64 * (3.0 / 999.0)
+                }
+            })
+            .collect();
+        let t: Vec<f64> = grid.iter().map(|x| (x - 0.3).powi(2) - 0.2 * x).collect();
+        let ic = BranchInverse::turns(&t);
+        assert_eq!(ic.len(), 1);
+        let inv = BranchInverse::new(&grid, &t, &ic);
+        let cases: [(f64, &[f64]); 5] = [
+            (0.25, &[-0.16568428523913423, 0.96568347423366019]),
+            (1.5, &[-0.85299624498810511, 1.65299551888336937]),
+            (-0.5, &[0.39939939939939939]),
+            (5.0, &[2.0]),
+            (0.6, &[-0.41853399053619073, 1.21853430735178803]),
+        ];
+        for (v, want) in cases {
+            let got = inv.all(v);
+            assert_eq!(got.len(), want.len(), "{v}");
+            for (g, w) in got.iter().zip(want) {
+                assert!((g - w).abs() < 1e-12, "{v}: {g} vs {w}");
+            }
+        }
     }
 }
