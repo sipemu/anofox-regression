@@ -56,7 +56,7 @@ use basin::{
     SimplexProgress,
 };
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, FisherSnedecor};
+use statrs::distribution::{ContinuousCDF, FisherSnedecor, StudentsT};
 use statrs::function::gamma::{digamma, ln_gamma};
 use std::f64::consts::PI;
 
@@ -549,16 +549,17 @@ fn ll_log_laplace(y: &Col<f64>, mu: &Col<f64>, scale: f64) -> f64 {
 }
 
 fn ll_log_s(y: &Col<f64>, mu: &Col<f64>, scale: f64) -> f64 {
-    // Log-S distribution: log(Y) follows S distribution
-    // Log-lik: log(1/(4α)) - y.ln() - √|z|  where z = (log(y) - log(μ))/α
+    // Log-S distribution: log(Y) follows the S distribution with greybox's
+    // parameterisation (as `ll_s_distribution`, `dls`):
+    // log-lik −log(4s²) − √|log y − log μ| / s − log y
     let n = y.nrows();
     let mut ll = 0.0;
     for i in 0..n {
         if y[i] <= 0.0 || mu[i] <= 0.0 {
             return f64::NEG_INFINITY;
         }
-        let z = (y[i].ln() - mu[i].ln()).abs() / scale;
-        ll += (0.25 / scale).ln() - y[i].ln() - z.sqrt();
+        let d = (y[i].ln() - mu[i].ln()).abs();
+        ll += -(4.0 * scale * scale).ln() - d.sqrt() / scale - y[i].ln();
     }
     ll
 }
@@ -981,6 +982,39 @@ impl CostFunction for NegLogLikelihoodCost<'_> {
         } else {
             Ok(1e20) // Large penalty for invalid parameters
         }
+    }
+}
+
+/// A non-likelihood loss (`MSE`, `MAE`, `HAM`, `ROLE`) of the coefficients,
+/// as greybox's `CF`. ROLE estimates the scale jointly (a trailing `ln σ`,
+/// `inner.joint_scale`), as greybox counts it among the parameters; the other
+/// losses do not use it.
+#[derive(Clone)]
+struct LossCost<'a> {
+    inner: NegLogLikelihoodCost<'a>,
+    loss: AlmLoss,
+}
+
+impl CostFunction for LossCost<'_> {
+    type Param = Vec<f64>;
+    type Output = f64;
+    type Error = std::convert::Infallible;
+
+    fn cost(&self, params: &Self::Param) -> Result<Self::Output, Self::Error> {
+        let mu = self.inner.compute_mu_from_params(params);
+        let scale = match params.last() {
+            Some(log_scale) if self.inner.joint_scale => log_scale.exp(),
+            _ => self.inner.estimate_scale_from_mu(&mu),
+        };
+        let v = compute_loss(
+            self.inner.y,
+            &mu,
+            self.loss,
+            self.inner.distribution,
+            scale,
+            self.inner.extra_parameter,
+        );
+        Ok(if v.is_finite() { v } else { 1e20 })
     }
 }
 
@@ -1663,6 +1697,16 @@ impl AlmRegressor {
             }
         }
 
+        if self.loss != AlmLoss::Likelihood {
+            let (b, joint) = self.minimise_loss(x, y, &beta, scale);
+            beta = b;
+            eta = self.compute_eta(x, &beta);
+            mu = self.compute_mu(&eta);
+            scale = joint.unwrap_or_else(|| {
+                estimate_scale(y, &mu, self.distribution, df, self.extra_parameter)
+            });
+        }
+
         // Compute final results
         self.build_result(x, y, &beta, &mu, scale)
     }
@@ -1705,6 +1749,56 @@ impl AlmRegressor {
             }
         }
         (params, cost_val)
+    }
+
+    /// Minimise a non-likelihood loss directly from `beta` (the likelihood
+    /// start) and `scale`, derivative-free as greybox (`nloptr`'s subplex):
+    /// Nelder–Mead, restarted from its own optimum until it stops improving.
+    /// MAE, HAM and ROLE have kinks, and IRLS only fits the likelihood.
+    /// Returns the coefficients and, for ROLE, the jointly estimated scale.
+    fn minimise_loss(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        beta: &Col<f64>,
+        scale: f64,
+    ) -> (Col<f64>, Option<f64>) {
+        let joint = matches!(self.loss, AlmLoss::ROLE { .. });
+        let cost = LossCost {
+            inner: NegLogLikelihoodCost {
+                x,
+                y,
+                distribution: self.distribution,
+                link: self.link,
+                extra_parameter: self.extra_parameter,
+                with_intercept: self.options.with_intercept,
+                joint_scale: joint,
+            },
+            loss: self.loss,
+        };
+        let mut params: Vec<f64> = beta.iter().copied().collect();
+        if joint {
+            params.push(scale.max(1e-10).ln());
+        }
+        let Ok(mut best) = cost.cost(&params);
+        for _ in 0..50 {
+            let state = SimplexProgress::new(params.clone());
+            let Ok(res) = Executor::new(cost.clone(), NelderMead::adaptive(), state)
+                .max_iter(500 * (params.len() as u64 + 1))
+                .run();
+            let Ok(v) = cost.cost(res.best_param());
+            let improved = v < best - 1e-15 * (1.0 + best.abs());
+            if !improved {
+                break;
+            }
+            params = res.best_param().clone();
+            best = v;
+        }
+        let k = beta.nrows();
+        (
+            Col::from_fn(k, |i| params[i]),
+            joint.then(|| params[k].exp()),
+        )
     }
 
     /// Polish an IRLS estimate by maximising the likelihood directly, with the
@@ -1791,7 +1885,18 @@ impl AlmRegressor {
         });
 
         // Convert back to Col
-        let beta = Col::from_fn(n_params, |i| final_params[i]);
+        let mut beta = Col::from_fn(n_params, |i| final_params[i]);
+        let mut joint_scale = joint_scale;
+        if self.loss != AlmLoss::Likelihood {
+            let eta = self.compute_eta(x, &beta);
+            let start = joint_scale.unwrap_or_else(|| {
+                let mu = self.compute_mu(&eta);
+                estimate_scale(y, &mu, self.distribution, n as f64, self.extra_parameter)
+            });
+            let (b, joint) = self.minimise_loss(x, y, &beta, start);
+            beta = b;
+            joint_scale = joint;
+        }
 
         // Compute final mu and scale
         let eta = self.compute_eta(x, &beta);
@@ -2569,9 +2674,11 @@ impl AlmRegressor {
         result.confidence_level = self.options.confidence_level;
 
         // Compute inference if requested
-        if self.options.compute_inference {
-            self.compute_inference(x, y, beta, &mut result, scale)?;
-        }
+        let vcov = if self.options.compute_inference {
+            self.compute_inference(x, y, beta, &mut result, scale)?
+        } else {
+            None
+        };
 
         Ok(FittedAlm {
             options: self.options.clone(),
@@ -2580,6 +2687,7 @@ impl AlmRegressor {
             extra_parameter: self.extra_parameter,
             loss: self.loss,
             scale,
+            vcov,
             result,
         })
     }
@@ -2681,13 +2789,13 @@ impl AlmRegressor {
         beta: &Col<f64>,
         result: &mut RegressionResult,
         scale: f64,
-    ) -> Result<(), RegressionError> {
+    ) -> Result<Option<Mat<f64>>, RegressionError> {
         let df = result.residual_df() as f64;
         if df <= 0.0 {
-            return Ok(());
+            return Ok(None);
         }
         let Some(vcov) = self.alm_vcov(x, y, beta, scale, result.n_parameters) else {
-            return Ok(());
+            return Ok(None);
         };
         let se = Col::from_fn(beta.nrows(), |j| vcov[(j, j)].max(0.0).sqrt());
         crate::inference::fill_wald_inference(
@@ -2697,7 +2805,7 @@ impl AlmRegressor {
             self.options.with_intercept,
             crate::inference::WaldReference::StudentT(df),
         );
-        Ok(())
+        Ok(Some(vcov))
     }
 }
 
@@ -2865,6 +2973,8 @@ pub struct FittedAlm {
     extra_parameter: Option<f64>,
     loss: AlmLoss,
     scale: f64,
+    /// Coefficient covariance (intercept first), with `compute_inference`.
+    vcov: Option<Mat<f64>>,
     result: RegressionResult,
 }
 
@@ -2900,6 +3010,41 @@ impl FittedAlm {
     pub fn extra_parameter(&self) -> Option<f64> {
         self.extra_parameter
     }
+
+    /// Coefficient covariance as `vcov(greybox::alm)`, intercept first;
+    /// `None` without `compute_inference(true)`.
+    pub fn vcov(&self) -> Option<&Mat<f64>> {
+        self.vcov.as_ref()
+    }
+
+    /// `(xᵀβ, √(xᵀ V x))` on the location scale for each row of `x`.
+    fn location_with_se(&self, x: &Mat<f64>, vcov: &Mat<f64>) -> (Col<f64>, Col<f64>) {
+        let off = usize::from(self.result.intercept.is_some());
+        let k = vcov.nrows();
+        let b0 = self.result.intercept.unwrap_or(0.0);
+        let coef = |j: usize| {
+            let c = self.result.coefficients[j];
+            if c.is_nan() {
+                0.0
+            } else {
+                c
+            }
+        };
+        let n = x.nrows();
+        let row = |i: usize, j: usize| if j < off { 1.0 } else { x[(i, j - off)] };
+        let eta = Col::from_fn(n, |i| {
+            b0 + (0..x.ncols()).map(|j| coef(j) * x[(i, j)]).sum::<f64>()
+        });
+        let se = Col::from_fn(n, |i| {
+            (0..k)
+                .flat_map(|a| (0..k).map(move |b| (a, b)))
+                .map(|(a, b)| row(i, a) * vcov[(a, b)] * row(i, b))
+                .sum::<f64>()
+                .abs()
+                .sqrt()
+        });
+        (eta, se)
+    }
 }
 
 impl FittedRegressor for FittedAlm {
@@ -2930,31 +3075,77 @@ impl FittedRegressor for FittedAlm {
         &self.result
     }
 
+    /// Intervals as `predict.alm(interval = , level)` (greybox), with `t`
+    /// quantiles on `n − k` d.f. and `V` = [`FittedAlm::vcov`]:
+    ///
+    /// * confidence, identity-location families (Normal, Laplace, asymmetric
+    ///   Laplace, S, generalised normal, logistic, Student t):
+    ///   `xᵀβ ± t √(xᵀVx)`;
+    /// * confidence, log-Laplace, log-S, log-generalised normal and Poisson:
+    ///   `exp` of those limits; log-normal: `exp(xᵀβ ± z √(xᵀVx))` with the
+    ///   normal quantile `z` (`qlnorm`);
+    /// * prediction, Normal: `xᵀβ ± t √(xᵀVx + σ²)` with `σ² = sigma(alm)²`.
+    ///
+    /// Other combinations, and fits without `compute_inference(true)`, give
+    /// `NaN` limits. `se` is `√(xᵀVx)` (plus `σ²` for prediction) on the
+    /// location scale.
     fn predict_with_interval(
         &self,
         x: &Mat<f64>,
         interval: Option<IntervalType>,
-        _level: f64,
+        level: f64,
     ) -> PredictionResult {
+        use AlmDistribution as D;
         let predictions = self.predict(x);
-
-        match interval {
-            None => PredictionResult::point_only(predictions),
-            Some(_) => {
-                // For non-Normal distributions, prediction intervals are more complex
-                // Return point predictions with NaN intervals for now
-                let n = x.nrows();
-                let mut lower = Col::zeros(n);
-                let mut upper = Col::zeros(n);
-                let mut se = Col::zeros(n);
-                for i in 0..n {
-                    lower[i] = f64::NAN;
-                    upper[i] = f64::NAN;
-                    se[i] = f64::NAN;
-                }
-                PredictionResult::with_intervals(predictions, lower, upper, se)
+        let Some(kind) = interval else {
+            return PredictionResult::point_only(predictions);
+        };
+        let n = x.nrows();
+        let nan = || Col::from_fn(n, |_| f64::NAN);
+        let identity = matches!(
+            self.distribution,
+            D::Normal
+                | D::Laplace
+                | D::AsymmetricLaplace
+                | D::S
+                | D::GeneralisedNormal
+                | D::Logistic
+                | D::StudentT
+        );
+        let log_location = matches!(
+            self.distribution,
+            D::LogNormal | D::LogLaplace | D::LogS | D::LogGeneralisedNormal | D::Poisson
+        );
+        let supported = match kind {
+            IntervalType::Confidence => identity || log_location,
+            IntervalType::Prediction => self.distribution == D::Normal,
+        };
+        let df = self.result.residual_df() as f64;
+        let (Some(vcov), true, true) = (self.vcov.as_ref(), supported, df > 0.0) else {
+            return PredictionResult::with_intervals(predictions, nan(), nan(), nan());
+        };
+        let Ok(t) = StudentsT::new(0.0, 1.0, df) else {
+            return PredictionResult::with_intervals(predictions, nan(), nan(), nan());
+        };
+        let q = if self.distribution == D::LogNormal {
+            statrs::distribution::Normal::standard().inverse_cdf((1.0 + level) / 2.0)
+        } else {
+            t.inverse_cdf((1.0 + level) / 2.0)
+        };
+        let (eta, se) = self.location_with_se(x, vcov);
+        let se = match kind {
+            IntervalType::Confidence => se,
+            IntervalType::Prediction => {
+                let nobs = self.result.n_observations as f64;
+                let k = self.result.n_parameters as f64;
+                let sigma2 = self.scale * self.scale * nobs / (nobs - k);
+                Col::from_fn(n, |i| (se[i] * se[i] + sigma2).sqrt())
             }
-        }
+        };
+        let back = |v: f64| if log_location { v.exp() } else { v };
+        let lower = Col::from_fn(n, |i| back(eta[i] - q * se[i]));
+        let upper = Col::from_fn(n, |i| back(eta[i] + q * se[i]));
+        PredictionResult::with_intervals(predictions, lower, upper, se)
     }
 }
 
