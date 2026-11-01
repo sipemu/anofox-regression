@@ -30,13 +30,14 @@ use statrs::distribution::{ContinuousCDF, StudentsT};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use statistics::solvers::{WlsRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{FittedRegressor, Regressor, WlsRegressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64);
-/// let weights = Col::from_fn(100, |i| 1.0 / (i + 1) as f64);  // Inverse variance weights
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 });
+/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] + ((i * 13) % 7) as f64 / 10.0);
+/// let weights = Col::from_fn(100, |i| 1.0 / (i + 1) as f64); // Inverse variance weights
 ///
 /// let fitted = WlsRegressor::builder()
 ///     .with_intercept(true)
@@ -44,7 +45,9 @@ use statrs::distribution::{ContinuousCDF, StudentsT};
 ///     .build()
 ///     .fit(&x, &y)?;
 ///
-/// println!("R² = {}", fitted.r_squared());
+/// println!("R² = {}", fitted.result().r_squared);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct WlsRegressor {

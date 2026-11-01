@@ -5,12 +5,24 @@
 //! `mice::pool`), and the D1 pooled Wald test of several coefficients (Li,
 //! Raghunathan and Rubin 1991, `mice::D1`).
 //!
-//! ```rust,ignore
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use faer::{Col, Mat};
 //! use anofox_regression::inference::pool::{pool_rubin, pooled_wald_d1};
 //!
-//! // one fit per completed data set
+//! // coefficients and covariances of one fit per completed data set
+//! let coefs: Vec<Col<f64>> = (0..5)
+//!     .map(|m| Col::from_fn(3, |j| 1.0 + j as f64 + 0.01 * m as f64))
+//!     .collect();
+//! let vcovs: Vec<Mat<f64>> = (0..5)
+//!     .map(|_| Mat::from_fn(3, 3, |i, j| if i == j { 0.04 } else { 0.0 }))
+//!     .collect();
+//! let (n, p) = (100, 3);
 //! let pooled = pool_rubin(&coefs, &vcovs, Some((n - p) as f64))?;
 //! let test = pooled_wald_d1(&pooled, &[1, 2])?;
+//! # let _ = test;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::solvers::RegressionError;

@@ -7,27 +7,48 @@ use thiserror::Error;
 /// Errors that can occur during regression fitting.
 #[derive(Debug, Error)]
 pub enum RegressionError {
+    /// `x` and `y` (or a row-aligned extra) have different lengths.
     #[error("dimension mismatch: X has {x_rows} rows but y has {y_len} elements")]
-    DimensionMismatch { x_rows: usize, y_len: usize },
+    DimensionMismatch {
+        /// Rows of `x`.
+        x_rows: usize,
+        /// Length of `y` (or of the extra).
+        y_len: usize,
+    },
 
+    /// Too few observations for the model.
     #[error("insufficient observations: need at least {needed}, got {got}")]
-    InsufficientObservations { needed: usize, got: usize },
+    InsufficientObservations {
+        /// Observations the fit needs.
+        needed: usize,
+        /// Observations available.
+        got: usize,
+    },
 
+    /// A matrix that must be inverted is singular or nearly so.
     #[error("matrix is singular or nearly singular")]
     SingularMatrix,
 
+    /// Every predictor is constant.
     #[error("all features are constant")]
     AllFeaturesConstant,
 
+    /// The options failed validation.
     #[error("invalid options: {0}")]
     InvalidOptions(#[from] crate::core::OptionsError),
 
+    /// An iterative fit did not converge.
     #[error("convergence failed after {iterations} iterations")]
-    ConvergenceFailed { iterations: usize },
+    ConvergenceFailed {
+        /// Iterations performed.
+        iterations: usize,
+    },
 
+    /// Weights are negative (or otherwise invalid).
     #[error("invalid weights: all weights must be non-negative")]
     InvalidWeights,
 
+    /// Invalid input or a numerical failure, with a description.
     #[error("numerical error: {0}")]
     NumericalError(String),
 }
@@ -131,8 +152,13 @@ pub trait FittedRegressor {
     /// - `se`: Standard errors (zeros if interval is None)
     ///
     /// # Example
-    /// ```ignore
-    /// use statistics::prelude::*;
+    /// ```rust
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use faer::{Col, Mat};
+    /// # let x = Mat::from_fn(50, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+    /// # let y = Col::from_fn(50, |i| 1.0 + 2.0 * x[(i, 0)] - x[(i, 1)] + ((i * 13) % 7) as f64 / 20.0);
+    /// use anofox_regression::prelude::*;
+    /// # let x_new = Mat::from_fn(3, 2, |i, j| (i + j) as f64 / 4.0);
     ///
     /// let fitted = OlsRegressor::builder().build().fit(&x, &y)?;
     ///
@@ -145,6 +171,9 @@ pub trait FittedRegressor {
     ///
     /// // 99% confidence intervals for mean response
     /// let pred = fitted.predict_with_interval(&x_new, Some(IntervalType::Confidence), 0.99);
+    /// # let _ = pred;
+    /// # Ok(())
+    /// # }
     /// ```
     fn predict_with_interval(
         &self,

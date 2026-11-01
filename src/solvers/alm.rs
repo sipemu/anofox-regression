@@ -30,12 +30,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use statistics::solvers::{AlmRegressor, AlmDistribution, Regressor, FittedRegressor};
-//! use faer::{Mat, Col};
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use anofox_regression::solvers::{AlmDistribution, AlmRegressor, FittedRegressor, Regressor};
+//! use faer::{Col, Mat};
 //!
-//! let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-//! let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64);
+//! let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 });
+//! let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] + ((i * 13) % 7) as f64 / 10.0);
 //!
 //! let fitted = AlmRegressor::builder()
 //!     .distribution(AlmDistribution::Laplace)
@@ -43,7 +44,9 @@
 //!     .build()
 //!     .fit(&x, &y)?;
 //!
-//! println!("Coefficients: {:?}", fitted.coefficients());
+//! println!("Coefficients: {:?}", fitted.result().coefficients);
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::core::{HasModelInfo, ModelInfo};
@@ -3028,23 +3031,28 @@ impl Regressor for AlmRegressor {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use anofox_regression::prelude::*;
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64 / 10.0);
-/// let y = Col::from_fn(100, |i| (i as f64 + 1.0).sin() + 1.5);
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+/// let y = Col::from_fn(100, |i| (i as f64 + 1.0).sin() + 1.5 + x[(i, 0)]);
 ///
 /// // Fit a robust regression with Student-t distribution
 /// let fitted = AlmRegressor::builder()
 ///     .distribution(AlmDistribution::StudentT)
-///     .extra_parameter(5.0)  // degrees of freedom
+///     .extra_parameter(5.0) // degrees of freedom
 ///     .with_intercept(true)
 ///     .build()
 ///     .fit(&x, &y)?;
 ///
 /// // Access model results
 /// let scale = fitted.scale();
-/// let df = fitted.extra_parameter();  // Some(5.0)
+/// let df = fitted.extra_parameter(); // Some(5.0)
+/// # let _ = (scale, df);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedAlm {
@@ -3242,7 +3250,7 @@ impl FittedRegressor for FittedAlm {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::prelude::*;
 ///
 /// // Normal distribution with identity link (standard linear model)
@@ -3253,7 +3261,7 @@ impl FittedRegressor for FittedAlm {
 /// // Robust regression with Student-t distribution
 /// let model = AlmRegressor::builder()
 ///     .distribution(AlmDistribution::StudentT)
-///     .extra_parameter(5.0)  // degrees of freedom
+///     .extra_parameter(5.0) // degrees of freedom
 ///     .with_intercept(true)
 ///     .build();
 ///
@@ -3268,6 +3276,7 @@ impl FittedRegressor for FittedAlm {
 ///     .distribution(AlmDistribution::Beta)
 ///     .link(LinkFunction::Logit)
 ///     .build();
+/// # let _ = model;
 /// ```
 #[derive(Debug, Clone)]
 pub struct AlmRegressorBuilder {
@@ -3354,11 +3363,13 @@ impl AlmRegressorBuilder {
     /// * `loss` - The loss function to use (default: `AlmLoss::Likelihood`)
     ///
     /// # Example
-    /// ```ignore
+    /// ```rust
+    /// # use anofox_regression::solvers::{AlmDistribution, AlmLoss, AlmRegressor};
     /// let model = AlmRegressor::builder()
     ///     .distribution(AlmDistribution::Normal)
-    ///     .loss(AlmLoss::MAE)  // Use Mean Absolute Error
+    ///     .loss(AlmLoss::MAE) // Use Mean Absolute Error
     ///     .build();
+    /// # let _ = model;
     /// ```
     pub fn loss(mut self, loss: AlmLoss) -> Self {
         self.loss = loss;
@@ -3371,11 +3382,13 @@ impl AlmRegressorBuilder {
     /// * `trim` - Fraction of observations to trim (0.0 to 0.5, default 0.05)
     ///
     /// # Example
-    /// ```ignore
+    /// ```rust
+    /// # use anofox_regression::solvers::{AlmDistribution, AlmRegressor};
     /// let model = AlmRegressor::builder()
     ///     .distribution(AlmDistribution::Normal)
-    ///     .role_trim(0.10)  // Trim 10% worst observations
+    ///     .role_trim(0.10) // Trim 10% worst observations
     ///     .build();
+    /// # let _ = model;
     /// ```
     pub fn role_trim(mut self, trim: f64) -> Self {
         self.loss = AlmLoss::role_with_trim(trim);

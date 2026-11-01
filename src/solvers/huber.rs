@@ -34,20 +34,23 @@ use faer::{Col, Mat};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use statistics::solvers::{HuberRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{FittedRegressor, HuberRegressor, Regressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64);
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 });
+/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] + if i % 20 == 0 { 15.0 } else { 0.0 });
 ///
 /// let fitted = HuberRegressor::builder()
 ///     .epsilon(1.35)
 ///     .build()
 ///     .fit(&x, &y)?;
 ///
-/// println!("Coefficients: {:?}", fitted.coefficients());
+/// println!("Coefficients: {:?}", fitted.result().coefficients);
 /// println!("Outliers: {}", fitted.n_outliers());
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct HuberRegressor {

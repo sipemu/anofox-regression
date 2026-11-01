@@ -89,11 +89,11 @@ pub struct ConditionDiagnostic {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::diagnostics::condition_number;
 /// use faer::Mat;
 ///
-/// let x = Mat::from_fn(100, 3, |i, j| (i + j) as f64);
+/// let x = Mat::from_fn(100, 3, |i, j| ((i * (j + 1)) as f64 * 0.1).sin());
 /// let cond = condition_number(&x, true);
 /// println!("Condition number: {:.2}", cond);
 /// ```
@@ -163,11 +163,11 @@ pub fn condition_number(x: &Mat<f64>, with_intercept: bool) -> f64 {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::diagnostics::condition_diagnostic;
 /// use faer::Mat;
 ///
-/// let x = Mat::from_fn(100, 3, |i, j| (i + j) as f64);
+/// let x = Mat::from_fn(100, 3, |i, j| ((i * (j + 1)) as f64 * 0.1).sin());
 /// let diag = condition_diagnostic(&x, true);
 ///
 /// println!("Condition number: {:.2}", diag.condition_number);

@@ -64,10 +64,14 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use anofox_regression::solvers::GlmmRegressor;
 //! use faer::{Col, Mat};
 //!
+//! # let x = Mat::from_fn(60, 1, |i, _| (i % 10) as f64 / 3.0);
+//! # let group: Vec<usize> = (0..60).map(|i| i / 10).collect();
+//! # let y = Col::from_fn(60, |i| 1.0 + (0.5 + 0.1 * group[i] as f64) * x[(i, 0)] + 0.3 * group[i] as f64 + ((i * 13) % 7) as f64 / 10.0);
 //! // Random intercept + random slope on covariate 0:  y ~ x + (x | g).
 //! let fitted = GlmmRegressor::gaussian()
 //!     .with_intercept(true)
@@ -82,6 +86,9 @@
 //! let z = fitted.z_values();
 //! let p = fitted.p_values();
 //! let (lo, hi) = fitted.conf_int(0.95);
+//! # let _ = (z, p, lo, hi);
+//! # Ok(())
+//! # }
 //! ```
 
 use super::glmm_satterthwaite::{newton_polish, satterthwaite_df, LmmPieces};

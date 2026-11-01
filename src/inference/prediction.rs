@@ -180,10 +180,16 @@ fn compute_leverage_single(x0: &Col<f64>, xtx_inv: &Mat<f64>) -> f64 {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # use anofox_regression::inference::compute_xtx_inverse_augmented;
+/// # use faer::Mat;
+/// let x = Mat::from_fn(100, 2, |i, j| ((i * (j + 1)) as f64 * 0.1).sin());
 /// let xtx_inv = compute_xtx_inverse_augmented(&x)?;
 /// // xtx_inv is 3×3 (intercept + 2 features)
+/// assert_eq!(xtx_inv.nrows(), 3);
+/// # Ok(())
+/// # }
 /// ```
 pub fn compute_xtx_inverse_augmented(x: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
     design_gram_inverse(x, None, None, true)
@@ -205,10 +211,16 @@ pub fn compute_xtx_inverse_augmented(x: &Mat<f64>) -> Result<Mat<f64>, &'static 
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-/// let weights = Col::from_fn(100, |_| 1.0);  // uniform weights
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # use anofox_regression::inference::compute_xtwx_inverse_augmented;
+/// # use faer::{Col, Mat};
+/// let x = Mat::from_fn(100, 2, |i, j| ((i * (j + 1)) as f64 * 0.1).sin());
+/// let weights = Col::from_fn(100, |_| 1.0); // uniform weights
 /// let xtwx_inv = compute_xtwx_inverse_augmented(&x, &weights)?;
+/// # assert_eq!(xtwx_inv.nrows(), 3);
+/// # Ok(())
+/// # }
 /// ```
 pub fn compute_xtwx_inverse_augmented(
     x: &Mat<f64>,
@@ -231,10 +243,16 @@ pub fn compute_xtwx_inverse_augmented(
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # use anofox_regression::inference::compute_xtx_inverse;
+/// # use faer::Mat;
+/// let x = Mat::from_fn(100, 2, |i, j| ((i * (j + 1)) as f64 * 0.1).sin());
 /// let xtx_inv = compute_xtx_inverse(&x)?;
 /// // xtx_inv is 2×2
+/// assert_eq!(xtx_inv.nrows(), 2);
+/// # Ok(())
+/// # }
 /// ```
 pub fn compute_xtx_inverse(x: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
     design_gram_inverse(x, None, None, false)

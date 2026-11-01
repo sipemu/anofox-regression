@@ -34,12 +34,13 @@ use faer::{Col, Mat};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use statistics::solvers::{QuantileRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{FittedRegressor, QuantileRegressor, Regressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64 + rand::random::<f64>());
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 });
+/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] + ((i * 13) % 7) as f64 / 10.0);
 ///
 /// // Fit median regression (tau = 0.5)
 /// let fitted = QuantileRegressor::builder()
@@ -47,7 +48,9 @@ use faer::{Col, Mat};
 ///     .build()
 ///     .fit(&x, &y)?;
 ///
-/// println!("Coefficients: {:?}", fitted.coefficients());
+/// println!("Coefficients: {:?}", fitted.result().coefficients);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct QuantileRegressor {

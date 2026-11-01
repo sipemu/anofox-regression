@@ -33,12 +33,13 @@ use statrs::distribution::{ContinuousCDF, FisherSnedecor, Normal};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use anofox_regression::solvers::{TweedieRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{Regressor, TweedieRegressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| (i as f64 + 0.1).max(0.0));
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 50.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+/// let y = Col::from_fn(100, |i| (0.5 + 0.3 * x[(i, 0)]).exp() * (1.0 + ((i * 7) % 5) as f64 / 10.0));
 ///
 /// // Gamma regression with log link
 /// let fitted = TweedieRegressor::gamma()
@@ -48,9 +49,12 @@ use statrs::distribution::{ContinuousCDF, FisherSnedecor, Normal};
 /// // Compound Poisson-Gamma for zero-inflated data
 /// let fitted = TweedieRegressor::builder()
 ///     .var_power(1.5)
-///     .link_power(0.0)  // log link
+///     .link_power(0.0) // log link
 ///     .build()
 ///     .fit(&x, &y)?;
+/// # let _ = fitted;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct TweedieRegressor {
@@ -808,11 +812,13 @@ fn tweedie_log_likelihood(
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use anofox_regression::prelude::*;
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64 / 10.0);
-/// let y = Col::from_fn(100, |i| (i as f64 + 1.0).max(0.1));
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 50.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+/// let y = Col::from_fn(100, |i| (0.5 + 0.3 * x[(i, 0)]).exp() * (1.0 + ((i * 7) % 5) as f64 / 10.0));
 ///
 /// // Gamma regression (power = 2)
 /// let fitted = TweedieRegressor::gamma()
@@ -821,9 +827,12 @@ fn tweedie_log_likelihood(
 ///     .fit(&x, &y)?;
 ///
 /// // Access model results
-/// let coefs = fitted.coefficients();
+/// let coefs = &fitted.result().coefficients;
 /// let deviance = fitted.deviance;
 /// let dispersion = fitted.dispersion;
+/// # let _ = (coefs, deviance, dispersion);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedTweedie {
@@ -1153,7 +1162,7 @@ impl FittedRegressor for FittedTweedie {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::prelude::*;
 ///
 /// // Gamma regression (most common for positive continuous)
@@ -1168,10 +1177,11 @@ impl FittedRegressor for FittedTweedie {
 ///
 /// // Custom power (e.g., compound Poisson-Gamma for insurance)
 /// let model = TweedieRegressor::builder()
-///     .power(1.5)
+///     .var_power(1.5)
 ///     .with_intercept(true)
 ///     .compute_inference(true)
 ///     .build();
+/// # let _ = model;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct TweedieRegressorBuilder {

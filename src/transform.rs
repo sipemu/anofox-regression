@@ -4,14 +4,23 @@
 //! Duan's smearing estimator of the mean or quantiles of `Y` on the original
 //! scale from a model of `g(Y)` (`Hmisc::smearingEst`).
 //!
-//! ```rust,ignore
-//! use anofox_regression::transform::{box_cox, BoxCoxOptions, smearing_estimate, Smearing};
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use faer::{Col, Mat};
+//! use anofox_regression::transform::{box_cox, smearing_estimate, BoxCoxOptions, Smearing};
 //!
+//! # let x = Mat::from_fn(50, 1, |i, _| i as f64 / 10.0);
+//! # let y = Col::from_fn(50, |i| (1.0 + x[(i, 0)] + ((i * 13) % 7) as f64 / 20.0).powi(2));
 //! let prof = box_cox(&x, &y, &BoxCoxOptions::default())?;
 //! println!("lambda = {} ({:?}, {:?})", prof.lambda_hat, prof.ci_lower, prof.ci_upper);
 //!
 //! // a model of sqrt(y): smear the residuals back through z ↦ z²
+//! # let lp: Vec<f64> = (0..50).map(|i| 1.0 + i as f64 / 10.0).collect();
+//! # let residuals: Vec<f64> = (0..50).map(|i| ((i * 13) % 7) as f64 / 20.0 - 0.15).collect();
 //! let mean_y = smearing_estimate(&lp, &residuals, |z| z * z, Smearing::Mean);
+//! # let _ = mean_y;
+//! # Ok(())
+//! # }
 //! ```
 
 mod areg;

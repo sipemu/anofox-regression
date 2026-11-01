@@ -5,8 +5,8 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use anofox_regression::PoissonFamily;
+//! ```rust
+//! use anofox_regression::core::PoissonFamily;
 //!
 //! // Poisson regression with log link (canonical, default)
 //! let poisson = PoissonFamily::log();
@@ -16,6 +16,7 @@
 //!
 //! // Poisson with sqrt link
 //! let poisson_sqrt = PoissonFamily::sqrt();
+//! # let _ = (poisson, poisson_id, poisson_sqrt);
 //! ```
 
 use super::family::GlmFamily;

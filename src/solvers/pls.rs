@@ -29,20 +29,23 @@ use faer::{Col, Mat};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use statistics::solvers::{PlsRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{FittedRegressor, PlsRegressor, Regressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 10, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64);
+/// let x = Mat::from_fn(100, 10, |i, j| ((i * (j + 1)) as f64 * 0.1).sin());
+/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] - x[(i, 4)]);
 ///
 /// let fitted = PlsRegressor::builder()
 ///     .n_components(3)
 ///     .build()
 ///     .fit(&x, &y)?;
 ///
-/// println!("R² = {}", fitted.r_squared());
-/// println!("Coefficients: {:?}", fitted.coefficients());
+/// println!("R² = {}", fitted.result().r_squared);
+/// println!("Coefficients: {:?}", fitted.result().coefficients);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct PlsRegressor {
