@@ -101,6 +101,25 @@ fn d1_matches_mice() {
     );
 }
 
+/// #210: with a complete-data d.f. `mice::D1` (via `mitml`) uses Reiter's
+/// (2007) denominator d.f.
+#[test]
+fn d1_with_complete_data_df_uses_reiter() {
+    let f = pooled(Some(150.0 - 4.0));
+    for (idx, expected) in [
+        (&[1usize, 2][..], &D1_REITER_X1X2[..]),
+        (&[1, 2, 3], &D1_REITER_ALL),
+    ] {
+        let t = pooled_wald_d1(&f, idx).unwrap();
+        all_close(
+            "D1 Reiter",
+            &[t.f, t.df1, t.df2, t.p_value, t.riv],
+            expected,
+            1e-9,
+        );
+    }
+}
+
 #[test]
 fn rejects_bad_input() {
     let (c, v) = fits();

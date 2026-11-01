@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pooled_wald_d1` used Li et al.'s denominator d.f. where `mice::D1` uses Reiter's (#210).** `mice::D1` passes the model's complete-data d.f. to `mitml`, which then uses Reiter's (2007) small-sample `df2`. When `pool_rubin` is given `df_complete` (now kept as `PooledFit::df_complete`), `pooled_wald_d1` does the same; without it, the Li–Raghunathan–Rubin d.f. are unchanged. Validated in `tests/r_validation_pool.rs`, which also gains `.632` validation of `ols`, `calibrate(predy = )` grids and `rank_intervals` checks in `tests/r_validation_validate.rs`. **Behaviour change:** D1 p-values change for pooled fits with a complete-data d.f.
 - **`PSplineRegressor` is now `mgcv`'s `bs = "ps"` smooth (#210).** Before:
   - the basis used clamped knots at the data range;
   - λ was the best of 17 grid points (whole decades);

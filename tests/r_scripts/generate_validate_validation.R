@@ -62,3 +62,16 @@ cal_out <- function(id, cal, fit) {
 }
 set.seed(1); cal_out("CAL_LRM", calibrate(fl, B = B), fl)
 set.seed(1); cal_out("CAL_OLS", calibrate(fo, B = B), fo)
+# #210: .632 for ols, calibrate with a user predy grid, rank intervals
+set.seed(3); tab("OLS_632", validate(fo, method = ".632", B = B))
+pg <- seq(0.15, 0.85, by = 0.05); pgo <- seq(-0.5, 2.5, by = 0.25)
+emit("PREDY_LRM_GRID", pg); emit("PREDY_OLS_GRID", pgo)
+set.seed(1); cal_out("CAL_LRM_GRID", calibrate(fl, B = B, predy = pg), fl)
+set.seed(1); cal_out("CAL_OLS_GRID", calibrate(fo, B = B, predy = pgo), fo)
+# RMS 5.4: ranks (R's rank, ties averaged) of importance statistics and
+# their bootstrap quantiles (type 7)
+orig <- c(3.2, 10.5, 0.4, 3.2, 7.7)
+set.seed(4); reps <- matrix(round(rnorm(40 * 5, rep(orig, each = 40), 2), 1), 40, 5)
+emit("RANK_ORIG", orig); emit("RANK_REPS", t(reps))
+rk <- t(apply(reps, 1, rank))
+emit("RANK_TABLE", rbind(rank(orig), apply(rk, 2, quantile, c(0.05, 0.95))))

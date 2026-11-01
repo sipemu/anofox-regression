@@ -58,3 +58,22 @@ d1 <- function(idx) {
   c(F, k, df2, pf(F, k, df2, lower.tail = FALSE), r1)
 }
 emit("D1_X1X2", d1(2:3)); emit("D1_ALL", d1(2:4))
+# #210: mice::D1 passes the model's complete-data d.f. (get.dfcom) to
+# mitml::testModels, whose .D1 then uses Reiter's (2007) d.f. (code of
+# mitml:::.D1, written out as mitml is not required)
+d1_reiter <- function(idx, df.com) {
+  k <- length(idx)
+  W <- ubar[idx, idx]; Bk <- B[idx, idx]
+  r <- (1 + 1/m) * sum(diag(Bk %*% solve(W))) / k
+  F <- drop(t(qbar[idx]) %*% solve((1 + r) * W) %*% qbar[idx]) / k
+  t <- k * (m - 1)
+  a <- r * t / (t - 2)
+  vstar <- ((df.com + 1) / (df.com + 3)) * df.com
+  c0 <- 1 / (t - 4); c1 <- vstar - 2 * (1 + a); c2 <- vstar - 4 * (1 + a)
+  z <- 1 / c2 + c0 * (a^2 * c1 / ((1 + a)^2 * c2)) +
+    c0 * (8 * a^2 * c1 / ((1 + a) * c2^2) + 4 * a^2 / ((1 + a) * c2)) +
+    c0 * (4 * a^2 / (c2 * c1) + 16 * a^2 * c1 / c2^3) + c0 * (8 * a^2 / c2^2)
+  v <- 4 + 1 / z
+  c(F, k, v, pf(F, k, v, lower.tail = FALSE), r)
+}
+emit("D1_REITER_X1X2", d1_reiter(2:3, dfcom)); emit("D1_REITER_ALL", d1_reiter(2:4, dfcom))
