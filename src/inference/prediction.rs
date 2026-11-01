@@ -186,24 +186,7 @@ fn compute_leverage_single(x0: &Col<f64>, xtx_inv: &Mat<f64>) -> f64 {
 /// // xtx_inv is 3×3 (intercept + 2 features)
 /// ```
 pub fn compute_xtx_inverse_augmented(x: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
-    let n_samples = x.nrows();
-    let n_features = x.ncols();
-    let aug_size = n_features + 1;
-
-    // Build augmented design matrix [1 | X]
-    let mut x_aug = Mat::zeros(n_samples, aug_size);
-    for i in 0..n_samples {
-        x_aug[(i, 0)] = 1.0;
-        for j in 0..n_features {
-            x_aug[(i, j + 1)] = x[(i, j)];
-        }
-    }
-
-    // Compute X_aug'X_aug
-    let xtx_aug = x_aug.transpose() * &x_aug;
-
-    // Compute inverse using QR decomposition
-    compute_matrix_inverse(&xtx_aug)
+    design_gram_inverse(x, None, None, true)
 }
 
 /// Compute (X'WX)⁻¹ for the weighted augmented design matrix.
@@ -231,34 +214,7 @@ pub fn compute_xtwx_inverse_augmented(
     x: &Mat<f64>,
     weights: &Col<f64>,
 ) -> Result<Mat<f64>, &'static str> {
-    let n_samples = x.nrows();
-    let n_features = x.ncols();
-    let aug_size = n_features + 1;
-
-    // Build X'WX for augmented matrix [1 | X]
-    let mut xtwx_aug: Mat<f64> = Mat::zeros(aug_size, aug_size);
-
-    for i in 0..n_samples {
-        let w = weights[i];
-
-        // (0,0): sum of weights
-        xtwx_aug[(0, 0)] += w;
-
-        // (0,j+1) and (j+1,0): weighted sum of x_j
-        for j in 0..n_features {
-            xtwx_aug[(0, j + 1)] += w * x[(i, j)];
-            xtwx_aug[(j + 1, 0)] += w * x[(i, j)];
-        }
-
-        // (j+1, k+1): weighted x_j * x_k
-        for j in 0..n_features {
-            for k in 0..n_features {
-                xtwx_aug[(j + 1, k + 1)] += w * x[(i, j)] * x[(i, k)];
-            }
-        }
-    }
-
-    compute_matrix_inverse(&xtwx_aug)
+    design_gram_inverse(x, Some(weights), None, true)
 }
 
 /// Compute (X'X)⁻¹ for a non-augmented design matrix.
@@ -281,8 +237,7 @@ pub fn compute_xtwx_inverse_augmented(
 /// // xtx_inv is 2×2
 /// ```
 pub fn compute_xtx_inverse(x: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
-    let xtx = x.transpose() * x;
-    compute_matrix_inverse(&xtx)
+    design_gram_inverse(x, None, None, false)
 }
 
 /// Compute (X'X)⁻¹ for the augmented design matrix, excluding aliased columns.
@@ -302,28 +257,7 @@ pub fn compute_xtx_inverse_augmented_reduced(
     x: &Mat<f64>,
     aliased: &[bool],
 ) -> Result<Mat<f64>, &'static str> {
-    let n_samples = x.nrows();
-    let n_features = x.ncols();
-
-    // Count non-aliased columns
-    let non_aliased_cols: Vec<usize> = (0..n_features).filter(|&j| !aliased[j]).collect();
-    let n_reduced = non_aliased_cols.len();
-    let aug_size = n_reduced + 1; // +1 for intercept
-
-    // Build reduced augmented design matrix [1 | X_reduced]
-    let mut x_aug = Mat::zeros(n_samples, aug_size);
-    for i in 0..n_samples {
-        x_aug[(i, 0)] = 1.0;
-        for (k, &j) in non_aliased_cols.iter().enumerate() {
-            x_aug[(i, k + 1)] = x[(i, j)];
-        }
-    }
-
-    // Compute X_aug'X_aug
-    let xtx_aug = x_aug.transpose() * &x_aug;
-
-    // Compute inverse
-    compute_matrix_inverse(&xtx_aug)
+    design_gram_inverse(x, None, Some(aliased), true)
 }
 
 /// Compute (X'X)⁻¹ for a non-augmented design matrix, excluding aliased columns.
@@ -339,28 +273,10 @@ pub fn compute_xtx_inverse_reduced(
     x: &Mat<f64>,
     aliased: &[bool],
 ) -> Result<Mat<f64>, &'static str> {
-    let n_samples = x.nrows();
-    let n_features = x.ncols();
-
-    // Count non-aliased columns
-    let non_aliased_cols: Vec<usize> = (0..n_features).filter(|&j| !aliased[j]).collect();
-    let n_reduced = non_aliased_cols.len();
-
-    if n_reduced == 0 {
+    if aliased.iter().all(|&a| a) {
         return Err("All columns are aliased");
     }
-
-    // Build reduced design matrix
-    let mut x_reduced = Mat::zeros(n_samples, n_reduced);
-    for i in 0..n_samples {
-        for (k, &j) in non_aliased_cols.iter().enumerate() {
-            x_reduced[(i, k)] = x[(i, j)];
-        }
-    }
-
-    // Compute X'X and its inverse
-    let xtx = x_reduced.transpose() * &x_reduced;
-    compute_matrix_inverse(&xtx)
+    design_gram_inverse(x, None, Some(aliased), false)
 }
 
 /// Compute (X'WX)⁻¹ for the weighted augmented design matrix, excluding aliased columns.
@@ -382,38 +298,7 @@ pub fn compute_xtwx_inverse_augmented_reduced(
     weights: &Col<f64>,
     aliased: &[bool],
 ) -> Result<Mat<f64>, &'static str> {
-    let n_samples = x.nrows();
-    let n_features = x.ncols();
-
-    // Count non-aliased columns
-    let non_aliased_cols: Vec<usize> = (0..n_features).filter(|&j| !aliased[j]).collect();
-    let n_reduced = non_aliased_cols.len();
-    let aug_size = n_reduced + 1; // +1 for intercept
-
-    // Build X'WX for reduced augmented matrix [1 | X_reduced]
-    let mut xtwx_aug: Mat<f64> = Mat::zeros(aug_size, aug_size);
-
-    for i in 0..n_samples {
-        let w = weights[i];
-
-        // (0,0): sum of weights
-        xtwx_aug[(0, 0)] += w;
-
-        // (0,k+1) and (k+1,0): weighted sum of x_j (for non-aliased j)
-        for (k, &j) in non_aliased_cols.iter().enumerate() {
-            xtwx_aug[(0, k + 1)] += w * x[(i, j)];
-            xtwx_aug[(k + 1, 0)] += w * x[(i, j)];
-        }
-
-        // (k+1, m+1): weighted x_j * x_l (for non-aliased j, l)
-        for (k, &j) in non_aliased_cols.iter().enumerate() {
-            for (m, &l) in non_aliased_cols.iter().enumerate() {
-                xtwx_aug[(k + 1, m + 1)] += w * x[(i, j)] * x[(i, l)];
-            }
-        }
-    }
-
-    compute_matrix_inverse(&xtwx_aug)
+    design_gram_inverse(x, Some(weights), Some(aliased), true)
 }
 
 /// Compute (X'WX)⁻¹ for a weighted non-augmented design matrix, excluding aliased columns.
@@ -431,31 +316,76 @@ pub fn compute_xtwx_inverse_reduced(
     weights: &Col<f64>,
     aliased: &[bool],
 ) -> Result<Mat<f64>, &'static str> {
-    let n_samples = x.nrows();
-    let n_features = x.ncols();
-
-    // Count non-aliased columns
-    let non_aliased_cols: Vec<usize> = (0..n_features).filter(|&j| !aliased[j]).collect();
-    let n_reduced = non_aliased_cols.len();
-
-    if n_reduced == 0 {
+    if aliased.iter().all(|&a| a) {
         return Err("All columns are aliased");
     }
+    design_gram_inverse(x, Some(weights), Some(aliased), false)
+}
 
-    // Build X'WX for reduced matrix
-    let mut xtwx: Mat<f64> = Mat::zeros(n_reduced, n_reduced);
-
-    for i in 0..n_samples {
-        let w = weights[i];
-
-        for (k, &j) in non_aliased_cols.iter().enumerate() {
-            for (m, &l) in non_aliased_cols.iter().enumerate() {
-                xtwx[(k, m)] += w * x[(i, j)] * x[(i, l)];
-            }
+/// `(Z'Z)⁻¹` for the design `Z = √W [1 | X_kept]`: an intercept column if
+/// `intercept`, the columns of `x` not marked `aliased`, rows scaled by the
+/// square root of `weights`.
+///
+/// Computed from a thin QR of the column-equilibrated design, `Z D = Q R`,
+/// as `(Z'Z)⁻¹ = D R⁻¹ R⁻ᵀ D`, which never forms `Z'Z` and so does not square
+/// the condition number. A column is singular when `|R_jj| ≤ 1e-6`, the
+/// square root of the `1e-12` that [`compute_matrix_inverse`] applies to
+/// `D Z'Z D`. Negative or non-finite weights fall back to the Gram matrix.
+fn design_gram_inverse(
+    x: &Mat<f64>,
+    weights: Option<&Col<f64>>,
+    aliased: Option<&[bool]>,
+    intercept: bool,
+) -> Result<Mat<f64>, &'static str> {
+    let kept: Vec<usize> = (0..x.ncols())
+        .filter(|&j| aliased.is_none_or(|a| !a[j]))
+        .collect();
+    let off = usize::from(intercept);
+    let (n, k) = (x.nrows(), kept.len() + off);
+    let w = |i: usize| weights.map_or(1.0, |w| w[i]);
+    let z = Mat::from_fn(
+        n,
+        k,
+        |i, j| if j < off { 1.0 } else { x[(i, kept[j - off])] },
+    );
+    if (0..n).any(|i| !(w(i).is_finite() && w(i) >= 0.0)) {
+        let wz = Mat::from_fn(n, k, |i, j| w(i) * z[(i, j)]);
+        return compute_matrix_inverse(&(z.transpose() * &wz));
+    }
+    if k == 0 {
+        return Ok(Mat::zeros(0, 0));
+    }
+    if n < k {
+        return Err("Matrix is singular");
+    }
+    let sw: Vec<f64> = (0..n).map(|i| w(i).sqrt()).collect();
+    let mut d = vec![0.0; k];
+    for (j, dj) in d.iter_mut().enumerate() {
+        let norm = (0..n)
+            .map(|i| (sw[i] * z[(i, j)]).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        if !(norm.is_finite() && norm > 0.0) {
+            return Err("Matrix is singular");
+        }
+        *dj = 1.0 / norm;
+    }
+    let scaled = Mat::from_fn(n, k, |i, j| sw[i] * z[(i, j)] * d[j]);
+    let r = scaled.qr().thin_R().to_owned();
+    if (0..k).any(|i| r[(i, i)].abs().is_nan() || r[(i, i)].abs() <= 1e-6) {
+        return Err("Matrix is singular");
+    }
+    // R⁻¹ by back substitution, then (Z'Z)⁻¹ = D R⁻¹ R⁻ᵀ D
+    let mut rinv = Mat::<f64>::zeros(k, k);
+    for c in 0..k {
+        for i in (0..=c).rev() {
+            let e = if i == c { 1.0 } else { 0.0 };
+            let s: f64 = (i + 1..=c).map(|j| r[(i, j)] * rinv[(j, c)]).sum();
+            rinv[(i, c)] = (e - s) / r[(i, i)];
         }
     }
-
-    compute_matrix_inverse(&xtwx)
+    let s_inv = &rinv * rinv.transpose();
+    Ok(Mat::from_fn(k, k, |i, j| s_inv[(i, j)] * d[i] * d[j]))
 }
 
 /// Inverse of a symmetric positive (semi-)definite matrix such as `X'X`.
@@ -511,6 +441,59 @@ pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn close_mats(a: &Mat<f64>, b: &Mat<f64>) {
+        assert_eq!((a.nrows(), a.ncols()), (b.nrows(), b.ncols()));
+        for i in 0..a.nrows() {
+            for j in 0..a.ncols() {
+                assert!((a[(i, j)] - b[(i, j)]).abs() < 1e-9 * (1.0 + b[(i, j)].abs()));
+            }
+        }
+    }
+
+    /// The QR route agrees with inverting the Gram matrix on a
+    /// well-conditioned design, for every public wrapper.
+    #[test]
+    fn design_inverse_matches_the_gram_inverse() {
+        let x = Mat::from_fn(12, 2, |i, j| ((i * (j + 2)) as f64 * 0.7).sin() + j as f64);
+        let w = Col::from_fn(12, |i| 0.5 + (i % 3) as f64);
+        let aug = Mat::from_fn(12, 3, |i, j| if j == 0 { 1.0 } else { x[(i, j - 1)] });
+        let gram = |z: &Mat<f64>, w: Option<&Col<f64>>| {
+            let wz = Mat::from_fn(z.nrows(), z.ncols(), |i, j| {
+                w.map_or(1.0, |w| w[i]) * z[(i, j)]
+            });
+            compute_matrix_inverse(&(z.transpose() * &wz)).unwrap()
+        };
+        close_mats(&compute_xtx_inverse(&x).unwrap(), &gram(&x, None));
+        close_mats(
+            &compute_xtx_inverse_augmented(&x).unwrap(),
+            &gram(&aug, None),
+        );
+        close_mats(
+            &compute_xtwx_inverse_augmented(&x, &w).unwrap(),
+            &gram(&aug, Some(&w)),
+        );
+        // a negative weight falls back to the Gram matrix
+        let mut wn = w.clone();
+        wn[0] = -0.1;
+        close_mats(
+            &compute_xtwx_inverse_augmented(&x, &wn).unwrap(),
+            &gram(&aug, Some(&wn)),
+        );
+    }
+
+    #[test]
+    fn design_inverse_edge_cases() {
+        // no columns at all
+        let empty = compute_xtx_inverse(&Mat::zeros(5, 0)).unwrap();
+        assert_eq!(empty.nrows(), 0);
+        // fewer rows than columns
+        assert!(compute_xtx_inverse(&Mat::from_fn(2, 3, |i, j| (i + j) as f64)).is_err());
+        // a zero column
+        assert!(compute_xtx_inverse(&Mat::from_fn(5, 2, |i, j| (j * i) as f64)).is_err());
+        // collinear columns
+        assert!(compute_xtx_inverse(&Mat::from_fn(5, 2, |i, j| ((j + 1) * i) as f64)).is_err());
+    }
 
     #[test]
     fn test_leverage_single() {
