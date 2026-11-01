@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The release profile moved to the workspace root, where cargo reads it.
   - The WASM crate is `publish = false`.
   - `js/package-lock.json` now matches 0.7.0.
+- **CI gates (#182):**
+  - `cargo-deny` checks advisories, licences (permissive only), bans and sources (`deny.toml`). `Cargo.lock` isn't committed, so CI checks the latest compatible versions, which pass; an old local lockfile flags RUSTSEC-2026-0204 (`crossbeam-epoch` < 0.9.20, via rayon) until `cargo update`.
+  - `cargo-semver-checks` reports API changes against the last release; it doesn't block until 1.0.
+  - The coverage job fails below 94 % line coverage. `codecov.yml` requires 95 % on changed lines and tolerates a 0.1 % drop in total coverage.
+  - The library tests also run without features.
 
 ### Added
 
