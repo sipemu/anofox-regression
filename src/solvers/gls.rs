@@ -13,14 +13,22 @@
 //! the variance–covariance parameters invert the numerical Hessian of the
 //! full log-likelihood in `(θ, log σ)`, as `intervals.gls`.
 //!
-//! ```rust,ignore
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use faer::{Col, Mat};
 //! use anofox_regression::solvers::gls::{GlsCorrelation, GlsRegressor};
 //!
+//! # let x = Mat::from_fn(60, 1, |i, _| (i % 6) as f64);
+//! # let subject: Vec<usize> = (0..60).map(|i| i / 6).collect();
+//! # let time: Vec<f64> = (0..60).map(|i| (i % 6) as f64).collect();
+//! # let y = Col::from_fn(60, |i| 1.0 + 0.5 * x[(i, 0)] + 0.2 * subject[i] as f64 + ((i * 13) % 7) as f64 / 10.0);
 //! let fit = GlsRegressor::builder()
 //!     .correlation(GlsCorrelation::ContinuousAr1)
 //!     .build()
 //!     .fit(&x, &y, &subject, Some(&time))?;
 //! println!("phi = {:?}, AIC = {}", fit.correlation_params(), fit.aic());
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::diagnostics::accuracy::quantile7;

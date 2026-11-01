@@ -10,12 +10,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use anofox_regression::solvers::{NegativeBinomialRegressor, Regressor, FittedRegressor};
-//! use faer::{Mat, Col};
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use anofox_regression::solvers::{NegativeBinomialRegressor, Regressor};
+//! use faer::{Col, Mat};
 //!
-//! let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-//! let y = Col::from_fn(100, |i| (i % 10) as f64);  // overdispersed count data
+//! let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 50.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+//! let y = Col::from_fn(100, |i| ((i * 7) % 10) as f64); // overdispersed count data
 //!
 //! // Negative binomial with estimated theta
 //! let fitted = NegativeBinomialRegressor::builder()
@@ -24,6 +25,8 @@
 //!     .fit(&x, &y)?;
 //!
 //! println!("Theta: {}", fitted.theta);
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::core::{
@@ -761,12 +764,15 @@ impl Regressor for NegativeBinomialRegressor {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use anofox_regression::prelude::*;
+/// use faer::{Col, Mat};
 ///
 /// // Overdispersed count data
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64 / 10.0);
-/// let y = Col::from_fn(100, |i| ((i % 10) as f64 * 2.0).round());
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 50.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+/// let y = Col::from_fn(100, |i| (((i * 7) % 10) as f64 * 2.0).round());
+/// # let x_new = Mat::from_fn(3, 2, |i, j| (i + j) as f64 / 4.0);
 ///
 /// let fitted = NegativeBinomialRegressor::builder()
 ///     .with_intercept(true)
@@ -781,6 +787,9 @@ impl Regressor for NegativeBinomialRegressor {
 ///
 /// // Make predictions
 /// let counts = fitted.predict_count(&x_new);
+/// # let _ = counts;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedNegativeBinomial {
@@ -1073,7 +1082,7 @@ impl FittedRegressor for FittedNegativeBinomial {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::prelude::*;
 ///
 /// // Estimate theta automatically (default)
@@ -1090,14 +1099,15 @@ impl FittedRegressor for FittedNegativeBinomial {
 /// // Full configuration
 /// let model = NegativeBinomialRegressor::builder()
 ///     .with_intercept(true)
-///     .theta(1.0)                  // Initial/fixed theta
-///     .estimate_theta(true)        // Estimate theta during fit
-///     .theta_max_iter(25)          // Max iterations for theta estimation
-///     .theta_tolerance(1e-6)       // Convergence tolerance for theta
+///     .theta(1.0) // Initial/fixed theta
+///     .estimate_theta(true) // Estimate theta during fit
+///     .theta_max_iter(25) // Max iterations for theta estimation
+///     .theta_tolerance(1e-6) // Convergence tolerance for theta
 ///     .compute_inference(true)
 ///     .max_iterations(100)
 ///     .tolerance(1e-8)
 ///     .build();
+/// # let _ = model;
 /// ```
 #[derive(Debug, Clone)]
 pub struct NegativeBinomialRegressorBuilder {

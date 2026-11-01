@@ -98,20 +98,28 @@ impl Default for RegressionOptions {
 /// Errors that can occur when validating regression options.
 #[derive(Debug, Error)]
 pub enum OptionsError {
+    /// `lambda` is negative.
     #[error("lambda must be non-negative, got {0}")]
     InvalidLambda(f64),
+    /// `alpha` is outside `[0, 1]`.
     #[error("alpha must be in [0, 1], got {0}")]
     InvalidAlpha(f64),
+    /// `confidence_level` is outside `(0, 1)`.
     #[error("confidence_level must be in (0, 1), got {0}")]
     InvalidConfidenceLevel(f64),
+    /// `forgetting_factor` is outside `(0, 1]`.
     #[error("forgetting_factor must be in (0, 1], got {0}")]
     InvalidForgettingFactor(f64),
+    /// `tolerance` is not positive.
     #[error("tolerance must be positive, got {0}")]
     InvalidTolerance(f64),
+    /// `max_iterations` is zero.
     #[error("max_iterations must be at least 1, got {0}")]
     InvalidMaxIterations(usize),
+    /// Elastic net with `alpha > 0` but `lambda = 0`.
     #[error("alpha > 0 requires lambda > 0 for elastic net")]
     ElasticNetRequiresLambda,
+    /// An option combination the estimator does not support.
     #[error("{0}")]
     Unsupported(String),
 }

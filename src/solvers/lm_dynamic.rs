@@ -33,12 +33,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use anofox_regression::solvers::{LmDynamicRegressor, InformationCriterion};
-//! use faer::{Mat, Col};
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use anofox_regression::solvers::{InformationCriterion, LmDynamicRegressor, Regressor};
+//! use faer::{Col, Mat};
 //!
-//! let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-//! let y = Col::from_fn(100, |i| i as f64);
+//! let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 });
+//! let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] + ((i * 13) % 7) as f64 / 10.0);
 //!
 //! let fitted = LmDynamicRegressor::builder()
 //!     .ic(InformationCriterion::AICc)
@@ -48,6 +49,9 @@
 //!
 //! // Get time-varying coefficients
 //! let dyn_coefs = fitted.dynamic_coefficients();
+//! # let _ = dyn_coefs;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::core::{HasModelInfo, ModelInfo};

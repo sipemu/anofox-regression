@@ -5,8 +5,8 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use regress::BinomialFamily;
+//! ```rust
+//! use anofox_regression::core::BinomialFamily;
 //!
 //! // Logistic regression (default)
 //! let logistic = BinomialFamily::logistic();
@@ -16,6 +16,7 @@
 //!
 //! // Complementary log-log
 //! let cloglog = BinomialFamily::cloglog();
+//! # let _ = (logistic, probit, cloglog);
 //! ```
 
 use super::family::GlmFamily;

@@ -10,12 +10,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use anofox_regression::solvers::{BinomialRegressor, Regressor, FittedRegressor};
-//! use faer::{Mat, Col};
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use anofox_regression::solvers::{BinomialRegressor, Regressor};
+//! use faer::{Col, Mat};
 //!
-//! let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-//! let y = Col::from_fn(100, |i| if i % 2 == 0 { 0.0 } else { 1.0 });
+//! let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 50.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+//! let y = Col::from_fn(100, |i| if (i * 7) % 3 == 0 || i > 70 { 1.0 } else { 0.0 });
 //!
 //! // Logistic regression
 //! let fitted = BinomialRegressor::logistic()
@@ -23,6 +24,9 @@
 //!     .fit(&x, &y)?;
 //!
 //! let probs = fitted.predict_probability(&x);
+//! # let _ = probs;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::core::{
@@ -755,12 +759,15 @@ impl Regressor for BinomialRegressor {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use anofox_regression::prelude::*;
+/// use faer::{Col, Mat};
 ///
 /// // Binary classification data
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64 / 10.0);
-/// let y = Col::from_fn(100, |i| if i % 2 == 0 { 0.0 } else { 1.0 });
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 50.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+/// let y = Col::from_fn(100, |i| if (i * 7) % 3 == 0 || i > 70 { 1.0 } else { 0.0 });
+/// # let x_new = Mat::from_fn(3, 2, |i, j| (i + j) as f64 / 4.0);
 ///
 /// let fitted = BinomialRegressor::logistic()
 ///     .with_intercept(true)
@@ -769,7 +776,7 @@ impl Regressor for BinomialRegressor {
 ///     .fit(&x, &y)?;
 ///
 /// // Access model results
-/// let coefs = fitted.coefficients();
+/// let coefs = &fitted.result().coefficients;
 /// let deviance = fitted.deviance;
 ///
 /// // Predict probabilities
@@ -783,8 +790,11 @@ impl Regressor for BinomialRegressor {
 ///     &x_new,
 ///     PredictionType::Response,
 ///     Some(IntervalType::Confidence),
-///     0.95
+///     0.95,
 /// );
+/// # let _ = (coefs, deviance, probs, log_odds, pred);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedBinomial {
@@ -1076,7 +1086,7 @@ impl FittedRegressor for FittedBinomial {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::prelude::*;
 ///
 /// // Logistic regression (most common)
@@ -1098,6 +1108,7 @@ impl FittedRegressor for FittedBinomial {
 ///     .max_iterations(100)
 ///     .tolerance(1e-8)
 ///     .build();
+/// # let _ = model;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct BinomialRegressorBuilder {

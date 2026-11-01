@@ -58,7 +58,10 @@ pub enum NaAction {
 pub enum NaError {
     /// NA values found in input data when using `NaAction::Fail`.
     #[error("NA values found in data (na.fail): {n_na} rows contain missing values")]
-    NaValuesPresent { n_na: usize },
+    NaValuesPresent {
+        /// Number of rows with a missing value.
+        n_na: usize,
+    },
 
     /// All observations were removed due to NA values.
     #[error("all observations contain NA values")]
@@ -66,7 +69,12 @@ pub enum NaError {
 
     /// Insufficient observations remaining after NA removal.
     #[error("insufficient observations after NA removal: {remaining} remaining, {needed} needed")]
-    InsufficientAfterNa { remaining: usize, needed: usize },
+    InsufficientAfterNa {
+        /// Rows left after removing incomplete rows.
+        remaining: usize,
+        /// Rows the fit needs.
+        needed: usize,
+    },
 }
 
 /// Information about NA handling applied to data.

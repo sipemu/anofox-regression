@@ -5,14 +5,15 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use anofox_regression::NegativeBinomialFamily;
+//! ```rust
+//! use anofox_regression::core::{GlmFamily, NegativeBinomialFamily};
 //!
 //! // Negative binomial with known theta
 //! let nb = NegativeBinomialFamily::new(2.0);
 //!
 //! // Variance at mu = 5: V(5) = 5 + 5²/2 = 17.5
 //! let var = nb.variance(5.0);
+//! assert!((var - 17.5).abs() < 1e-12);
 //! ```
 
 use super::family::GlmFamily;

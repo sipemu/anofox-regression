@@ -5,12 +5,18 @@
 //! (`stats::hclust`, a port of R's Fortran with its tie-breaking, merge and
 //! order conventions), and redundancy analysis (`Hmisc::redun`).
 //!
-//! ```rust,ignore
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use faer::Mat;
 //! use anofox_regression::reduction::{varclus, Linkage, Similarity, SimilarityTransform};
 //!
+//! # let x = Mat::from_fn(40, 4, |i, j| ((i * (j + 2)) as f64 * 0.3).sin() + if j == 3 { i as f64 * 0.01 } else { 0.0 });
 //! let vc = varclus(&x, Similarity::Spearman, SimilarityTransform::Square, Linkage::Complete)?;
 //! // variables merged below 1 − ρ² = 0.3 are candidates for one summary score
 //! let groups = vc.hclust.cut_height(0.3);
+//! # let _ = groups;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::solvers::RegressionError;

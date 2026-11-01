@@ -10,12 +10,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use anofox_regression::solvers::{PoissonRegressor, Regressor, FittedRegressor};
-//! use faer::{Mat, Col};
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use anofox_regression::solvers::{FittedRegressor, PoissonRegressor, Regressor};
+//! use faer::{Col, Mat};
 //!
-//! let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-//! let y = Col::from_fn(100, |i| (i % 10) as f64);  // count data
+//! let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 50.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+//! let y = Col::from_fn(100, |i| ((i * 7) % 10) as f64); // count data
 //!
 //! // Poisson regression with log link
 //! let fitted = PoissonRegressor::log()
@@ -23,6 +24,9 @@
 //!     .fit(&x, &y)?;
 //!
 //! let counts = fitted.predict(&x);
+//! # let _ = counts;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::core::{
@@ -700,11 +704,14 @@ impl Regressor for PoissonRegressor {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use anofox_regression::prelude::*;
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64 / 10.0);
-/// let y = Col::from_fn(100, |i| ((i % 10) as f64).round());
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 50.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+/// let y = Col::from_fn(100, |i| ((i * 7) % 10) as f64); // count data
+/// # let x_new = Mat::from_fn(3, 2, |i, j| (i + j) as f64 / 4.0);
 ///
 /// let fitted = PoissonRegressor::log()
 ///     .with_intercept(true)
@@ -713,7 +720,7 @@ impl Regressor for PoissonRegressor {
 ///     .fit(&x, &y)?;
 ///
 /// // Access model results
-/// let coefs = fitted.coefficients();
+/// let coefs = &fitted.result().coefficients;
 /// let deviance = fitted.deviance;
 /// let dispersion = fitted.dispersion;
 ///
@@ -725,8 +732,11 @@ impl Regressor for PoissonRegressor {
 ///     &x_new,
 ///     PredictionType::Response,
 ///     Some(IntervalType::Confidence),
-///     0.95
+///     0.95,
 /// );
+/// # let _ = (coefs, deviance, dispersion, counts, pred);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedPoisson {
@@ -1004,8 +1014,9 @@ impl FittedRegressor for FittedPoisson {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::prelude::*;
+/// use faer::Col;
 ///
 /// // Basic usage with log link
 /// let model = PoissonRegressor::log()
@@ -1023,12 +1034,15 @@ impl FittedRegressor for FittedPoisson {
 ///     .build();
 ///
 /// // Rate modeling with offset (exposure)
+/// # let n = 10;
+/// # let population: Vec<f64> = (0..n).map(|i| 1000.0 + 10.0 * i as f64).collect();
 /// let exposure = Col::from_fn(n, |i| population[i]);
 /// let offset = Col::from_fn(n, |i| exposure[i].ln());
 ///
 /// let model = PoissonRegressor::log()
 ///     .offset(offset)
 ///     .build();
+/// # let _ = model;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct PoissonRegressorBuilder {

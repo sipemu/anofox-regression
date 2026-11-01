@@ -27,21 +27,24 @@ use faer::{Col, Mat};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use statistics::solvers::{ElasticNetRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{ElasticNetRegressor, Regressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 5, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64);
+/// let x = Mat::from_fn(100, 5, |i, j| ((i * (j + 1)) as f64 * 0.1).sin());
+/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] - x[(i, 3)]);
 ///
 /// let fitted = ElasticNetRegressor::builder()
 ///     .with_intercept(true)
 ///     .lambda(1.0)
-///     .alpha(0.5)  // 50% L1, 50% L2
+///     .alpha(0.5) // 50% L1, 50% L2
 ///     .build()
 ///     .fit(&x, &y)?;
 ///
-/// println!("Non-zero coefficients: {:?}", fitted.coefficients());
+/// println!("Non-zero coefficients: {}", fitted.n_nonzero());
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct ElasticNetRegressor {

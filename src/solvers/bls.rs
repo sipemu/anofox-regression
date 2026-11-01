@@ -25,12 +25,13 @@ use faer::{Col, Mat};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use anofox_regression::solvers::{BlsRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{BlsRegressor, FittedRegressor, Regressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 3, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64);
+/// let x = Mat::from_fn(100, 3, |i, j| ((i * (j + 1)) as f64 * 0.1).sin() + j as f64);
+/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] + 0.5 * x[(i, 2)]);
 ///
 /// // Non-negative least squares (NNLS)
 /// let fitted = BlsRegressor::nnls()
@@ -43,6 +44,9 @@ use faer::{Col, Mat};
 ///     .upper_bounds(vec![10.0, f64::INFINITY, 5.0])
 ///     .build()
 ///     .fit(&x, &y)?;
+/// # let _ = fitted.result();
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct BlsRegressor {
@@ -439,11 +443,13 @@ impl BlsRegressor {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use anofox_regression::prelude::*;
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 3, |i, j| (i + j) as f64 / 10.0);
-/// let y = Col::from_fn(100, |i| i as f64 + 1.0);
+/// let x = Mat::from_fn(100, 3, |i, j| ((i * (j + 1)) as f64 * 0.1).sin() + j as f64);
+/// let y = Col::from_fn(100, |i| i as f64 / 10.0 + 1.0);
 ///
 /// // Non-negative least squares
 /// let fitted = BlsRegressor::nnls()
@@ -451,9 +457,11 @@ impl BlsRegressor {
 ///     .fit(&x, &y)?;
 ///
 /// // All coefficients are >= 0
-/// for coef in fitted.coefficients().iter() {
+/// for coef in fitted.result().coefficients.iter() {
 ///     assert!(*coef >= 0.0);
 /// }
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedBls {
@@ -570,7 +578,7 @@ fn compute_gradient(xtx: &Mat<f64>, xty: &Col<f64>, beta: &Col<f64>) -> Col<f64>
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::prelude::*;
 ///
 /// // Non-negative least squares (all coefficients >= 0)
@@ -593,6 +601,7 @@ fn compute_gradient(xtx: &Mat<f64>, xty: &Col<f64>, beta: &Col<f64>) -> Col<f64>
 ///     .lower_bound_all(0.0)
 ///     .upper_bound_all(10.0)
 ///     .build();
+/// # let _ = model;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct BlsRegressorBuilder {

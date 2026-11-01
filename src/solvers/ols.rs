@@ -26,20 +26,23 @@ use statrs::distribution::ContinuousCDF;
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use statistics::solvers::{OlsRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{FittedRegressor, OlsRegressor, Regressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64);
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 });
+/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] + ((i * 13) % 7) as f64 / 10.0);
 ///
 /// let fitted = OlsRegressor::builder()
 ///     .with_intercept(true)
 ///     .build()
 ///     .fit(&x, &y)?;
 ///
-/// println!("R² = {}", fitted.r_squared());
-/// println!("Coefficients: {:?}", fitted.coefficients());
+/// println!("R² = {}", fitted.result().r_squared);
+/// println!("Coefficients: {:?}", fitted.result().coefficients);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct OlsRegressor {
@@ -1140,7 +1143,13 @@ impl FittedOls {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use faer::{Col, Mat};
+    /// # let x = Mat::from_fn(50, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+    /// # let y = Col::from_fn(50, |i| 1.0 + 2.0 * x[(i, 0)] - x[(i, 1)] + ((i * 13) % 7) as f64 / 20.0);
+    /// # use anofox_regression::inference::HcType;
+    /// # use anofox_regression::solvers::{OlsRegressor, Regressor};
     /// let fitted = OlsRegressor::builder()
     ///     .with_intercept(true)
     ///     .build()
@@ -1148,6 +1157,8 @@ impl FittedOls {
     ///
     /// let hc_se = fitted.hc_standard_errors(&x, HcType::HC1)?;
     /// println!("Robust SE: {:?}", hc_se.std_errors);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn hc_standard_errors(
         &self,
@@ -1176,7 +1187,13 @@ impl FittedOls {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use faer::{Col, Mat};
+    /// # let x = Mat::from_fn(50, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+    /// # let y = Col::from_fn(50, |i| 1.0 + 2.0 * x[(i, 0)] - x[(i, 1)] + ((i * 13) % 7) as f64 / 20.0);
+    /// # use anofox_regression::inference::HcType;
+    /// # use anofox_regression::solvers::{OlsRegressor, Regressor};
     /// let fitted = OlsRegressor::builder()
     ///     .with_intercept(true)
     ///     .compute_inference(true)
@@ -1187,6 +1204,8 @@ impl FittedOls {
     /// let hc = fitted.hc_inference(&x, HcType::HC3)?;
     /// println!("HC3 t-stats: {:?}", hc.t_statistics);
     /// println!("HC3 p-values: {:?}", hc.p_values);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn hc_inference(&self, x: &Mat<f64>, hc_type: HcType) -> Result<HcInference, &'static str> {
         let with_intercept = self.result.intercept.is_some();

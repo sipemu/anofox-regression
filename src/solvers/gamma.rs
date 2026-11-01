@@ -12,8 +12,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use anofox_regression::solvers::{GammaRegressor, Regressor, FittedRegressor};
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use faer::{Col, Mat};
+//! # let x = Mat::from_fn(50, 1, |i, _| i as f64 / 25.0);
+//! # let y = Col::from_fn(50, |i| (0.5 + 0.4 * x[(i, 0)]).exp() * (1.0 + ((i * 7) % 5) as f64 / 10.0));
+//! # let x_new = Mat::from_fn(3, 1, |i, _| i as f64 / 2.0);
+//! use anofox_regression::solvers::{FittedRegressor, GammaRegressor, Regressor};
 //!
 //! let fitted = GammaRegressor::builder()
 //!     .with_intercept(true)
@@ -22,6 +27,9 @@
 //!     .fit(&x, &y)?;
 //!
 //! let mu_hat = fitted.predict(&x_new);
+//! # let _ = mu_hat;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::core::{HasModelInfo, ModelInfo, NaAction};

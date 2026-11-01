@@ -24,20 +24,23 @@ use faer::{Col, Mat};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use statistics::solvers::{RlsRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::{FittedRegressor, Regressor, RlsRegressor};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64);
-/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * i as f64);
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 });
+/// let y = Col::from_fn(100, |i| 1.0 + 2.0 * x[(i, 0)] + ((i * 13) % 7) as f64 / 10.0);
 ///
 /// let fitted = RlsRegressor::builder()
 ///     .with_intercept(true)
-///     .forgetting_factor(0.99)  // Recent data weighted more
+///     .forgetting_factor(0.99) // Recent data weighted more
 ///     .build()
 ///     .fit(&x, &y)?;
 ///
-/// println!("R² = {}", fitted.r_squared());
+/// println!("R² = {}", fitted.result().r_squared);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct RlsRegressor {
@@ -309,11 +312,13 @@ impl RlsRegressor {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use anofox_regression::prelude::*;
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(100, 2, |i, j| (i + j) as f64 / 10.0);
-/// let y = Col::from_fn(100, |i| i as f64 + 1.0);
+/// let x = Mat::from_fn(100, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 });
+/// let y = Col::from_fn(100, |i| i as f64 / 10.0 + 1.0);
 ///
 /// let mut fitted = RlsRegressor::builder()
 ///     .with_intercept(true)
@@ -327,7 +332,10 @@ impl RlsRegressor {
 /// let prediction = fitted.update(&x_new, y_new);
 ///
 /// // Coefficients are now updated
-/// let coefs = fitted.coefficients();
+/// let coefs = &fitted.result().coefficients;
+/// # let _ = (prediction, coefs);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct FittedRls {
@@ -518,7 +526,7 @@ impl FittedRegressor for FittedRls {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::prelude::*;
 ///
 /// // Standard RLS (all observations equally weighted)
@@ -530,9 +538,10 @@ impl FittedRegressor for FittedRls {
 /// // Exponentially weighted RLS (recent observations weighted more)
 /// let model = RlsRegressor::builder()
 ///     .with_intercept(true)
-///     .forgetting_factor(0.95)  // 5% discount per observation
+///     .forgetting_factor(0.95) // 5% discount per observation
 ///     .initial_p_diagonal(100.0) // Initial P matrix = 100 * I
 ///     .build();
+/// # let _ = model;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct RlsRegressorBuilder {

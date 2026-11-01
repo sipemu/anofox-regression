@@ -14,9 +14,12 @@
 //!
 //! These diagnostics help identify potential issues before fitting a model:
 //!
-//! ```rust,ignore
+//! ```rust
+//! # use faer::{Col, Mat};
+//! # let x = Mat::from_fn(50, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+//! # let y = Col::from_fn(50, |i| if (i * 7) % 3 == 0 { 1.0 } else { 0.0 });
 //! use anofox_regression::diagnostics::{
-//!     condition_diagnostic, check_binary_separation, variance_inflation_factor
+//!     check_binary_separation, condition_diagnostic, variance_inflation_factor,
 //! };
 //!
 //! // Check matrix conditioning
@@ -33,22 +36,35 @@
 //!
 //! // Check for multicollinearity
 //! let vif = variance_inflation_factor(&x);
+//! # let _ = vif;
 //! ```
 //!
 //! # Post-fitting Diagnostics
 //!
 //! These diagnostics help assess model fit and identify problematic observations:
 //!
-//! ```rust,ignore
-//! use anofox_regression::diagnostics::{compute_leverage, cooks_distance, pearson_residuals};
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use faer::{Col, Mat};
+//! # let x = Mat::from_fn(50, 2, |i, j| if j == 0 { i as f64 / 10.0 } else { ((i * 7) % 11) as f64 / 10.0 });
+//! # let y = Col::from_fn(50, |i| 1.0 + 2.0 * x[(i, 0)] - x[(i, 1)] + ((i * 13) % 7) as f64 / 20.0);
+//! # use anofox_regression::solvers::{FittedRegressor, OlsRegressor, Regressor};
+//! use anofox_regression::diagnostics::{
+//!     compute_leverage, cooks_distance, high_leverage_points, influential_cooks,
+//! };
 //!
 //! // After fitting a model
+//! let fit = OlsRegressor::builder().build().fit(&x, &y)?;
+//! let (residuals, mse, n_params) = (&fit.result().residuals, fit.result().mse, 3);
 //! let leverage = compute_leverage(&x, true);
-//! let cooks = cooks_distance(&residuals, &leverage, mse, n_params);
+//! let cooks = cooks_distance(residuals, &leverage, mse, n_params);
 //!
 //! // Identify problematic observations
 //! let high_leverage = high_leverage_points(&leverage, n_params, None);
 //! let influential = influential_cooks(&cooks, None);
+//! # let _ = (high_leverage, influential);
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod accuracy;

@@ -6,9 +6,9 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use anofox_regression::solvers::{LogisticRegression, Regressor};
-//! use faer::{Mat, Col};
+//! ```rust
+//! use anofox_regression::solvers::LogisticRegression;
+//! use faer::{Col, Mat};
 //!
 //! let x = Mat::from_fn(100, 1, |i, _| (i as f64) / 50.0 - 1.0);
 //! let y = Col::from_fn(100, |i| if i >= 50 { 1.0 } else { 0.0 });
@@ -20,9 +20,10 @@
 //!
 //! let fitted = model.fit(&x, &y).unwrap();
 //!
-//! let labels = fitted.predict(&x);      // 0.0 or 1.0
-//! let probs = fitted.predict_proba(&x);  // probabilities in [0, 1]
-//! let acc = fitted.score(&x, &y);        // classification accuracy
+//! let labels = fitted.predict(&x); // 0.0 or 1.0
+//! let probs = fitted.predict_proba(&x); // probabilities in [0, 1]
+//! let acc = fitted.score(&x, &y); // classification accuracy
+//! # let _ = (labels, probs, acc);
 //! ```
 
 use crate::core::{HasModelInfo, ModelInfo};

@@ -68,11 +68,11 @@ pub enum SeparationType {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use anofox_regression::diagnostics::check_binary_separation;
-/// use faer::{Mat, Col};
+/// use faer::{Col, Mat};
 ///
-/// let x = Mat::from_fn(10, 2, |i, j| (i + j) as f64);
+/// let x = Mat::from_fn(10, 2, |i, j| (i * (j + 1)) as f64);
 /// let y = Col::from_fn(10, |i| if i < 5 { 0.0 } else { 1.0 });
 ///
 /// let result = check_binary_separation(&x, &y);

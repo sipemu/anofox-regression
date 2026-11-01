@@ -29,13 +29,14 @@ use faer::{Col, Mat};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use statistics::solvers::{IsotonicRegressor, Regressor, FittedRegressor};
-/// use faer::{Mat, Col};
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use anofox_regression::solvers::IsotonicRegressor;
+/// use faer::Col;
 ///
 /// // Simple 1D data
 /// let x = Col::from_fn(20, |i| i as f64);
-/// let y = Col::from_fn(20, |i| 2.0 + 0.5 * i as f64 + rand::random::<f64>());
+/// let y = Col::from_fn(20, |i| 2.0 + 0.5 * i as f64 + ((i * 7) % 5) as f64 / 2.0);
 ///
 /// let fitted = IsotonicRegressor::builder()
 ///     .increasing(true)
@@ -43,6 +44,8 @@ use faer::{Col, Mat};
 ///     .fit_1d(&x, &y)?;
 ///
 /// println!("Fitted values: {:?}", fitted.fitted_values());
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct IsotonicRegressor {

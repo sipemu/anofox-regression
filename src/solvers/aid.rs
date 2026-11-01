@@ -16,7 +16,7 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use anofox_regression::solvers::{AidClassifier, DemandType};
 //! use faer::Col;
 //!

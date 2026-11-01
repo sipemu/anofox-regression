@@ -21,8 +21,14 @@
 //!
 //! # Worked example
 //!
-//! ```rust,ignore
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use anofox_regression::solvers::{MomentAccumulator, RidgeRegressor};
+//! # let stream_of_rows = || (0..50).map(|i| {
+//! #     let r = vec![i as f64 / 10.0, ((i * 7) % 11) as f64, ((i * 3) % 5) as f64];
+//! #     let y = 1.0 + r[0] - 0.5 * r[1] + ((i * 13) % 7) as f64 / 10.0;
+//! #     (r, y)
+//! # });
 //!
 //! let mut acc = MomentAccumulator::new(3); // 3 features
 //! for (x_row, y) in stream_of_rows() {
@@ -34,6 +40,9 @@
 //!     .with_intercept(true)
 //!     .build()
 //!     .fit_from_accumulator(&acc)?;
+//! # let _ = fitted;
+//! # Ok(())
+//! # }
 //! ```
 
 #![allow(clippy::needless_range_loop)]
