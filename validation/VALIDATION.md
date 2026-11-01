@@ -921,6 +921,20 @@ The table below is the original per-estimator summary; the [inventory](#validati
 
 ## Reproducibility
 
+The R fixtures written by redirecting a generator (`validation/r_fixtures.txt`)
+are regenerated monthly by the `Validation fixtures` workflow
+(`.github/workflows/validation.yml`, also runnable by hand) and compared value
+by value with the committed files (`validation/compare_fixtures.py`, which
+ignores layout and comment headers). `validation/R_VERSIONS.md` records the R
+and package versions they were last reproduced with
+(`validation/record_r_versions.R`). Locally:
+
+```bash
+OUT_DIR=/tmp/fixtures validation/regenerate_r_fixtures.sh
+python3 validation/compare_fixtures.py /tmp/fixtures
+```
+
+
 All validation is reproducible through:
 
 1. **Fixed random seeds**: Every R script calls `set.seed` (mostly 42); all Python scripts use `np.random.default_rng(42)` (or another small constant)

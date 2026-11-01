@@ -44,6 +44,12 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+/// The linear-algebra crate whose types (`Mat`, `Col`, …) the API uses,
+/// re-exported so callers depend on the matching version (see
+/// `STABILITY.md`: a faer upgrade that changes these types is a major
+/// release).
+pub use faer;
+
 pub mod core;
 pub mod design;
 pub mod diagnostics;

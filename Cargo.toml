@@ -31,6 +31,8 @@ include = [
     "/LICENSE",
     "/CHANGELOG.md",
     "/THIRD_PARTY_NOTICES.md",
+    "/STABILITY.md",
+    "/SECURITY.md",
 ]
 
 [package.metadata.docs.rs]
