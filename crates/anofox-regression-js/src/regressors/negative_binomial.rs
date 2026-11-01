@@ -1,5 +1,6 @@
 //! Negative Binomial GLM wrapper for WebAssembly.
 
+use anofox_regression::core::NaAction;
 use anofox_regression::solvers::{
     FittedNegativeBinomial as RustFittedNegativeBinomial, FittedRegressor,
     NegativeBinomialRegressor as RustNegativeBinomialRegressor, Regressor,
@@ -7,6 +8,8 @@ use anofox_regression::solvers::{
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+use super::{parse_na_action, row_column};
 
 /// Result from fitting a Negative Binomial regression model.
 #[derive(Serialize, Deserialize)]
@@ -47,8 +50,8 @@ impl FittedNegativeBinomial {
             iterations: self.fitted.iterations,
             n_observations: result.n_observations,
             aic: result.aic,
-            residuals: result.residuals.iter().copied().collect(),
-            fitted_values: result.fitted_values.iter().copied().collect(),
+            residuals: result.residuals_expanded().iter().copied().collect(),
+            fitted_values: result.fitted_expanded().iter().copied().collect(),
             std_errors: result
                 .std_errors
                 .as_ref()
@@ -81,6 +84,29 @@ impl FittedNegativeBinomial {
         self.fitted.deviance
     }
 
+    /// Make predictions on the response scale with a new per-row offset on
+    /// the linear predictor.
+    #[wasm_bindgen(js_name = predictWithOffset)]
+    pub fn predict_with_offset(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        offset: &[f64],
+    ) -> Result<Vec<f64>, JsError> {
+        let n_cols = self.n_features;
+        if x.len() != n_rows * n_cols || offset.len() != n_rows {
+            return Err(JsError::new("Invalid x or offset dimensions"));
+        }
+        let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
+        let offset = Col::from_fn(n_rows, |i| offset[i]);
+        Ok(self
+            .fitted
+            .predict_with_offset(&x_mat, &offset)
+            .iter()
+            .copied()
+            .collect())
+    }
+
     #[wasm_bindgen]
     pub fn predict(&self, x: &[f64], n_rows: usize) -> Result<Vec<f64>, JsError> {
         let n_cols = self.n_features;
@@ -95,6 +121,8 @@ impl FittedNegativeBinomial {
 /// Negative Binomial GLM for overdispersed count data.
 #[wasm_bindgen]
 pub struct NegativeBinomialRegressor {
+    na_action: NaAction,
+    offset: Option<Vec<f64>>,
     theta: Option<f64>,
     estimate_theta: bool,
     with_intercept: bool,
@@ -108,6 +136,8 @@ impl NegativeBinomialRegressor {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
+            na_action: NaAction::default(),
+            offset: None,
             theta: None,
             estimate_theta: true,
             with_intercept: true,
@@ -148,6 +178,28 @@ impl NegativeBinomialRegressor {
         self.max_iterations = max_iter;
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`):
+    /// "omit" (default), "exclude" (residuals and fitted values padded with
+    /// NaN at the dropped rows), "fail" or "pass".
+    #[wasm_bindgen(js_name = setNaAction)]
+    pub fn set_na_action(&mut self, action: &str) -> Result<(), JsError> {
+        self.na_action = parse_na_action(action)?;
+        Ok(())
+    }
+
+    /// Set an offset on the linear predictor, one value per row (e.g.
+    /// `log(exposure)`), as `glm(offset = )`.
+    #[wasm_bindgen(js_name = setOffset)]
+    pub fn set_offset(&mut self, offset: Vec<f64>) {
+        self.offset = Some(offset);
+    }
+
+    /// Set the convergence tolerance for IRLS.
+    #[wasm_bindgen(js_name = setTolerance)]
+    pub fn set_tolerance(&mut self, tol: f64) {
+        self.tolerance = tol;
+    }
+
     #[wasm_bindgen]
     pub fn fit(
         &self,
@@ -172,6 +224,7 @@ impl NegativeBinomialRegressor {
         let y_col = Col::from_fn(n_rows, |i| y[i]);
 
         let mut builder = RustNegativeBinomialRegressor::builder()
+            .na_action(self.na_action)
             .with_intercept(self.with_intercept)
             .compute_inference(self.compute_inference)
             .max_iterations(self.max_iterations)
@@ -180,6 +233,10 @@ impl NegativeBinomialRegressor {
 
         if let Some(theta) = self.theta {
             builder = builder.theta(theta);
+        }
+
+        if let Some(offset) = row_column(&self.offset, n_rows, "offset")? {
+            builder = builder.offset(offset);
         }
 
         let model = builder.build();

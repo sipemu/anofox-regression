@@ -983,6 +983,13 @@ impl WlsRegressorBuilder {
         self
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`;
+    /// default [`NaAction::Omit`](crate::core::NaAction::Omit)).
+    pub fn na_action(mut self, action: crate::core::NaAction) -> Self {
+        self.builder = self.builder.na_action(action);
+        self
+    }
+
     /// Build the WLS regressor.
     pub fn build(self) -> WlsRegressor {
         let mut regressor = WlsRegressor::new(self.builder.build_unchecked())

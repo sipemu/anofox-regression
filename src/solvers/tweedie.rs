@@ -1287,6 +1287,13 @@ impl TweedieRegressorBuilder {
         self
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`;
+    /// default [`NaAction::Omit`](crate::core::NaAction::Omit)).
+    pub fn na_action(mut self, action: crate::core::NaAction) -> Self {
+        self.options_builder = self.options_builder.na_action(action);
+        self
+    }
+
     /// Build the regressor.
     pub fn build(self) -> TweedieRegressor {
         let link_power = self.link_power.unwrap_or(1.0 - self.var_power);

@@ -1279,6 +1279,13 @@ impl OlsRegressorBuilder {
         self
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`;
+    /// default [`NaAction::Omit`](crate::core::NaAction::Omit)).
+    pub fn na_action(mut self, action: crate::core::NaAction) -> Self {
+        self.builder = self.builder.na_action(action);
+        self
+    }
+
     /// Build the OLS regressor.
     pub fn build(self) -> OlsRegressor {
         // Use unchecked build since OLS doesn't use lambda/alpha

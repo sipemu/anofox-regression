@@ -24,7 +24,7 @@
 //! let mu_hat = fitted.predict(&x_new);
 //! ```
 
-use crate::core::{HasModelInfo, ModelInfo};
+use crate::core::{HasModelInfo, ModelInfo, NaAction};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::solvers::tweedie::{FittedTweedie, TweedieRegressor};
@@ -140,6 +140,7 @@ pub struct GammaRegressorBuilder {
     link_power: Option<f64>,
     offset: Option<Col<f64>>,
     error_on_non_convergence: bool,
+    na_action: NaAction,
 }
 
 impl Default for GammaRegressorBuilder {
@@ -154,6 +155,7 @@ impl Default for GammaRegressorBuilder {
             link_power: None,
             offset: None,
             error_on_non_convergence: true,
+            na_action: NaAction::default(),
         }
     }
 }
@@ -221,6 +223,13 @@ impl GammaRegressorBuilder {
         self
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`;
+    /// default [`NaAction::Omit`]).
+    pub fn na_action(mut self, action: NaAction) -> Self {
+        self.na_action = action;
+        self
+    }
+
     /// Build the [`GammaRegressor`].
     pub fn build(self) -> GammaRegressor {
         let mut tw = TweedieRegressor::gamma()
@@ -230,6 +239,7 @@ impl GammaRegressorBuilder {
             .max_iterations(self.max_iterations)
             .tolerance(self.tolerance)
             .error_on_non_convergence(self.error_on_non_convergence)
+            .na_action(self.na_action)
             .lambda(self.lambda);
 
         if let Some(q) = self.link_power {

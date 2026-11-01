@@ -1,5 +1,6 @@
 //! Gamma GLM Regression wrapper for WebAssembly.
 
+use anofox_regression::core::NaAction;
 use anofox_regression::solvers::{
     FittedGamma as RustFittedGamma, FittedRegressor, GammaRegressor as RustGammaRegressor,
     Regressor,
@@ -7,6 +8,8 @@ use anofox_regression::solvers::{
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+use super::{parse_na_action, row_column};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,8 +50,8 @@ impl FittedGamma {
             n_observations: result.n_observations,
             aic: result.aic,
             bic: result.bic,
-            residuals: result.residuals.iter().copied().collect(),
-            fitted_values: result.fitted_values.iter().copied().collect(),
+            residuals: result.residuals_expanded().iter().copied().collect(),
+            fitted_values: result.fitted_expanded().iter().copied().collect(),
             std_errors: result
                 .std_errors
                 .as_ref()
@@ -74,6 +77,29 @@ impl FittedGamma {
     #[wasm_bindgen(js_name = getDeviance)]
     pub fn get_deviance(&self) -> f64 {
         self.fitted.inner().deviance
+    }
+
+    /// Make predictions on the response scale with a new per-row offset on
+    /// the linear predictor.
+    #[wasm_bindgen(js_name = predictWithOffset)]
+    pub fn predict_with_offset(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        offset: &[f64],
+    ) -> Result<Vec<f64>, JsError> {
+        let n_cols = self.n_features;
+        if x.len() != n_rows * n_cols || offset.len() != n_rows {
+            return Err(JsError::new("Invalid x or offset dimensions"));
+        }
+        let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
+        let offset = Col::from_fn(n_rows, |i| offset[i]);
+        Ok(self
+            .fitted
+            .predict_with_offset(&x_mat, &offset)
+            .iter()
+            .copied()
+            .collect())
     }
 
     /// Predict mean values on the response scale.
@@ -120,6 +146,8 @@ impl FittedGamma {
 /// ```
 #[wasm_bindgen]
 pub struct GammaRegressor {
+    na_action: NaAction,
+    offset: Option<Vec<f64>>,
     with_intercept: bool,
     compute_inference: bool,
     confidence_level: f64,
@@ -133,6 +161,8 @@ impl GammaRegressor {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
+            na_action: NaAction::default(),
+            offset: None,
             with_intercept: true,
             compute_inference: true,
             confidence_level: 0.95,
@@ -173,6 +203,22 @@ impl GammaRegressor {
         self.lambda = lambda;
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`):
+    /// "omit" (default), "exclude" (residuals and fitted values padded with
+    /// NaN at the dropped rows), "fail" or "pass".
+    #[wasm_bindgen(js_name = setNaAction)]
+    pub fn set_na_action(&mut self, action: &str) -> Result<(), JsError> {
+        self.na_action = parse_na_action(action)?;
+        Ok(())
+    }
+
+    /// Set an offset on the linear predictor, one value per row (e.g.
+    /// `log(exposure)`), as `glm(offset = )`.
+    #[wasm_bindgen(js_name = setOffset)]
+    pub fn set_offset(&mut self, offset: Vec<f64>) {
+        self.offset = Some(offset);
+    }
+
     #[wasm_bindgen]
     pub fn fit(
         &self,
@@ -194,14 +240,20 @@ impl GammaRegressor {
         let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
         let y_col = Col::from_fn(n_rows, |i| y[i]);
 
-        let model = RustGammaRegressor::builder()
+        let mut builder = RustGammaRegressor::builder()
+            .na_action(self.na_action)
             .with_intercept(self.with_intercept)
             .compute_inference(self.compute_inference)
             .confidence_level(self.confidence_level)
             .max_iterations(self.max_iterations)
             .tolerance(self.tolerance)
-            .lambda(self.lambda)
-            .build();
+            .lambda(self.lambda);
+
+        if let Some(offset) = row_column(&self.offset, n_rows, "offset")? {
+            builder = builder.offset(offset);
+        }
+
+        let model = builder.build();
 
         let fitted = model
             .fit(&x_mat, &y_col)

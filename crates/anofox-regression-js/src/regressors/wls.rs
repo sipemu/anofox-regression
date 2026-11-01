@@ -1,11 +1,14 @@
 //! Weighted Least Squares wrapper for WebAssembly.
 
+use anofox_regression::core::NaAction;
 use anofox_regression::solvers::{
     FittedRegressor, FittedWls as RustFittedWls, Regressor, WlsRegressor as RustWlsRegressor,
 };
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+use super::parse_na_action;
 
 /// Result from fitting a WLS regression model.
 #[derive(Serialize, Deserialize)]
@@ -46,8 +49,8 @@ impl FittedWls {
             mse: result.mse,
             n_observations: result.n_observations,
             n_parameters: result.n_parameters,
-            residuals: result.residuals.iter().copied().collect(),
-            fitted_values: result.fitted_values.iter().copied().collect(),
+            residuals: result.residuals_expanded().iter().copied().collect(),
+            fitted_values: result.fitted_expanded().iter().copied().collect(),
             std_errors: result
                 .std_errors
                 .as_ref()
@@ -93,6 +96,7 @@ impl FittedWls {
 /// Weighted Least Squares regression.
 #[wasm_bindgen]
 pub struct WlsRegressor {
+    na_action: NaAction,
     with_intercept: bool,
     compute_inference: bool,
     confidence_level: f64,
@@ -104,6 +108,7 @@ impl WlsRegressor {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
+            na_action: NaAction::default(),
             with_intercept: true,
             compute_inference: true,
             confidence_level: 0.95,
@@ -132,6 +137,15 @@ impl WlsRegressor {
         self.weights = Some(weights);
     }
 
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`):
+    /// "omit" (default), "exclude" (residuals and fitted values padded with
+    /// NaN at the dropped rows), "fail" or "pass".
+    #[wasm_bindgen(js_name = setNaAction)]
+    pub fn set_na_action(&mut self, action: &str) -> Result<(), JsError> {
+        self.na_action = parse_na_action(action)?;
+        Ok(())
+    }
+
     #[wasm_bindgen]
     pub fn fit(
         &self,
@@ -151,6 +165,7 @@ impl WlsRegressor {
         let y_col = Col::from_fn(n_rows, |i| y[i]);
 
         let mut builder = RustWlsRegressor::builder()
+            .na_action(self.na_action)
             .with_intercept(self.with_intercept)
             .compute_inference(self.compute_inference)
             .confidence_level(self.confidence_level);

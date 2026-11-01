@@ -1,6 +1,6 @@
 //! Poisson Regression wrapper for WebAssembly.
 
-use anofox_regression::core::PoissonLink;
+use anofox_regression::core::{NaAction, PoissonLink};
 use anofox_regression::solvers::{
     FittedPoisson as RustFittedPoisson, FittedRegressor, PoissonRegressor as RustPoissonRegressor,
     Regressor,
@@ -8,6 +8,8 @@ use anofox_regression::solvers::{
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+use super::{parse_na_action, row_column};
 
 /// Result from fitting a Poisson regression model.
 #[derive(Serialize, Deserialize)]
@@ -54,8 +56,8 @@ impl FittedPoisson {
             n_parameters: result.n_parameters,
             aic: result.aic,
             bic: result.bic,
-            residuals: result.residuals.iter().copied().collect(),
-            fitted_values: result.fitted_values.iter().copied().collect(),
+            residuals: result.residuals_expanded().iter().copied().collect(),
+            fitted_values: result.fitted_expanded().iter().copied().collect(),
             std_errors: result
                 .std_errors
                 .as_ref()
@@ -87,6 +89,29 @@ impl FittedPoisson {
         self.fitted.deviance
     }
 
+    /// Make predictions on the response scale with a new per-row offset on
+    /// the linear predictor.
+    #[wasm_bindgen(js_name = predictWithOffset)]
+    pub fn predict_with_offset(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        offset: &[f64],
+    ) -> Result<Vec<f64>, JsError> {
+        let n_cols = self.n_features;
+        if x.len() != n_rows * n_cols || offset.len() != n_rows {
+            return Err(JsError::new("Invalid x or offset dimensions"));
+        }
+        let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
+        let offset = Col::from_fn(n_rows, |i| offset[i]);
+        Ok(self
+            .fitted
+            .predict_with_offset(&x_mat, &offset)
+            .iter()
+            .copied()
+            .collect())
+    }
+
     /// Make predictions (predicted counts).
     #[wasm_bindgen]
     pub fn predict(&self, x: &[f64], n_rows: usize) -> Result<Vec<f64>, JsError> {
@@ -114,6 +139,8 @@ impl FittedPoisson {
 /// Models count data using Poisson distribution with configurable link function.
 #[wasm_bindgen]
 pub struct PoissonRegressor {
+    na_action: NaAction,
+    offset: Option<Vec<f64>>,
     link: String,
     with_intercept: bool,
     compute_inference: bool,
@@ -127,6 +154,8 @@ impl PoissonRegressor {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
+            na_action: NaAction::default(),
+            offset: None,
             link: "log".to_string(),
             with_intercept: true,
             compute_inference: true,
@@ -157,6 +186,28 @@ impl PoissonRegressor {
     #[wasm_bindgen(js_name = setMaxIterations)]
     pub fn set_max_iterations(&mut self, max_iter: usize) {
         self.max_iterations = max_iter;
+    }
+
+    /// Set the handling of rows with NaN in `x` or `y` (R's `na.action`):
+    /// "omit" (default), "exclude" (residuals and fitted values padded with
+    /// NaN at the dropped rows), "fail" or "pass".
+    #[wasm_bindgen(js_name = setNaAction)]
+    pub fn set_na_action(&mut self, action: &str) -> Result<(), JsError> {
+        self.na_action = parse_na_action(action)?;
+        Ok(())
+    }
+
+    /// Set an offset on the linear predictor, one value per row (e.g.
+    /// `log(exposure)`), as `glm(offset = )`.
+    #[wasm_bindgen(js_name = setOffset)]
+    pub fn set_offset(&mut self, offset: Vec<f64>) {
+        self.offset = Some(offset);
+    }
+
+    /// Set the convergence tolerance for IRLS.
+    #[wasm_bindgen(js_name = setTolerance)]
+    pub fn set_tolerance(&mut self, tol: f64) {
+        self.tolerance = tol;
     }
 
     /// Fit the Poisson model to count data.
@@ -202,13 +253,19 @@ impl PoissonRegressor {
             _ => PoissonLink::Log,
         };
 
-        let model = RustPoissonRegressor::builder()
+        let mut builder = RustPoissonRegressor::builder()
+            .na_action(self.na_action)
             .link(link)
             .with_intercept(self.with_intercept)
             .compute_inference(self.compute_inference)
             .max_iterations(self.max_iterations)
-            .tolerance(self.tolerance)
-            .build();
+            .tolerance(self.tolerance);
+
+        if let Some(offset) = row_column(&self.offset, n_rows, "offset")? {
+            builder = builder.offset(offset);
+        }
+
+        let model = builder.build();
 
         let fitted = model
             .fit(&x_mat, &y_col)

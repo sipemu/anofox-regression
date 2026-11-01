@@ -6,7 +6,9 @@
 use anofox_regression::core::{
     NaAction, PoissonFamily, RegressionOptions, RegressionOptionsBuilder,
 };
-use anofox_regression::solvers::{FittedRegressor, OlsRegressor, PoissonRegressor, Regressor};
+use anofox_regression::solvers::{
+    FittedRegressor, GammaRegressor, OlsRegressor, PoissonRegressor, Regressor,
+};
 use faer::{Col, Mat};
 
 const X1: [f64; N] = [
@@ -207,4 +209,37 @@ fn omit_records_but_does_not_pad() {
     assert!(r.had_na_removed());
     assert_eq!(r.n_na_removed(), 3);
     assert_eq!(r.residuals_expanded().nrows(), N - 3);
+}
+
+#[test]
+fn builders_take_the_na_action() {
+    // #258: the builders (used by the WASM bindings) forward `na_action`
+    let y = Col::from_fn(N, |i| Y[i]);
+    let fit = OlsRegressor::builder()
+        .na_action(NaAction::Exclude)
+        .build()
+        .fit(&x(), &y)
+        .unwrap();
+    check(
+        &fit.result().residuals_expanded(),
+        &OLS_RESID,
+        1e-10,
+        "ols builder",
+    );
+    let fit = PoissonRegressor::builder()
+        .na_action(NaAction::Exclude)
+        .tolerance(1e-12)
+        .build()
+        .fit(&x(), &Col::from_fn(N, |i| YC[i]))
+        .unwrap();
+    check(
+        &fit.result().fitted_expanded(),
+        &POIS_FITTED,
+        1e-8,
+        "poisson builder",
+    );
+    let gamma = |a| GammaRegressor::builder().na_action(a).build().fit(&x(), &y);
+    let fit = gamma(NaAction::Exclude).unwrap();
+    assert_eq!(fit.result().fitted_expanded().nrows(), N);
+    assert!(gamma(NaAction::Fail).is_err());
 }

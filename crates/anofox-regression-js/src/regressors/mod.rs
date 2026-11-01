@@ -51,3 +51,40 @@ pub use rls::*;
 pub use theil_sen::*;
 pub use tweedie::*;
 pub use wls::*;
+
+use anofox_regression::core::NaAction;
+use faer::Col;
+use wasm_bindgen::prelude::*;
+
+/// Parse an R `na.action` name: "omit", "exclude", "fail" or "pass".
+pub(crate) fn parse_na_action(action: &str) -> Result<NaAction, JsError> {
+    match action {
+        "omit" => Ok(NaAction::Omit),
+        "exclude" => Ok(NaAction::Exclude),
+        "fail" => Ok(NaAction::Fail),
+        "pass" => Ok(NaAction::Pass),
+        other => Err(JsError::new(&format!(
+            "Unknown na action '{}': expected omit, exclude, fail or pass",
+            other
+        ))),
+    }
+}
+
+/// A row-aligned vector (weights, offset) as a column, checked against the
+/// number of rows.
+pub(crate) fn row_column(
+    v: &Option<Vec<f64>>,
+    n_rows: usize,
+    what: &str,
+) -> Result<Option<Col<f64>>, JsError> {
+    match v {
+        Some(v) if v.len() != n_rows => Err(JsError::new(&format!(
+            "Expected {} {} values, got {}",
+            n_rows,
+            what,
+            v.len()
+        ))),
+        Some(v) => Ok(Some(Col::from_fn(n_rows, |i| v[i]))),
+        None => Ok(None),
+    }
+}
