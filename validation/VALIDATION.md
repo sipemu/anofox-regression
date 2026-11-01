@@ -736,7 +736,7 @@ Validates `LmDynamicRegressor` (normal distribution) against `greybox::lmDynamic
 
 ## Validation Inventory
 
-Every reference generator below feeds at least one Rust integration test, and every such test (or its fixture) names its generator. 114 generators feed 114 test files (677 `#[test]` functions); 18 further test files (68 tests) carry their R / sklearn reference values inline, with the R call in the test's comments. R scripts print Rust `const`s to stdout (pasted into the test, or redirected to `tests/fixtures/*.rs`); the Python scripts write `tests/fixtures/*_validation.rs` (see [Regenerate Python references](#regenerate-python-sklearn-references)). Package versions are those installed when the reference was generated; the R versions are recorded in the test headers.
+Every reference generator below feeds at least one Rust integration test, and every such test (or its fixture) names its generator. 114 generators feed 114 test files (678 `#[test]` functions); 18 further test files (68 tests) carry their R / sklearn reference values inline, with the R call in the test's comments. R scripts print Rust `const`s to stdout (pasted into the test, or redirected to `tests/fixtures/*.rs`); the Python scripts write `tests/fixtures/*_validation.rs` (see [Regenerate Python references](#regenerate-python-sklearn-references)). Package versions are those installed when the reference was generated; the R versions are recorded in the test headers.
 
 ### Generators and their tests
 
@@ -886,7 +886,6 @@ Every reference generator below feeds at least one Rust integration test, and ev
 
 ### Ignored tests
 
-- `tests/r_validation_alm_loss.rs::ham_on_clean_data_reaches_greybox` — #261: the HAM loss's Nelder–Mead stops at a local minimum worse than greybox's on clean data (with outliers the crate reaches the global minimum).
 - `tests/issue92_theil_sen_inference.rs::coverage_simulation` and `tests/large_n_tests.rs` — a coverage simulation and a slow large-n test (`cargo test --release -- --ignored`), not reference comparisons.
 
 ## Test Coverage
@@ -918,7 +917,7 @@ The table below is the original per-estimator summary; the [inventory](#validati
 | LARS / LassoLars | 3 | 1e-6 / 5e-3 |
 | Bayesian Ridge / ARD | 2 | 5e-3 / 5e-2 |
 | GLMM (intercept, slopes, crossed/nested) | 13 | 2e-3 / 1e-2 |
-| **Total (all reference comparisons, see [inventory](#validation-inventory))** | **745** | - |
+| **Total (all reference comparisons, see [inventory](#validation-inventory))** | **746** | - |
 
 ## Reproducibility
 
