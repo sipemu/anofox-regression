@@ -20,9 +20,9 @@ impl GlmResult {
     /// with a non-finite value gives `NaN`.
     ///
     /// The standard error uses the stored covariance ([`GlmInferenceResult::vcov`](
-    /// super::GlmInferenceResult::vcov)) times the covariance scale of
-    /// [`Self::dispersion_rule`] (the Pearson dispersion for Gamma, Tweedie and
-    /// quasi-Poisson), i.e. the covariance behind the reported standard errors, so
+    /// super::GlmInferenceResult::vcov)), which carries the Pearson dispersion for
+    /// Gamma, Tweedie and quasi-Poisson, i.e. the covariance behind the reported
+    /// standard errors, so
     /// the fit must have been run with `compute_inference = true`; for a penalized
     /// fit this is the covariance at the posterior mode of the selected
     /// [`VcovType`](super::VcovType).
@@ -150,13 +150,9 @@ fn predict_se_core(
         None => 1.0,
         Some(j) => feature(i, j),
     });
-    // The stored covariance is `(X'WX + P)⁻¹` before the dispersion scaling that the
-    // standard errors carry (Gamma, Tweedie, quasi-Poisson), so apply it here.
-    let scale = fit
-        .dispersion_rule
-        .covariance_scale(fit.core.dispersion.unwrap_or(1.0));
+    // The stored covariance already carries the dispersion (Gamma, Tweedie,
+    // quasi-Poisson), as the standard errors do.
     let se_eta = quadratic_se(&design, vcov);
-    let se_eta = Col::from_fn(n, |i| se_eta[i] * scale.sqrt());
 
     let theta = match fit.dispersion_rule {
         DispersionRule::Given(t) => Some(t),
