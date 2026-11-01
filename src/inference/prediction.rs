@@ -442,6 +442,59 @@ pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'st
 mod tests {
     use super::*;
 
+    fn close_mats(a: &Mat<f64>, b: &Mat<f64>) {
+        assert_eq!((a.nrows(), a.ncols()), (b.nrows(), b.ncols()));
+        for i in 0..a.nrows() {
+            for j in 0..a.ncols() {
+                assert!((a[(i, j)] - b[(i, j)]).abs() < 1e-9 * (1.0 + b[(i, j)].abs()));
+            }
+        }
+    }
+
+    /// The QR route agrees with inverting the Gram matrix on a
+    /// well-conditioned design, for every public wrapper.
+    #[test]
+    fn design_inverse_matches_the_gram_inverse() {
+        let x = Mat::from_fn(12, 2, |i, j| ((i * (j + 2)) as f64 * 0.7).sin() + j as f64);
+        let w = Col::from_fn(12, |i| 0.5 + (i % 3) as f64);
+        let aug = Mat::from_fn(12, 3, |i, j| if j == 0 { 1.0 } else { x[(i, j - 1)] });
+        let gram = |z: &Mat<f64>, w: Option<&Col<f64>>| {
+            let wz = Mat::from_fn(z.nrows(), z.ncols(), |i, j| {
+                w.map_or(1.0, |w| w[i]) * z[(i, j)]
+            });
+            compute_matrix_inverse(&(z.transpose() * &wz)).unwrap()
+        };
+        close_mats(&compute_xtx_inverse(&x).unwrap(), &gram(&x, None));
+        close_mats(
+            &compute_xtx_inverse_augmented(&x).unwrap(),
+            &gram(&aug, None),
+        );
+        close_mats(
+            &compute_xtwx_inverse_augmented(&x, &w).unwrap(),
+            &gram(&aug, Some(&w)),
+        );
+        // a negative weight falls back to the Gram matrix
+        let mut wn = w.clone();
+        wn[0] = -0.1;
+        close_mats(
+            &compute_xtwx_inverse_augmented(&x, &wn).unwrap(),
+            &gram(&aug, Some(&wn)),
+        );
+    }
+
+    #[test]
+    fn design_inverse_edge_cases() {
+        // no columns at all
+        let empty = compute_xtx_inverse(&Mat::zeros(5, 0)).unwrap();
+        assert_eq!(empty.nrows(), 0);
+        // fewer rows than columns
+        assert!(compute_xtx_inverse(&Mat::from_fn(2, 3, |i, j| (i + j) as f64)).is_err());
+        // a zero column
+        assert!(compute_xtx_inverse(&Mat::from_fn(5, 2, |i, j| (j * i) as f64)).is_err());
+        // collinear columns
+        assert!(compute_xtx_inverse(&Mat::from_fn(5, 2, |i, j| ((j + 1) * i) as f64)).is_err());
+    }
+
     #[test]
     fn test_leverage_single() {
         // Simple 2x2 identity matrix case
