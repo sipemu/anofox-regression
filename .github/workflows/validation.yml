@@ -21,7 +21,7 @@ jobs:
       - name: Install R packages
         run: |
           Rscript -e 'install.packages(c("broom", "car", "greybox", "grpreg", "Hmisc",
-            "lme4", "lmtest", "MASS", "mediation", "mice", "multcomp", "nlme", "numDeriv",
+            "lavaan", "lme4", "lmtest", "MASS", "mediation", "mice", "multcomp", "nlme", "numDeriv",
             "quantreg", "rms", "sandwich", "statmod", "survival"))'
       - name: Regenerate fixtures
         run: OUT_DIR="$RUNNER_TEMP/fixtures" validation/regenerate_r_fixtures.sh
