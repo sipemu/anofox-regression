@@ -71,6 +71,7 @@ impl Regressor for ElasticNetRegressor {
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
         }
+        crate::core::validate_xy(x, y)?;
         // When alpha = 0 (or lambda = 0), delegate to Ridge
         if self.options.alpha == 0.0 || self.options.lambda == 0.0 {
             let ridge = RidgeRegressor::new(self.options.clone());

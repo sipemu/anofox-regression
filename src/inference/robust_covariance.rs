@@ -116,6 +116,9 @@ pub fn compute_hc_standard_errors(
         // E.g. a fit from sufficient statistics, which keeps no residuals.
         return Err("HC standard errors need one residual per row of x");
     }
+    if aliased.len() != n_features {
+        return Err("aliased needs one entry per column of x");
+    }
     if n <= p {
         return Err("Not enough observations for HC standard errors");
     }

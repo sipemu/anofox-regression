@@ -351,6 +351,7 @@ impl Regressor for BlsRegressor {
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
         }
+        crate::core::validate_xy(x, y)?;
         // Delegate to fit_internal which handles bound expansion
         self.fit_internal(x, y)
     }

@@ -58,7 +58,8 @@ impl CoefficientInference {
         let n = t_statistics.nrows();
         let mut p_vals = Col::zeros(n);
 
-        if df <= 0.0 {
+        // NaN df would panic in `StudentsT::new`
+        if df.is_nan() || df <= 0.0 {
             for j in 0..n {
                 p_vals[j] = f64::NAN;
             }
@@ -93,7 +94,8 @@ impl CoefficientInference {
         let mut lower = Col::zeros(n);
         let mut upper = Col::zeros(n);
 
-        if df <= 0.0 {
+        // NaN df would panic in `StudentsT::new`
+        if df.is_nan() || df <= 0.0 {
             for j in 0..n {
                 lower[j] = f64::NAN;
                 upper[j] = f64::NAN;

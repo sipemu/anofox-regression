@@ -182,6 +182,7 @@ impl GlmmRegressor {
         y: &Col<f64>,
         group: &[usize],
     ) -> Result<FittedGlmm, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         let slopes: &[usize] = match &self.random_slopes_per_factor {
             None => &self.random_slopes,
             Some(per) if per.len() == 1 && self.random_slopes.is_empty() => &per[0],
@@ -303,6 +304,7 @@ impl GlmmRegressor {
         y: &Col<f64>,
         groups: &[&[usize]],
     ) -> Result<FittedGlmm, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         if groups.is_empty() {
             return Err(RegressionError::NumericalError(
                 "fit_crossed needs at least one grouping factor".to_string(),

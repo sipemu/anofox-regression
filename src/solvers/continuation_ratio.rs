@@ -145,12 +145,7 @@ impl ContinuationRatioRegressor {
         x: &Mat<f64>,
         y: &Col<f64>,
     ) -> Result<FittedContinuationRatio, RegressionError> {
-        if y.nrows() != x.nrows() {
-            return Err(RegressionError::DimensionMismatch {
-                x_rows: x.nrows(),
-                y_len: y.nrows(),
-            });
-        }
+        crate::core::validate_xy(x, y)?;
         if let Some(&j) = self.cohort_specific.iter().find(|&&j| j >= x.ncols()) {
             return Err(RegressionError::NumericalError(format!(
                 "cohort-specific column {j} is out of range"

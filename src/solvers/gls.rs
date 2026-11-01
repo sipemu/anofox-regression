@@ -934,6 +934,10 @@ impl GlsRegressor {
         group: &[usize],
         time: Option<&[f64]>,
     ) -> Result<FittedGls, RegressionError> {
+        crate::core::validate_xy(x, y)?;
+        if let Some(t) = time {
+            crate::core::validate_finite_extra("time", &Col::from_fn(t.len(), |i| t[i]))?;
+        }
         let problem = Problem::new(self, x, y, group, time)?;
         self.check_structure(&problem)?;
         let theta = self.optimise(&problem)?;

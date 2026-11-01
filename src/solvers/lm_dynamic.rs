@@ -585,6 +585,7 @@ impl Regressor for LmDynamicRegressor {
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
         }
+        crate::core::validate_xy(x, y)?;
         // Validate dimensions
         if x.nrows() != y.nrows() {
             return Err(RegressionError::DimensionMismatch {
@@ -954,7 +955,10 @@ impl FittedLmDynamic {
 
     /// Compute t-critical value for confidence intervals.
     fn compute_t_critical(&self, df: f64, level: f64) -> f64 {
-        let t_dist = StudentsT::new(0.0, 1.0, df).expect("valid t-distribution parameters");
+        // NaN (no interval) when df is not positive or NaN
+        let Ok(t_dist) = StudentsT::new(0.0, 1.0, df) else {
+            return f64::NAN;
+        };
         let alpha = 1.0 - level;
         t_dist.inverse_cdf(1.0 - alpha / 2.0)
     }

@@ -323,6 +323,7 @@ impl Regressor for PlsRegressor {
     type Fitted = FittedPls;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
+        crate::core::validate_xy(x, y)?;
         let n_samples = x.nrows();
         let n_features = x.ncols();
 

@@ -11,6 +11,7 @@ mod poisson;
 mod poisson_link;
 mod prediction;
 mod result;
+mod validate;
 
 pub use binomial::BinomialFamily;
 pub(crate) use family::glm_null_deviance;
@@ -28,3 +29,4 @@ pub use poisson::PoissonFamily;
 pub use poisson_link::PoissonLink;
 pub use prediction::{IntervalType, PredictionResult, PredictionType};
 pub use result::RegressionResult;
+pub(crate) use validate::{validate_finite, validate_finite_extra, validate_xy};

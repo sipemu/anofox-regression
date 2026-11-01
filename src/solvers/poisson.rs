@@ -612,6 +612,7 @@ impl Regressor for PoissonRegressor {
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
         }
+        crate::core::validate_xy(x, y)?;
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
@@ -650,6 +651,7 @@ impl Regressor for PoissonRegressor {
                     y_len: offset.nrows(),
                 });
             }
+            crate::core::validate_finite_extra("offset", offset)?;
         }
 
         // Validate y values are non-negative

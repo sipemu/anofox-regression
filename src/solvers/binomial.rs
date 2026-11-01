@@ -656,6 +656,7 @@ impl Regressor for BinomialRegressor {
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
         }
+        crate::core::validate_xy(x, y)?;
         let n_samples = x.nrows();
         let n_features = x.ncols();
 
@@ -694,6 +695,7 @@ impl Regressor for BinomialRegressor {
                     y_len: offset.nrows(),
                 });
             }
+            crate::core::validate_finite_extra("offset", offset)?;
         }
         if let Some(w) = &self.weights {
             if w.nrows() != n_samples {
