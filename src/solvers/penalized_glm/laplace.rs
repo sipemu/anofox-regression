@@ -25,8 +25,11 @@ pub struct LaplaceInference {
     pub z_values: Vec<f64>,
     /// Two-sided p-values from the standard normal.
     pub p_values: Vec<f64>,
+    /// Lower Wald confidence bounds.
     pub ci_lower: Vec<f64>,
+    /// Upper Wald confidence bounds.
     pub ci_upper: Vec<f64>,
+    /// Level of the confidence intervals.
     pub confidence_level: f64,
     /// The full covariance matrix, scaled by the dispersion as the standard
     /// errors are (`std_errors[j]² = vcov[(j, j)]`); retained for prediction

@@ -16,14 +16,25 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use anofox_regression::solvers::{LarsRegressor, LarsMethod, Regressor, FittedRegressor};
+//! # use faer::{Col, Mat};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // y depends on the first of three predictors only
+//! let x = Mat::from_fn(30, 3, |i, j| ((i * (j + 2)) as f64 * 0.7).sin());
+//! let y = Col::from_fn(30, |i| 1.0 + 3.0 * x[(i, 0)]);
 //!
 //! let fitted = LarsRegressor::builder()
 //!     .method(LarsMethod::Lasso)
 //!     .alpha(0.1)
 //!     .build()
 //!     .fit(&x, &y)?;
+//! // the path stops at alpha = 0.1 with a shrunken first coefficient
+//! let b = &fitted.result().coefficients;
+//! assert!(b[0] > 0.0 && b[0] < 3.0);
+//! assert!(fitted.alphas().windows(2).all(|w| w[1] <= w[0]));
+//! # Ok(())
+//! # }
 //! ```
 
 #![allow(clippy::needless_range_loop)]
@@ -78,6 +89,8 @@ impl Default for LarsRegressor {
 }
 
 impl LarsRegressor {
+    /// A builder: plain LARS with an intercept, no standardisation, the full
+    /// path.
     pub fn builder() -> LarsRegressorBuilder {
         LarsRegressorBuilder::default()
     }
@@ -591,6 +604,9 @@ impl HasModelInfo for FittedLars {
 }
 
 impl FittedLars {
+    /// The largest absolute correlation `maxⱼ |xⱼᵀ r|` of the (centred,
+    /// optionally standardised) predictors with the residual at each path
+    /// step, decreasing.
     pub fn alphas(&self) -> &[f64] {
         &self.alphas
     }
@@ -607,6 +623,7 @@ impl FittedLars {
             })
             .collect()
     }
+    /// Plain LARS or LassoLars.
     pub fn method(&self) -> LarsMethod {
         self.method
     }
@@ -681,14 +698,18 @@ pub struct LarsRegressorBuilder {
 }
 
 impl LarsRegressorBuilder {
+    /// Plain LARS (default) or LassoLars.
     pub fn method(mut self, method: LarsMethod) -> Self {
         self.inner.method = method;
         self
     }
+    /// Centre `x` and `y` and fit an intercept (default `true`).
     pub fn fit_intercept(mut self, include: bool) -> Self {
         self.inner.fit_intercept = include;
         self
     }
+    /// Stop when this many predictors are active (default: run to
+    /// `min(n − 1, p)`).
     pub fn n_nonzero_coefs(mut self, value: usize) -> Self {
         self.inner.n_nonzero_coefs = Some(value);
         self
@@ -699,10 +720,13 @@ impl LarsRegressorBuilder {
         self.inner.alpha = value;
         self
     }
+    /// Scale the centred predictors to unit norm before fitting (default
+    /// `false`); coefficients are reported on the original scale.
     pub fn standardize(mut self, value: bool) -> Self {
         self.inner.standardize = value;
         self
     }
+    /// The configured estimator.
     pub fn build(self) -> LarsRegressor {
         self.inner
     }

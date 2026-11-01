@@ -32,15 +32,23 @@ use faer::{Col, Mat};
 /// Options for an AFT fit.
 #[derive(Debug, Clone)]
 pub struct AftOptions {
+    /// Survival-time distribution (`survreg(dist = )`; default Weibull).
     pub dist: AftDistribution,
+    /// Fit an intercept (default `true`).
     pub fit_intercept: bool,
+    /// Maximum Newton iterations (default 100).
     pub max_iterations: u32,
+    /// Convergence tolerance on the log-likelihood change, relative to
+    /// `1 + |logLik|` (default 1e-9).
     pub tolerance: f64,
+    /// Compute standard errors, Wald tests and confidence intervals.
     pub compute_inference: bool,
+    /// Level of the Wald confidence intervals (default 0.95).
     pub confidence_level: f64,
     /// Gaussian/Laplace priors on the coefficients, in feature order with an
     /// optional leading entry for the intercept. Empty means none.
     pub priors: Vec<PriorSpec>,
+    /// Covariance used for inference when priors are present.
     pub vcov: VcovType,
 }
 
@@ -64,26 +72,39 @@ impl Default for AftOptions {
 pub struct AftFitResult {
     /// Coefficients on the log-time scale, excluding the intercept.
     pub coefficients: Vec<f64>,
+    /// Intercept on the log-time scale (`None` without one).
     pub intercept: Option<f64>,
     /// The scale parameter `sigma` (1.0 and not estimated for `exponential`).
     pub scale: f64,
+    /// Maximised log-likelihood.
     pub log_likelihood: f64,
     /// Log-likelihood of the intercept-only model, for a likelihood-ratio pseudo-R2.
     pub null_log_likelihood: f64,
+    /// `2k − 2 logLik`, with `k` the coefficients plus the scale when it is
+    /// estimated (`AIC(survreg)`).
     pub aic: f64,
+    /// `k log(n) − 2 logLik`.
     pub bic: f64,
+    /// Number of observations.
     pub n_observations: usize,
+    /// Observations with an observed event.
     pub n_events: usize,
+    /// Right-censored observations.
     pub n_censored: usize,
+    /// Number of features (excluding the intercept).
     pub n_features: usize,
+    /// Newton iterations used.
     pub iterations: u32,
+    /// Whether the log-likelihood change fell below `tolerance`.
     pub converged: bool,
 }
 
 /// An AFT fit plus optional inference.
 #[derive(Debug, Clone)]
 pub struct AftResult {
+    /// Estimates and fit statistics.
     pub core: AftFitResult,
+    /// Standard errors and tests (with `compute_inference`).
     pub inference: Option<AftInference>,
     /// What was fitted: model type `"aft"`, the survival-time distribution as
     /// the family and the `"log"` link.
@@ -106,11 +127,17 @@ pub(crate) fn aft_model_info(dist: AftDistribution) -> ModelInfo {
 pub struct AftInference {
     /// Per-coefficient values, excluding the intercept.
     pub std_errors: Vec<f64>,
+    /// Wald z-statistics `β / SE`.
     pub z_values: Vec<f64>,
+    /// Two-sided normal p-values.
     pub p_values: Vec<f64>,
+    /// Lower Wald confidence bounds.
     pub ci_lower: Vec<f64>,
+    /// Upper Wald confidence bounds.
     pub ci_upper: Vec<f64>,
+    /// Level of the confidence intervals.
     pub confidence_level: f64,
+    /// Standard error of the intercept (`None` without an intercept).
     pub intercept_std_error: Option<f64>,
     /// Wald z-statistic of the intercept (`None` without an intercept).
     pub intercept_z_value: Option<f64>,

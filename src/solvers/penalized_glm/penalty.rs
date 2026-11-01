@@ -177,6 +177,7 @@ impl Penalty {
         }
     }
 
+    /// Number of parameters the penalty covers.
     pub fn n_params(&self) -> usize {
         self.quadratic.n_params()
     }

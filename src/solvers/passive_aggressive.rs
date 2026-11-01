@@ -65,6 +65,8 @@ impl Default for PassiveAggressiveRegressor {
 }
 
 impl PassiveAggressiveRegressor {
+    /// A builder with scikit-learn's defaults (`C = 1`, `ε = 0.1`, 1000
+    /// epochs, `tol = 1e-3`, shuffled).
     pub fn builder() -> PassiveAggressiveRegressorBuilder {
         PassiveAggressiveRegressorBuilder::default()
     }
@@ -256,11 +258,14 @@ impl PassiveAggressiveRegressor {
 /// In-progress PA state for streaming use via [`PassiveAggressiveRegressor::partial_fit`].
 #[derive(Debug, Clone)]
 pub struct PaState {
+    /// Current coefficients.
     pub weights: Vec<f64>,
+    /// Current intercept.
     pub intercept: f64,
 }
 
 impl PaState {
+    /// All-zero weights and intercept for `n_features` predictors.
     pub fn new(n_features: usize) -> Self {
         Self {
             weights: vec![0.0; n_features],
@@ -341,6 +346,7 @@ impl HasModelInfo for FittedPassiveAggressive {
 }
 
 impl FittedPassiveAggressive {
+    /// Epochs (passes over the data) run.
     pub fn n_iter(&self) -> usize {
         self.n_iter
     }
@@ -383,38 +389,49 @@ pub struct PassiveAggressiveRegressorBuilder {
 }
 
 impl PassiveAggressiveRegressorBuilder {
+    /// Maximum step size `C` (sklearn `C`, default 1); smaller is more
+    /// regularised.
     pub fn c(mut self, value: f64) -> Self {
         self.inner.c = value;
         self
     }
+    /// Width `ε` of the insensitive zone (default 0.1).
     pub fn epsilon(mut self, value: f64) -> Self {
         self.inner.epsilon = value;
         self
     }
+    /// Fit an intercept (default `true`).
     pub fn with_intercept(mut self, include: bool) -> Self {
         self.inner.with_intercept = include;
         self
     }
+    /// Maximum epochs (default 1000).
     pub fn max_iter(mut self, value: usize) -> Self {
         self.inner.max_iter = value;
         self
     }
+    /// Stop after 5 epochs whose summed loss does not fall below the best
+    /// so far minus `tol · n` (default 1e-3; sklearn `tol`).
     pub fn tolerance(mut self, value: f64) -> Self {
         self.inner.tol = value;
         self
     }
+    /// Shuffle the rows every epoch (default `true`).
     pub fn shuffle(mut self, value: bool) -> Self {
         self.inner.shuffle = value;
         self
     }
+    /// PA-I (default) or PA-II loss.
     pub fn loss(mut self, value: PaLoss) -> Self {
         self.inner.loss = value;
         self
     }
+    /// Seed of the shuffling (default 0).
     pub fn random_state(mut self, seed: u64) -> Self {
         self.inner.random_state = seed;
         self
     }
+    /// The configured estimator.
     pub fn build(self) -> PassiveAggressiveRegressor {
         self.inner
     }

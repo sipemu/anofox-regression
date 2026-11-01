@@ -54,10 +54,20 @@ pub enum SplineError {
     TooFewUniqueKnots,
     /// A coefficient vector had the wrong length.
     #[error("expected {expected} coefficients, got {got}")]
-    CoefficientLength { expected: usize, got: usize },
+    CoefficientLength {
+        /// Number of coefficients the basis needs.
+        expected: usize,
+        /// Number supplied.
+        got: usize,
+    },
     /// Names or flags do not match the number of columns.
     #[error("expected {expected} names / flags, got {got}")]
-    Length { expected: usize, got: usize },
+    Length {
+        /// Number of columns.
+        expected: usize,
+        /// Number of names or flags supplied.
+        got: usize,
+    },
     /// Bases of a product have different row counts.
     #[error("bases have {0} and {1} rows")]
     RowMismatch(usize, usize),

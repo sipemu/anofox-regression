@@ -58,13 +58,22 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use anofox_regression::solvers::{TheilSenRegressor, Regressor, FittedRegressor};
+//! # use faer::{Col, Mat};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // y = 2 + 0.5x with one gross outlier
+//! let x = Mat::from_fn(11, 1, |i, _| i as f64);
+//! let y = Col::from_fn(11, |i| if i == 7 { 50.0 } else { 2.0 + 0.5 * i as f64 });
 //!
 //! let fitted = TheilSenRegressor::builder()
 //!     .with_intercept(true)
 //!     .build()
 //!     .fit(&x, &y)?;
+//! // the median of the pairwise slopes ignores the outlier
+//! assert!((fitted.result().coefficients[0] - 0.5).abs() < 1e-12);
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::core::{HasModelInfo, ModelInfo, OptionsError};
@@ -1201,26 +1210,35 @@ pub struct TheilSenRegressorBuilder {
 }
 
 impl TheilSenRegressorBuilder {
+    /// Fit an intercept (default `true`).
     pub fn with_intercept(mut self, include: bool) -> Self {
         self.inner.with_intercept = include;
         self
     }
+    /// Enumerate all subsamples when there are at most this many, otherwise
+    /// draw this many at random (default 10 000, as sklearn).
     pub fn max_subpopulation(mut self, value: usize) -> Self {
         self.inner.max_subpopulation = value;
         self
     }
+    /// Rows per subsample (default `p + 1`, an exact fit per subsample).
     pub fn n_subsamples(mut self, value: usize) -> Self {
         self.inner.n_subsamples = Some(value);
         self
     }
+    /// Maximum iterations of the spatial-median (Weiszfeld) step
+    /// (default 300).
     pub fn max_iter(mut self, value: usize) -> Self {
         self.inner.max_iter = value;
         self
     }
+    /// Convergence tolerance of the spatial median (default 1e-3; sklearn
+    /// `tol`).
     pub fn tolerance(mut self, value: f64) -> Self {
         self.inner.tol = value;
         self
     }
+    /// Seed of the subsample draws and the bootstrap (default 0).
     pub fn random_state(mut self, seed: u64) -> Self {
         self.inner.random_state = seed;
         self
@@ -1254,6 +1272,7 @@ impl TheilSenRegressorBuilder {
         self.inner.n_bootstrap = value;
         self
     }
+    /// The configured estimator.
     pub fn build(self) -> TheilSenRegressor {
         self.inner
     }

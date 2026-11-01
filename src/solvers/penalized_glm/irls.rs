@@ -21,13 +21,21 @@ use super::penalty::{Penalty, QuadraticPenalty};
 /// Tuning for the IRLS loop.
 #[derive(Debug, Clone)]
 pub struct IrlsConfig {
+    /// Maximum IRLS iterations (default 100).
     pub max_iterations: usize,
+    /// Converged when the penalized deviance changes by less than this
+    /// relative to `0.1 + |dev|` (as `glm.control(epsilon)`), or the largest
+    /// coefficient change is below it (default 1e-8).
     pub tolerance: f64,
+    /// Pivot below which a column of the weighted least-squares solve counts
+    /// as linearly dependent (default 1e-10).
     pub rank_tolerance: f64,
     /// Maximum step halvings per iteration, following R's `glm.control`.
     pub max_halvings: usize,
     /// Iterations for the inner coordinate-descent solve when an L1 prior is present.
     pub cd_max_iterations: usize,
+    /// Stop the inner coordinate descent when no coefficient moves by more
+    /// than this (default 1e-10).
     pub cd_tolerance: f64,
 }
 
@@ -48,13 +56,21 @@ impl Default for IrlsConfig {
 /// (intercept first when one was fitted).
 #[derive(Debug, Clone)]
 pub struct IrlsFit {
+    /// Coefficients.
     pub beta: Vec<f64>,
+    /// Fitted means.
     pub mu: Vec<f64>,
+    /// Linear predictor, including the offset.
     pub eta: Vec<f64>,
+    /// Working weights of the last iteration.
     pub weights: Vec<f64>,
+    /// Residual deviance.
     pub deviance: f64,
+    /// Deviance of the intercept-only (offset-only) model.
     pub null_deviance: f64,
+    /// IRLS iterations used.
     pub iterations: u32,
+    /// Whether the convergence criterion was met.
     pub converged: bool,
     /// `X'WX + P` at the mode — the observed information of the log posterior.
     pub information: Mat<f64>,

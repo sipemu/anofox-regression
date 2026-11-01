@@ -26,8 +26,11 @@ pub enum PriorKind {
 /// scale parameter `b` for [`PriorKind::Laplace`]. A flat prior ignores both fields.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PriorSpec {
+    /// Flat, Normal or Laplace.
     pub kind: PriorKind,
+    /// Prior location (mean or median).
     pub loc: f64,
+    /// Prior scale (see above).
     pub scale: f64,
 }
 
