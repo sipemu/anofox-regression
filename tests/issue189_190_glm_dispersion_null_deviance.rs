@@ -303,12 +303,15 @@ fn poisson_overdispersed_uses_dispersion_one() {
     let r = fit.result();
     let se = r.std_errors.as_ref().unwrap();
     let p = r.p_values.as_ref().unwrap();
+    let z = r.t_statistics.as_ref().unwrap();
     close(r.intercept.unwrap(), POIS_COEF[0], 1e-8, "b0");
     close(r.intercept_std_error.unwrap(), POIS_SE[0], 1e-8, "se0");
+    close(r.intercept_t_statistic.unwrap(), POIS_Z[0], 1e-8, "z0");
     close(r.intercept_p_value.unwrap(), POIS_P[0], 1e-8, "p0");
     for j in 0..2 {
         close(r.coefficients[j], POIS_COEF[j + 1], 1e-8, "coef");
         close(se[j], POIS_SE[j + 1], 1e-8, "se");
+        close(z[j], POIS_Z[j + 1], 1e-8, "z");
         close(p[j], POIS_P[j + 1], 1e-8, "p");
     }
     close(fit.null_deviance, ND_POIS, 1e-10, "null deviance");

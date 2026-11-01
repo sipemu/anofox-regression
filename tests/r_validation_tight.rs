@@ -425,10 +425,10 @@ fn hc0_to_hc3_match_sandwich_and_coeftest() {
     let r0 = fit0.result();
     for (t, se) in [(HcType::HC0, HC0_NOINT_SE), (HcType::HC3, HC3_NOINT_SE)] {
         let hc = compute_hc_standard_errors(&x(), &r0.residuals, &r0.aliased, false, t).unwrap();
-        for k in 0..2 {
+        for (k, &want) in se.iter().enumerate() {
             close(
                 hc.std_errors[k],
-                se[k],
+                want,
                 1e-9,
                 &format!("{t:?} no intercept se[{k}]"),
             );

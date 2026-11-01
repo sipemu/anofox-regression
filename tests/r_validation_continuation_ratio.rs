@@ -29,12 +29,22 @@ fn cr_setup_matches_rms() {
     assert_eq!(s.reps, as_usize(&SMALL_REPS));
 }
 
+/// Name, cohort pattern and four reference vectors of one `cr.setup` fit.
+type CrCase<'a> = (
+    &'a str,
+    &'a [usize],
+    &'a [f64],
+    &'a [f64],
+    &'a [f64],
+    &'a [f64],
+);
+
 #[test]
 fn continuation_ratio_matches_lrm_on_cr_setup() {
     let x = Mat::from_fn(N, 3, |i, j| X[i * 3 + j]);
     let y = Col::from_fn(N, |i| Y_CAT[i]);
     let xnew = Mat::from_fn(3, 3, |i, j| XNEW[i * 3 + j]);
-    let cases: [(&str, &[usize], &[f64], &[f64], &[f64], &[f64]); 2] = [
+    let cases: [CrCase; 2] = [
         (
             "equal slopes",
             &[],

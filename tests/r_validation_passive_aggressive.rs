@@ -161,14 +161,14 @@ fn single_online_pass_matches_sklearn_partial_fit() {
             pa.partial_fit(&mut state, &row, y[i]).unwrap();
         }
         assert!((state.intercept - intercept).abs() < 1e-10);
-        for j in 0..p {
+        for (j, &want) in coefs.iter().enumerate().take(p) {
             assert!(
-                (fitted.result().coefficients[j] - coefs[j]).abs() < 1e-10,
+                (fitted.result().coefficients[j] - want).abs() < 1e-10,
                 "{loss:?} coef[{j}] {} vs sklearn {}",
                 fitted.result().coefficients[j],
-                coefs[j]
+                want
             );
-            assert!((state.weights[j] - coefs[j]).abs() < 1e-10);
+            assert!((state.weights[j] - want).abs() < 1e-10);
         }
     }
 }

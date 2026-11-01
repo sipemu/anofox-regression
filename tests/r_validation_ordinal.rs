@@ -62,8 +62,8 @@ fn check_fit(
 ) {
     let m = f.intercepts().nrows();
     assert_eq!(m + 3, coef.len(), "{id}: number of parameters");
-    for j in 0..m {
-        close(&format!("{id} α{j}"), f.intercepts()[j], coef[j], tol);
+    for (j, &want) in coef.iter().enumerate().take(m) {
+        close(&format!("{id} α{j}"), f.intercepts()[j], want, tol);
     }
     for j in 0..3 {
         close(&format!("{id} β{j}"), f.coefficients()[j], coef[m + j], tol);
@@ -104,19 +104,22 @@ fn check_fit(
     }
 }
 
+/// Name, link and seven reference vectors of one `orm` family.
+type OrmCase<'a> = (
+    &'a str,
+    OrdinalLink,
+    &'a [f64],
+    &'a [f64],
+    &'a [f64],
+    &'a [f64],
+    &'a [f64],
+    &'a [f64],
+    &'a [f64],
+);
+
 #[test]
 fn orm_continuous_response_every_family() {
-    let cases: [(
-        &str,
-        OrdinalLink,
-        &[f64],
-        &[f64],
-        &[f64],
-        &[f64],
-        &[f64],
-        &[f64],
-        &[f64],
-    ); 5] = [
+    let cases: [OrmCase; 5] = [
         (
             "logistic",
             OrdinalLink::Logistic,
@@ -221,21 +224,11 @@ fn five_categories_logit_probit_weights_offset() {
         1e-6,
     );
     // MASS::polr: P(Y ≤ j) = F(ζ_j − xβ), so ζ = −α and the same β
-    for j in 0..4 {
-        close(
-            &format!("polr ζ{j}"),
-            -f.intercepts()[j],
-            POLR_ZETA[j],
-            1e-5,
-        );
+    for (j, &want) in POLR_ZETA.iter().enumerate() {
+        close(&format!("polr ζ{j}"), -f.intercepts()[j], want, 1e-5);
     }
-    for j in 0..3 {
-        close(
-            &format!("polr β{j}"),
-            f.coefficients()[j],
-            POLR_BETA[j],
-            1e-5,
-        );
+    for (j, &want) in POLR_BETA.iter().enumerate() {
+        close(&format!("polr β{j}"), f.coefficients()[j], want, 1e-5);
     }
     let f = fit(&Y_CAT, OrdinalLink::Probit, None, None);
     check_fit(

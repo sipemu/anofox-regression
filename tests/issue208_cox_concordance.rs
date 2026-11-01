@@ -1,4 +1,4 @@
-#![allow(clippy::excessive_precision, dead_code)]
+#![allow(clippy::approx_constant, clippy::excessive_precision, dead_code)]
 
 //! #208: `CoxFit::concordance` matches `coxph`'s `concordance` with case
 //! weights, an offset, strata and `(start, stop]` data.

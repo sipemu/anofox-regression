@@ -190,8 +190,8 @@ fn bayesian_ridge_intervals_use_posterior_predictive_std() {
 
     // The interval for the mean drops the noise variance 1/alpha.
     let ci = fitted.predict_with_interval(&xq, Some(IntervalType::Confidence), 0.95);
-    for i in 0..N_QUERY_BR {
-        let mean_var = EXPECTED_STD_BR[i].powi(2) - 1.0 / EXPECTED_ALPHA_BR;
+    for (i, &want) in EXPECTED_STD_BR.iter().enumerate().take(N_QUERY_BR) {
+        let mean_var = want.powi(2) - 1.0 / EXPECTED_ALPHA_BR;
         assert_close("mean se", ci.se[i], mean_var.max(0.0).sqrt(), 1e-6);
         assert!(ci.upper[i] - ci.lower[i] < pi.upper[i] - pi.lower[i]);
     }

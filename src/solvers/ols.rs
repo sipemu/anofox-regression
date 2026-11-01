@@ -1323,12 +1323,12 @@ mod tests {
             .build()
             .fit(&x, &y)
             .unwrap();
-        for j in 0..3 {
+        for (j, &want) in truth.iter().enumerate() {
             assert!(
-                (fit.result().coefficients[j] - truth[j]).abs() < 1e-6,
+                (fit.result().coefficients[j] - want).abs() < 1e-6,
                 "coef[{j}] = {} vs {}",
                 fit.result().coefficients[j],
-                truth[j]
+                want
             );
         }
     }

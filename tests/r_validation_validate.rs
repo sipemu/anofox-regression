@@ -1,4 +1,4 @@
-#![allow(clippy::excessive_precision, dead_code)]
+#![allow(clippy::large_const_arrays, clippy::excessive_precision, dead_code)]
 
 //! #103: optimism-corrected validation and calibration against
 //! `rms::validate` and `rms::calibrate`, replaying R's resamples.

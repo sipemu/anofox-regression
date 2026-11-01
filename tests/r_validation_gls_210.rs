@@ -11,6 +11,9 @@
 use anofox_regression::solvers::{FittedGls, GlsCorrelation, GlsMethod, GlsRegressor, GlsVariance};
 use faer::{Col, Mat};
 
+// Shares the data of the original GLS validation; its references are
+// checked in r_validation_gls.rs.
+#[allow(dead_code)]
 mod fixture {
     include!("fixtures/gls_validation.rs");
 }
@@ -160,6 +163,7 @@ fn spatial_structures_with_nugget_match_nlme() {
         (
             GlsCorrelation::Gaussian { nugget: true },
             &GAUS_NUG_COEF,
+            &GAUS_NUG_VCOV,
             &GAUS_NUG_SIGMA,
             &GAUS_NUG_LOGLIK,
             &GAUS_NUG_COR,
@@ -167,6 +171,7 @@ fn spatial_structures_with_nugget_match_nlme() {
         (
             GlsCorrelation::Linear { nugget: true },
             &LIN_NUG_COEF,
+            &LIN_NUG_VCOV,
             &LIN_NUG_SIGMA,
             &LIN_NUG_LOGLIK,
             &LIN_NUG_COR,
@@ -174,12 +179,13 @@ fn spatial_structures_with_nugget_match_nlme() {
         (
             GlsCorrelation::Spherical { nugget: true },
             &SPHER_NUG_COEF,
+            &SPHER_NUG_VCOV,
             &SPHER_NUG_SIGMA,
             &SPHER_NUG_LOGLIK,
             &SPHER_NUG_COR,
         ),
     ];
-    for (cor, coef, sigma, ll, par) in cases {
+    for (cor, coef, vcov, sigma, ll, par) in cases {
         let tag = format!("{cor:?}");
         let f = fit(
             cor,
@@ -191,6 +197,9 @@ fn spatial_structures_with_nugget_match_nlme() {
         close(&format!("{tag} logLik"), f.log_likelihood(), ll[0], 1e-7);
         let b: Vec<f64> = f.coefficients().iter().copied().collect();
         all_close(&format!("{tag} coef"), &b, coef, 1e-3);
+        let p = b.len();
+        let v: Vec<f64> = (0..p * p).map(|k| f.vcov()[(k / p, k % p)]).collect();
+        all_close(&format!("{tag} vcov"), &v, vcov, 1e-3);
         close(&format!("{tag} sigma"), f.sigma(), sigma[0], 1e-3);
         all_close(&format!("{tag} cor"), f.correlation_params(), par, 5e-2);
     }

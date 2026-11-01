@@ -5,6 +5,8 @@
 //! Reference values: `tests/r_scripts/generate_alm_ic_validation.R`
 //! (greybox 2.0.9 with tight `nloptr` tolerances; each row is nparam, logLik,
 //! AIC, AICc, BIC).
+// Reference data that happens to be close to π-related constants.
+#![allow(clippy::approx_constant)]
 
 use anofox_regression::solvers::{AlmDistribution, AlmRegressor, FittedRegressor, Regressor};
 use faer::{Col, Mat};

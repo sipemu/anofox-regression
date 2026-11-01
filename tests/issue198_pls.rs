@@ -279,18 +279,18 @@ fn check(
     for k in 0..2 {
         close(ev[k], explvar[k], 1e-9, &format!("{what} explvar {k}"));
     }
-    for j in 0..4 {
+    for (j, &want) in coef.iter().enumerate().take(4) {
         close(
             fit.coefficients()[j],
-            coef[j],
+            want,
             1e-9,
             &format!("{what} coef {j}"),
         );
     }
-    for i in 0..N {
+    for (i, &want) in fitted.iter().enumerate().take(N) {
         close(
             fit.result().fitted_values[i],
-            fitted[i],
+            want,
             1e-9,
             &format!("{what} fitted {i}"),
         );

@@ -50,11 +50,8 @@ fn bayesian_ridge() {
 
     let r = fitted.result();
     println!("Intercept: {:.4}   (true: 0.3)", r.intercept.unwrap());
-    for j in 0..p {
-        println!(
-            "  β[{}] = {:.4}   (true: {})",
-            j, r.coefficients[j], true_beta[j]
-        );
+    for (j, &truth) in true_beta.iter().enumerate().take(p) {
+        println!("  β[{}] = {:.4}   (true: {})", j, r.coefficients[j], truth);
     }
     println!("Noise precision α  = {:.4}", fitted.alpha());
     println!("Weight precision λ = {:.4}", fitted.lambda());
@@ -95,7 +92,7 @@ fn ard() {
 
     let r = fitted.result();
     println!("Intercept: {:.4}", r.intercept.unwrap());
-    for j in 0..p {
+    for (j, &truth) in true_beta.iter().enumerate().take(p) {
         let pruned = if fitted.lambdas()[j] > 10_000.0 {
             "  (pruned)"
         } else {
@@ -105,7 +102,7 @@ fn ard() {
             "  β[{}] = {:.4}   (true: {:>5})   λ_{} = {:.2e}{}",
             j,
             r.coefficients[j],
-            true_beta[j],
+            truth,
             j,
             fitted.lambdas()[j],
             pruned

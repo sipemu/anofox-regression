@@ -1,4 +1,4 @@
-#![allow(clippy::excessive_precision)]
+#![allow(clippy::large_const_arrays, clippy::excessive_precision)]
 
 //! #109: penalized maximum likelihood à la rms (RMS §9.10): the penalty
 //! matrix, differential penalties, effective d.f., the sandwich covariance

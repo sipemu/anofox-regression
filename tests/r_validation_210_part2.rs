@@ -6,7 +6,7 @@
 #![allow(clippy::excessive_precision)]
 
 use anofox_regression::solvers::aft::{AftDistribution, AftRegressor};
-use anofox_regression::solvers::{OrdinalLink, OrdinalRegressor, Regressor};
+use anofox_regression::solvers::{OrdinalLink, OrdinalRegressor};
 use faer::{Col, Mat};
 
 const X1: [f64; N] = [
