@@ -617,3 +617,24 @@ fn fixed_and_disabled_spans() {
         .build();
     assert!(auto.auto_span());
 }
+
+/// Above 500 observations the window search is a coarse grid plus a local
+/// exhaustive pass; it still finds the best window of the grid's neighbourhood.
+#[test]
+fn large_samples_use_the_coarse_window_search() {
+    let n = 520;
+    let x = Mat::from_fn(n, 1, |i, _| ((i * 37 % 101) as f64 / 50.0) - 1.0);
+    let y = Col::from_fn(n, |i| {
+        let b = if i < n / 2 { 0.3 } else { 1.0 };
+        b * x[(i, 0)] + (((i * 53) % 97) as f64 / 48.0 - 1.0)
+    });
+    let f = LmDynamicRegressor::builder().build().fit(&x, &y).unwrap();
+    let span = f.span().unwrap();
+    assert!(span > 0.0 && span <= 1.0);
+    let k = (span * n as f64).round() as usize;
+    for d in [1usize, 2] {
+        for kk in [k.saturating_sub(d).max(2), (k + d).min(n)] {
+            assert!(f.span_criterion(span) <= f.span_criterion(kk as f64 / n as f64) + 1e-9);
+        }
+    }
+}
