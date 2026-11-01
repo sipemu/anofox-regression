@@ -28,7 +28,19 @@ fn kinds() -> Vec<ImputeVariable> {
 }
 
 fn check(tag: &str, opts: AregImputeOptions, x1: &[f64], x2: &[f64], g: &[f64], rsq: &[f64]) {
-    let a = areg_impute(&data(), &kinds(), &opts).unwrap();
+    check_kinds(tag, &kinds(), opts, x1, x2, g, rsq);
+}
+
+fn check_kinds(
+    tag: &str,
+    kinds: &[ImputeVariable],
+    opts: AregImputeOptions,
+    x1: &[f64],
+    x2: &[f64],
+    g: &[f64],
+    rsq: &[f64],
+) {
+    let a = areg_impute(&data(), kinds, &opts).unwrap();
     for (col, expected) in [(1, x1), (2, x2), (4, g)] {
         let got: Vec<f64> = a.imputed[col].iter().flatten().copied().collect();
         assert_eq!(got.len(), expected.len(), "{tag} column {col}");
@@ -67,6 +79,27 @@ fn closest_matching_replays_aregimpute() {
         ..Default::default()
     };
     check("closest", opts, &C_X1, &C_X2, &C_G, &C_RSQ);
+}
+
+/// #210: `I(x1)` (always linear) and `burnin = 1`.
+#[test]
+fn linear_target_and_burnin_replay_aregimpute() {
+    let mut linear = kinds();
+    linear[1] = ImputeVariable::Linear;
+    let opts = AregImputeOptions {
+        n_impute: 3,
+        seed: 9,
+        ..Default::default()
+    };
+    check_kinds("I(x1)", &linear, opts, &L_X1, &L_X2, &L_G, &L_RSQ);
+    // tlinear = FALSE (T_*) does not replay yet: see the follow-up issue.
+    let opts = AregImputeOptions {
+        n_impute: 2,
+        burnin: Some(1),
+        seed: 11,
+        ..Default::default()
+    };
+    check("burnin = 1", opts, &B_X1, &B_X2, &B_G, &B_RSQ);
 }
 
 #[test]

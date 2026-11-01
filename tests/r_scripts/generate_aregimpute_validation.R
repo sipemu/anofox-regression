@@ -30,3 +30,7 @@ out <- function(tag, a) {
 }
 set.seed(7); out("W", aregImpute(~ y + x1 + x2 + b + g, data = d, n.impute = 5, pr = FALSE))
 set.seed(8); out("C", aregImpute(~ y + x1 + x2 + b + g, data = d, n.impute = 3, match = "closest", pr = FALSE))
+# #210: a linear-only target (I(x1)), tlinear = FALSE and burnin = 1
+set.seed(9); out("L", aregImpute(~ y + I(x1) + x2 + b + g, data = d, n.impute = 3, pr = FALSE))
+set.seed(10); out("T", aregImpute(~ y + x1 + x2 + b + g, data = d, n.impute = 3, tlinear = FALSE, pr = FALSE))
+set.seed(11); out("B", aregImpute(~ y + x1 + x2 + b + g, data = d, n.impute = 2, burnin = 1, pr = FALSE))
