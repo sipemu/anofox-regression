@@ -31,8 +31,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use anofox_regression::solvers::{BayesianRidge, Regressor, FittedRegressor};
+//! # use faer::{Col, Mat};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let x = Mat::from_fn(40, 2, |i, j| ((i * (j + 3)) as f64 * 0.31).cos());
+//! let y = Col::from_fn(40, |i| 0.5 + x[(i, 0)] - 2.0 * x[(i, 1)] + 0.01 * (i % 5) as f64);
+//! let x_new = Mat::from_fn(3, 2, |i, j| (i + j) as f64 * 0.2);
 //!
 //! let fitted = BayesianRidge::builder()
 //!     .max_iter(300)
@@ -40,6 +45,10 @@
 //!     .build()
 //!     .fit(&x, &y)?;
 //! let std = fitted.predict_std(&x_new);
+//! assert_eq!(std.nrows(), 3);
+//! assert!(std.iter().all(|s| *s > 0.0));
+//! # Ok(())
+//! # }
 //! ```
 
 #![allow(clippy::needless_range_loop)]
@@ -344,6 +353,7 @@ impl Default for BayesianRidge {
 }
 
 impl BayesianRidge {
+    /// A builder with sklearn's defaults.
     pub fn builder() -> BayesianRidgeBuilder {
         BayesianRidgeBuilder::default()
     }
@@ -597,42 +607,53 @@ pub struct BayesianRidgeBuilder {
     inner: BayesianRidge,
 }
 impl BayesianRidgeBuilder {
+    /// Fit an intercept (default `true`; sklearn `fit_intercept`).
     pub fn fit_intercept(mut self, v: bool) -> Self {
         self.inner.fit_intercept = v;
         self
     }
+    /// Maximum evidence-maximisation iterations (default 300).
     pub fn max_iter(mut self, v: usize) -> Self {
         self.inner.max_iter = v;
         self
     }
+    /// Stop when the summed absolute coefficient change between iterations
+    /// is below this (default 1e-3; sklearn `tol`).
     pub fn tolerance(mut self, v: f64) -> Self {
         self.inner.tol = v;
         self
     }
+    /// Shape of the Gamma prior on the noise precision α (default 1e-6).
     pub fn alpha_1(mut self, v: f64) -> Self {
         self.inner.alpha_1 = v;
         self
     }
+    /// Rate of the Gamma prior on the noise precision α (default 1e-6).
     pub fn alpha_2(mut self, v: f64) -> Self {
         self.inner.alpha_2 = v;
         self
     }
+    /// Shape of the Gamma prior on the weight precision λ (default 1e-6).
     pub fn lambda_1(mut self, v: f64) -> Self {
         self.inner.lambda_1 = v;
         self
     }
+    /// Rate of the Gamma prior on the weight precision λ (default 1e-6).
     pub fn lambda_2(mut self, v: f64) -> Self {
         self.inner.lambda_2 = v;
         self
     }
+    /// Starting noise precision α (default `1 / var(y)`).
     pub fn alpha_init(mut self, v: f64) -> Self {
         self.inner.alpha_init = Some(v);
         self
     }
+    /// Starting weight precision λ (default 1).
     pub fn lambda_init(mut self, v: f64) -> Self {
         self.inner.lambda_init = Some(v);
         self
     }
+    /// The configured estimator.
     pub fn build(self) -> BayesianRidge {
         self.inner
     }
@@ -672,6 +693,7 @@ impl Default for ArdRegression {
 }
 
 impl ArdRegression {
+    /// A builder with sklearn's defaults.
     pub fn builder() -> ArdRegressionBuilder {
         ArdRegressionBuilder::default()
     }
@@ -887,38 +909,48 @@ pub struct ArdRegressionBuilder {
     inner: ArdRegression,
 }
 impl ArdRegressionBuilder {
+    /// Fit an intercept (default `true`; sklearn `fit_intercept`).
     pub fn fit_intercept(mut self, v: bool) -> Self {
         self.inner.fit_intercept = v;
         self
     }
+    /// Maximum evidence-maximisation iterations (default 300).
     pub fn max_iter(mut self, v: usize) -> Self {
         self.inner.max_iter = v;
         self
     }
+    /// Stop when the summed absolute coefficient change between iterations
+    /// is below this (default 1e-3; sklearn `tol`).
     pub fn tolerance(mut self, v: f64) -> Self {
         self.inner.tol = v;
         self
     }
+    /// Shape of the Gamma prior on the noise precision α (default 1e-6).
     pub fn alpha_1(mut self, v: f64) -> Self {
         self.inner.alpha_1 = v;
         self
     }
+    /// Rate of the Gamma prior on the noise precision α (default 1e-6).
     pub fn alpha_2(mut self, v: f64) -> Self {
         self.inner.alpha_2 = v;
         self
     }
+    /// Shape of the Gamma prior on the weight precision λ (default 1e-6).
     pub fn lambda_1(mut self, v: f64) -> Self {
         self.inner.lambda_1 = v;
         self
     }
+    /// Rate of the Gamma prior on the weight precision λ (default 1e-6).
     pub fn lambda_2(mut self, v: f64) -> Self {
         self.inner.lambda_2 = v;
         self
     }
+    /// Prune features whose precision λⱼ reaches this (default 10 000).
     pub fn threshold_lambda(mut self, v: f64) -> Self {
         self.inner.threshold_lambda = v;
         self
     }
+    /// The configured estimator.
     pub fn build(self) -> ArdRegression {
         self.inner
     }

@@ -535,6 +535,7 @@ fn with_gamma_ml_log_likelihood(mut fit: EngineFit) -> EngineFit {
 /// set and the classification threshold that was used).
 #[derive(Debug, Clone)]
 pub struct LogisticResult {
+    /// The binomial GLM fit.
     pub fit: GlmResult,
     /// Classification accuracy on the training data using the configured
     /// threshold.

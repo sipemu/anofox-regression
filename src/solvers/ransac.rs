@@ -26,8 +26,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use anofox_regression::solvers::{RansacRegressor, Regressor, FittedRegressor};
+//! # use faer::{Col, Mat};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // y = 1 + 2x with two gross outliers
+//! let x = Mat::from_fn(20, 1, |i, _| i as f64);
+//! let y = Col::from_fn(20, |i| if i == 3 || i == 15 { 100.0 } else { 1.0 + 2.0 * i as f64 });
 //!
 //! let fitted = RansacRegressor::builder()
 //!     .min_samples(2)
@@ -38,6 +43,10 @@
 //!     .fit(&x, &y)?;
 //!
 //! let mask = fitted.inlier_mask();
+//! assert!(!mask[3] && !mask[15]);
+//! assert!((fitted.result().coefficients[0] - 2.0).abs() < 1e-10);
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::core::{HasModelInfo, ModelInfo};
@@ -58,7 +67,7 @@ pub struct RansacRegressor {
     residual_threshold: Option<f64>,
     max_trials: usize,
     stop_probability: f64,
-    /// Refuse a sampled subset whose OLS fit produces a singular system.
+    /// Stop as soon as the best subset has this many inliers.
     stop_n_inliers: Option<usize>,
     random_state: u64,
     /// Compute inference (standard errors, t/p-values, CIs) for the final
@@ -84,6 +93,8 @@ impl Default for RansacRegressor {
 }
 
 impl RansacRegressor {
+    /// A builder with scikit-learn's defaults (100 trials, stop probability
+    /// 0.99, threshold `MAD(y)`).
     pub fn builder() -> RansacRegressorBuilder {
         RansacRegressorBuilder::default()
     }
@@ -472,30 +483,38 @@ pub struct RansacRegressorBuilder {
 }
 
 impl RansacRegressorBuilder {
+    /// Fit an intercept (default `true`).
     pub fn with_intercept(mut self, include: bool) -> Self {
         self.inner.with_intercept = include;
         self
     }
+    /// Rows per random subset (default `p + 1`).
     pub fn min_samples(mut self, value: usize) -> Self {
         self.inner.min_samples = Some(value);
         self
     }
+    /// Largest `|residual|` of an inlier (default `MAD(y)`, as sklearn).
     pub fn residual_threshold(mut self, value: f64) -> Self {
         self.inner.residual_threshold = Some(value);
         self
     }
+    /// Maximum random subsets (default 100).
     pub fn max_trials(mut self, value: usize) -> Self {
         self.inner.max_trials = value;
         self
     }
+    /// Stop once an all-inlier subset has been drawn with this probability
+    /// (Fischler–Bolles bound, default 0.99).
     pub fn stop_probability(mut self, value: f64) -> Self {
         self.inner.stop_probability = value;
         self
     }
+    /// Stop as soon as the best subset has this many inliers.
     pub fn stop_n_inliers(mut self, value: usize) -> Self {
         self.inner.stop_n_inliers = Some(value);
         self
     }
+    /// Seed of the subset sampling (default 0).
     pub fn random_state(mut self, seed: u64) -> Self {
         self.inner.random_state = seed;
         self
@@ -512,6 +531,7 @@ impl RansacRegressorBuilder {
         self.inner.confidence_level = level;
         self
     }
+    /// The configured estimator.
     pub fn build(self) -> RansacRegressor {
         self.inner
     }

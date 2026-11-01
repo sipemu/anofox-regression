@@ -43,6 +43,7 @@ pub struct Design {
     pub retained_columns: Vec<usize>,
     /// Original number of feature columns, before dropping.
     pub n_features_original: usize,
+    /// Whether the first column of `matrix` is the intercept.
     pub fit_intercept: bool,
 }
 
@@ -52,6 +53,7 @@ impl Design {
         self.matrix.ncols()
     }
 
+    /// Number of retained rows.
     pub fn n_observations(&self) -> usize {
         self.matrix.nrows()
     }
@@ -149,14 +151,18 @@ impl Design {
 /// Inputs to design assembly.
 #[derive(Debug, Clone)]
 pub struct DesignSpec<'a> {
+    /// Response, one value per row.
     pub y: &'a [f64],
+    /// Feature columns, each with one value per row.
     pub x: &'a [Vec<f64>],
+    /// Prepend an intercept column.
     pub fit_intercept: bool,
     /// 1-based index into `x` of a column to be used as an offset (added to the
     /// linear predictor with coefficient 1 and removed from the design). `None`
     /// means no offset. The value is used as-is; take logs upstream if the link
     /// requires it.
     pub offset_column: Option<usize>,
+    /// Whether constant feature columns are dropped or kept.
     pub constant_policy: ConstantColumnPolicy,
 }
 

@@ -17,11 +17,22 @@ pub enum LogLikKind {
     Binomial,
     /// Negative binomial with dispersion `theta` (the `size` parameter; variance
     /// is `mu + mu^2 / theta`).
-    NegativeBinomial { theta: f64 },
+    NegativeBinomial {
+        /// Size parameter `theta`.
+        theta: f64,
+    },
     /// Gamma with dispersion `phi` (shape `1 / phi`).
-    Gamma { dispersion: f64 },
+    Gamma {
+        /// Dispersion `phi`.
+        dispersion: f64,
+    },
     /// Tweedie compound Poisson-Gamma with `1 < p < 2` and dispersion `phi`.
-    Tweedie { power: f64, dispersion: f64 },
+    Tweedie {
+        /// Variance power `p`, `1 < p < 2`.
+        power: f64,
+        /// Dispersion `phi`.
+        dispersion: f64,
+    },
 }
 
 impl LogLikKind {

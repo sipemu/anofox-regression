@@ -41,7 +41,12 @@ use thiserror::Error;
 pub enum DesignError {
     /// A block has a different number of rows than the design.
     #[error("block has {got} rows, the design has {expected}")]
-    RowMismatch { expected: usize, got: usize },
+    RowMismatch {
+        /// Rows of the design.
+        expected: usize,
+        /// Rows of the block.
+        got: usize,
+    },
     /// A term index is out of range or names an interaction where a main
     /// effect is required.
     #[error("term {0} is not a main-effect term of this design")]

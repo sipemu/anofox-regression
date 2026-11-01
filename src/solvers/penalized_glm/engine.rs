@@ -36,19 +36,27 @@ use super::loglik::LogLikKind;
 /// Everything the engine needs for one fit, independent of family.
 #[derive(Debug, Clone)]
 pub struct EngineOptions {
+    /// Prepend an intercept column (default `true`).
     pub fit_intercept: bool,
+    /// Maximum IRLS iterations (default 100).
     pub max_iterations: u32,
+    /// IRLS convergence tolerance on the relative change of the penalized
+    /// deviance or the largest coefficient change (default 1e-8).
     pub tolerance: f64,
+    /// Compute standard errors, Wald tests and confidence intervals.
     pub compute_inference: bool,
+    /// Level of the Wald confidence intervals (default 0.95).
     pub confidence_level: f64,
     /// Legacy uniform ridge (`glm_lambda`), composed additively with `priors`.
     pub lambda: f64,
     /// Per-feature priors in the caller's feature order, optionally prefixed with
     /// an entry for the intercept. Empty means no explicit priors.
     pub priors: Vec<PriorSpec>,
+    /// Which covariance the inference uses.
     pub vcov: VcovType,
     /// 1-based index into `x` of an offset column, if any.
     pub offset_column: Option<usize>,
+    /// Whether constant feature columns are dropped or kept.
     pub constant_policy: ConstantColumnPolicy,
 }
 
@@ -107,12 +115,19 @@ impl DispersionRule {
 /// A completed engine fit, ready to be mapped onto the crate's result types.
 #[derive(Debug, Clone)]
 pub struct EngineFit {
+    /// The assembled design (retained rows and columns).
     pub design: Design,
+    /// The IRLS solution at the mode.
     pub irls: IrlsFit,
+    /// Reported dispersion (`theta` for the negative binomial).
     pub dispersion: f64,
+    /// Log-likelihood at the estimate (without the prior).
     pub log_likelihood: f64,
+    /// `2k − 2 logLik`, `k` counting nuisance parameters as R does.
     pub aic: f64,
+    /// `k log(n) − 2 logLik`.
     pub bic: f64,
+    /// Curvature-based inference (with `compute_inference`).
     pub inference: Option<LaplaceInference>,
 }
 

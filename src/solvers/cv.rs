@@ -674,27 +674,44 @@ pub fn cv_path_splits(
 #[derive(Debug, Clone, PartialEq)]
 pub enum InnerFolds {
     /// Seeded random k-fold ([`kfold_ids`]) over the training rows in order.
-    Kfold { k: usize, seed: u64 },
+    Kfold {
+        /// Number of inner folds.
+        k: usize,
+        /// Seed of the fold assignment.
+        seed: u64,
+    },
     /// Group k-fold ([`group_kfold_ids`]): a group stays in one inner fold.
     Group {
+        /// Group key of every row of the full data.
         groups: Vec<usize>,
+        /// Number of inner folds.
         k: usize,
+        /// How groups are assigned to folds.
         balance: GroupBalance,
+        /// Seed (used by [`GroupBalance::Random`]).
         seed: u64,
     },
     /// Leave-one-group-out over the groups of the training rows.
-    Logo { groups: Vec<usize> },
+    Logo {
+        /// Group key of every row of the full data.
+        groups: Vec<usize>,
+    },
     /// Stratified k-fold ([`stratified_kfold_ids`]).
     Stratified {
+        /// Stratum of every row of the full data.
         strata: Vec<usize>,
+        /// Number of inner folds.
         k: usize,
+        /// `None`: blocks in row order (`shuffle=False`); `Some`: seeded order.
         seed: Option<u64>,
     },
     /// Rolling-origin splits of the training rows: over the rows in order
     /// (`time_keys = None`, [`time_series_splits`]) or over the distinct time
     /// keys ([`group_time_series_splits`]).
     TimeSeries {
+        /// Split sizes and gap.
         opts: TimeSeriesSplitOptions,
+        /// Time key of every row of the full data, or `None` for row order.
         time_keys: Option<Vec<usize>>,
     },
 }

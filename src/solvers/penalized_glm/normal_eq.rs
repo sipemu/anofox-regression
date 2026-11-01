@@ -11,12 +11,16 @@ use faer::{Col, Mat};
 /// Accumulated weighted normal equations `X'WX β = X'Wz`.
 #[derive(Debug, Clone)]
 pub struct NormalEquations {
+    /// `X'WX`.
     pub xtwx: Mat<f64>,
+    /// `X'Wz`.
     pub xtwz: Col<f64>,
+    /// Number of parameters (columns of `X`).
     pub n_params: usize,
 }
 
 impl NormalEquations {
+    /// Empty (all-zero) equations for `n_params` parameters.
     pub fn zeros(n_params: usize) -> Self {
         Self {
             xtwx: Mat::zeros(n_params, n_params),
