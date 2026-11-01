@@ -4,6 +4,8 @@
 //! the R greybox package (version 2.0.6).
 //!
 //! Generated with seed 42 in R for reproducibility.
+//!
+//! Generator: `tests/r_scripts/generate_alm_validation.R`.
 
 use anofox_regression::solvers::{AlmDistribution, AlmRegressor, FittedRegressor, Regressor};
 use faer::{Col, Mat};

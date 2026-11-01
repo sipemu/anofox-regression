@@ -11,6 +11,8 @@
 //! - Robust/Shape: GeneralisedNormal, S
 //! - Log-domain: LogLaplace, LogGeneralisedNormal, BoxCoxNormal
 //! - Cumulative: CumulativeLogistic, CumulativeNormal
+//!
+//! Generator: `tests/r_scripts/generate_alm_validation_extended.R`.
 
 use anofox_regression::solvers::{AlmDistribution, AlmRegressor, FittedRegressor, Regressor};
 use faer::{Col, Mat};

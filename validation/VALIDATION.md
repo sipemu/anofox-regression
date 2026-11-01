@@ -9,7 +9,7 @@ The validation suite uses two oracle ecosystems, chosen per estimator:
 - **R** (`base stats`, `MASS`, `glmnet`, `quantreg`, `greybox`, …) for the GLM-style and classic regression methods. R scripts live under `tests/r_scripts/`.
 - **scikit-learn** (Python) for the estimators whose canonical reference is sklearn — `TheilSenRegressor`, `RANSACRegressor`, `PassiveAggressiveRegressor`, `Lars`, `LassoLars`, `BayesianRidge`, `ARDRegression`. The Python oracle scripts and a pinned, reproducible `uv`-managed venv live under `validation/python/`.
 
-Both pipelines emit a `tests/fixtures/*_validation.rs` file of `const` arrays that Rust integration tests `include!(...)` and assert agreement against, with per-estimator tolerances.
+Both pipelines emit Rust `const` arrays: either a `tests/fixtures/*.rs` module or values pasted into the test file. Rust integration tests assert agreement against them, with per-estimator tolerances. The [Validation Inventory](#validation-inventory) maps every generator to its tests.
 
 ## Core Architecture
 
@@ -734,7 +734,164 @@ Validates `LmDynamicRegressor` (normal distribution) against `greybox::lmDynamic
 | BIC, `f = 0.3` | `n = 50`, `p = 3` |
 | AICc, `f = 0.9` | `n = 50`, `p = 3` |
 
+## Validation Inventory
+
+Every reference generator below feeds at least one Rust integration test, and every such test (or its fixture) names its generator. 114 generators feed 114 test files (677 `#[test]` functions); 18 further test files (68 tests) carry their R / sklearn reference values inline, with the R call in the test's comments. R scripts print Rust `const`s to stdout (pasted into the test, or redirected to `tests/fixtures/*.rs`); the Python scripts write `tests/fixtures/*_validation.rs` (see [Regenerate Python references](#regenerate-python-sklearn-references)). Package versions are those installed when the reference was generated; the R versions are recorded in the test headers.
+
+### Generators and their tests
+
+| Test file(s) | Generator | Reference |
+|---|---|---|
+| `cv_splits_validation.rs` | `validation/python/generate_cv_splits_validation.py` | sklearn |
+| `issue189_190_glm_dispersion_null_deviance.rs` | `tests/r_scripts/generate_glm_null_deviance_validation.R` | MASS |
+| `issue191_bls.rs` | `tests/r_scripts/generate_bls_validation.R` | bvls, nnls, quadprog |
+| `issue192_glm_aliasing.rs` | `tests/r_scripts/generate_glm_aliasing_validation.R` | MASS, statmod |
+| `issue193_binomial_loglik.rs` | `tests/r_scripts/generate_binomial_loglik_validation.R` | stats |
+| `issue194_l2_logistic_se.rs` | `tests/r_scripts/generate_l2_logistic_validation.R` | rms |
+| `issue195_wls_zero_weights.rs` | `tests/r_scripts/generate_wls_zero_weights_validation.R` | stats |
+| `issue196_gvif.rs` | `tests/r_scripts/generate_vif_validation.R` | car |
+| `issue197_glm_residuals.rs` | `tests/r_scripts/generate_glm_residuals_validation.R` | MASS, statmod |
+| `issue198_pls.rs` | `tests/r_scripts/generate_pls_explvar_validation.R` | pls |
+| `issue199_quantile_loss.rs` | `tests/r_scripts/generate_quantile_loss_validation.R` | quantreg |
+| `issue200_pvalue_underflow.rs` | `tests/r_scripts/generate_pvalue_underflow_validation.R` | nlme, sandwich |
+| `issue201_alm_vcov.rs` | `tests/r_scripts/generate_alm_vcov_validation.R` | greybox |
+| `issue202_alm_ic.rs` | `tests/r_scripts/generate_alm_ic_validation.R` | greybox |
+| `issue203_aid_ic.rs` | `tests/r_scripts/generate_aid_ic_validation.R` | greybox |
+| `issue204_lowess_smooth.rs` | `tests/r_scripts/generate_lowess_smooth_validation.R` | stats |
+| `issue205_na_exclude.rs` | `tests/r_scripts/generate_na_exclude_validation.R` | stats |
+| `issue206_glm_default_tolerance.rs` | `tests/r_scripts/generate_glm_default_tolerance_validation.R` | stats |
+| `issue207_bkw.rs` | `tests/r_scripts/generate_bkw_validation.R` | olsrr |
+| `issue208_cox_concordance.rs` | `tests/r_scripts/generate_cox_concordance_validation.R` | survival |
+| `issue210_theil_sen.rs` | `validation/python/generate_theil_sen_210_validation.py` | sklearn |
+| `issue51_glmm_inference.rs` | `tests/r_scripts/generate_glmm_inference_validation.R` | lme4 |
+| `issue51_glmm_inference.rs`<br>`issue89_glmm_inference.rs`<br>`r_validation_glmm.rs` | `tests/r_scripts/generate_glmm_validation.R` | MASS, lme4 |
+| `issue64_lm_aliasing.rs` | `tests/r_scripts/issue64_lm_aliasing.R` | stats |
+| `issue89_glmm_inference.rs`<br>`r_validation_glmm_families.rs` | `tests/r_scripts/generate_glmm_families_validation.R` | MASS, lme4, statmod, tweedie |
+| `issue89_glmm_inference.rs` | `tests/r_scripts/generate_glmm_satterthwaite_validation.R` | lme4 |
+| `issue92_theil_sen_inference.rs` | `tests/r_scripts/generate_theil_sen_ci_validation.R` | stats |
+| `r_validation_210_part1.rs` | `tests/r_scripts/generate_validation_210_part1.R` | Iso, statmod |
+| `r_validation_210_part10.rs` | `tests/r_scripts/generate_validation_210_part10.R` | rms |
+| `r_validation_210_part13.rs` | `tests/r_scripts/generate_validation_210_part13.R` | glmnet, statmod |
+| `r_validation_210_part14.rs` | `tests/r_scripts/generate_validation_210_part14.R` | greybox |
+| `r_validation_210_part15.rs` | `tests/r_scripts/generate_validation_210_part15.R` | greybox |
+| `r_validation_210_part17.rs` | `tests/r_scripts/generate_validation_210_part17.R` | greybox |
+| `r_validation_210_part2.rs` | `tests/r_scripts/generate_validation_210_part2.R` | rms, survival |
+| `r_validation_210_part5.rs` | `tests/r_scripts/generate_validation_210_part5.R` | MASS, glmnet, statmod |
+| `r_validation_210_part6.rs` | `tests/r_scripts/generate_validation_210_part6.R` | MASS, survival |
+| `r_validation_accuracy.rs` | `tests/r_scripts/generate_accuracy_validation.R` | Hmisc, rms, survival |
+| `r_validation_aid.rs` | `tests/r_scripts/generate_aid_validation.R` | greybox |
+| `r_validation_alm.rs` | `tests/r_scripts/generate_alm_validation.R` | greybox, statmod |
+| `r_validation_alm_extended.rs` | `tests/r_scripts/generate_alm_validation_extended.R` | greybox, statmod |
+| `r_validation_alm_greybox_parity.rs` | `tests/r_scripts/generate_alm_greybox_parity.R` | greybox |
+| `r_validation_alm_loss.rs` | `tests/r_scripts/generate_alm_loss_validation.R` | greybox |
+| `r_validation_anova.rs` | `tests/r_scripts/generate_anova_validation.R` | rms |
+| `r_validation_anova_table.rs` | `tests/r_scripts/generate_anova_table_validation.R` | car |
+| `r_validation_approx_loo_glm.rs` | `tests/r_scripts/generate_approx_loo_glm_validation.R` | stats |
+| `r_validation_approximation.rs` | `tests/r_scripts/generate_approximation_validation.R` | rms |
+| `r_validation_areg.rs` | `tests/r_scripts/generate_areg_validation.R` | Hmisc |
+| `r_validation_aregimpute.rs` | `tests/r_scripts/generate_aregimpute_validation.R` | Hmisc |
+| `r_validation_augment_penalized_glm.rs` | `tests/r_scripts/generate_augment_penalized_glm_validation.R` | MASS, statmod |
+| `r_validation_bayesian.rs` | `validation/python/generate_bayesian_validation.py` | scipy, sklearn |
+| `r_validation_bootcov.rs` | `tests/r_scripts/generate_bootcov_validation.R` | rms |
+| `r_validation_calibrate_cph.rs` | `tests/r_scripts/generate_calibrate_cph_validation.R` | rms |
+| `r_validation_cluster.rs` | `tests/r_scripts/generate_cluster_validation.R` | rms, sandwich, survival |
+| `r_validation_continuation_ratio.rs` | `tests/r_scripts/generate_continuation_ratio_validation.R` | rms |
+| `r_validation_cox.rs` | `tests/r_scripts/generate_cox_validation.R` | rms, survival |
+| `r_validation_coxdiag.rs` | `tests/r_scripts/generate_coxdiag_validation.R` | survival |
+| `r_validation_cv_mae.rs` | `tests/r_scripts/generate_cv_mae_validation.R` | glmnet |
+| `r_validation_eb_shrink.rs` | `tests/r_scripts/generate_eb_shrink_validation.R` | metafor |
+| `r_validation_effects.rs` | `tests/r_scripts/generate_effects_validation.R` | rms |
+| `r_validation_fastbw.rs` | `tests/r_scripts/generate_fastbw_validation.R` | rms |
+| `r_validation_gamma.rs` | `tests/r_scripts/generate_gamma_validation.R` | stats |
+| `r_validation_glm.rs` | `tests/r_scripts/generate_glm_validation.R` | MASS, statmod |
+| `r_validation_glm_tight.rs` | `tests/r_scripts/generate_glm_tight_validation.R` | MASS |
+| `r_validation_glm_vcov.rs` | `tests/r_scripts/generate_glm_vcov_validation.R` | MASS, statmod |
+| `r_validation_glmm_nagq.rs` | `tests/r_scripts/generate_glmm_nagq_validation.R` | lme4 |
+| `r_validation_gls.rs` | `tests/r_scripts/generate_gls_validation.R` | nlme |
+| `r_validation_gls_210.rs` | `tests/r_scripts/generate_gls_validation_210.R` | nlme |
+| `r_validation_hetero.rs` | `tests/r_scripts/generate_hetero_validation.R` | lmtest |
+| `r_validation_huber.rs` | `tests/r_scripts/generate_huber_validation.R` | MASS |
+| `r_validation_isotonic.rs` | `tests/r_scripts/generate_isotonic_validation.R` | stats |
+| `r_validation_lars.rs` | `validation/python/generate_lars_validation.py` | sklearn |
+| `r_validation_lars_path.rs` | `tests/r_scripts/generate_lars_path_validation.R` | lars |
+| `r_validation_likelihood.rs` | `tests/r_scripts/generate_likelihood_validation.R` | statmod |
+| `r_validation_lm_dynamic.rs` | `tests/r_scripts/generate_lm_dynamic_validation.R` | greybox |
+| `r_validation_logistic.rs` | `tests/r_scripts/generate_logistic_validation.R` | stats |
+| `r_validation_loo_press.rs` | `tests/r_scripts/generate_loo_press_validation.R` | stats |
+| `r_validation_lowess.rs` | `tests/r_scripts/generate_lowess_validation.R` | stats |
+| `r_validation_m1a.rs` | `tests/r_scripts/generate_m1a_validation.R` | MASS, broom |
+| `r_validation_mediation.rs` | `tests/r_scripts/generate_mediation_validation.R` | stats |
+| `r_validation_nested_f.rs` | `tests/r_scripts/generate_nested_f_validation.R` | stats |
+| `r_validation_nomogram.rs` | `tests/r_scripts/generate_nomogram_validation.R` | rms |
+| `r_validation_ols_pivot.rs` | `tests/r_scripts/generate_ols_pivot_validation.R` | stats |
+| `r_validation_ordinal.rs` | `tests/r_scripts/generate_ordinal_validation.R` | MASS, rms |
+| `r_validation_ordinal_penalty.rs` | `tests/r_scripts/generate_ordinal_penalty_validation.R` | rms |
+| `r_validation_passive_aggressive.rs` | `validation/python/generate_pa_validation.py` | sklearn |
+| `r_validation_pca.rs` | `tests/r_scripts/generate_pca_validation.R` | stats |
+| `r_validation_penalized_glm_aft.rs` | `tests/r_scripts/penalized_glm_aft_reference.R` | MASS, survival |
+| `r_validation_pentrace.rs` | `tests/r_scripts/generate_pentrace_validation.R` | rms |
+| `r_validation_pls.rs` | `tests/r_scripts/generate_pls_validation.R` | pls |
+| `r_validation_po_diagnostics.rs` | `tests/r_scripts/generate_po_diagnostics_validation.R` | numDeriv, rms |
+| `r_validation_pool.rs` | `tests/r_scripts/generate_pool_validation.R` | Hmisc, rms |
+| `r_validation_predict_se.rs` | `tests/r_scripts/generate_predict_se_validation.R` | MASS, car, lmtest, survival |
+| `r_validation_pspline.rs` | `tests/r_scripts/generate_pspline_validation.R` | mgcv |
+| `r_validation_quantile.rs` | `tests/r_scripts/generate_quantile_validation.R` | quantreg |
+| `r_validation_quantile_extended.rs` | `tests/r_scripts/generate_quantile_extended_validation.R` | quantreg |
+| `r_validation_quantile_inference.rs` | `tests/r_scripts/generate_quantile_inference_validation.R` | quantreg |
+| `r_validation_quantile_orm.rs` | `tests/r_scripts/generate_quantile_orm_validation.R` | rms |
+| `r_validation_quantile_predict_interval.rs` | `tests/r_scripts/generate_quantile_predict_interval_validation.R` | quantreg |
+| `r_validation_ransac.rs` | `validation/python/generate_ransac_validation.py` | sklearn |
+| `r_validation_rcs.rs` | `tests/r_scripts/generate_rcs_validation.R` | Hmisc, rms |
+| `r_validation_reduction.rs` | `tests/r_scripts/generate_reduction_validation.R` | Hmisc |
+| `r_validation_redun.rs` | `tests/r_scripts/generate_redun_validation.R` | Hmisc |
+| `r_validation_reg_path.rs` | `tests/r_scripts/generate_reg_path_validation.R` | grpreg |
+| `r_validation_regression.rs` | `tests/r_scripts/generate_regression_validation.R` | glmnet, statmod |
+| `r_validation_regression_tight.rs` | `tests/r_scripts/generate_regression_tight_validation.R` | glmnet, statmod |
+| `r_validation_simultaneous.rs` | `tests/r_scripts/generate_simultaneous_validation.R` | multcomp, rms |
+| `r_validation_survfit_robust.rs` | `tests/r_scripts/generate_survfit_robust_validation.R` | survival |
+| `r_validation_survival.rs` | `tests/r_scripts/generate_survival_validation.R` | survival |
+| `r_validation_theil_sen.rs` | `validation/python/generate_theil_sen_validation.py` | sklearn |
+| `r_validation_tight.rs` | `tests/r_scripts/generate_tight_validation.R` | MASS, lmtest, quantreg, sandwich |
+| `r_validation_transcan.rs` | `tests/r_scripts/generate_transcan_validation.R` | Hmisc |
+| `r_validation_transform.rs` | `tests/r_scripts/generate_transform_validation.R` | Hmisc, MASS |
+| `r_validation_validate.rs` | `tests/r_scripts/generate_validate_validation.R` | rms |
+| `validation_tests.rs` | `validation/generate_validation_data.R` | MASS, glmnet |
+
+### Tests with inline references
+
+| Test file | Reference |
+|---|---|
+| `issue122_sufficient_stats.rs` | stats (lm) |
+| `issue187_elastic_net_cd.rs` | glmnet |
+| `issue210_ransac_ties.rs` | sklearn |
+| `issue35_ransac.rs` | stats (lm), sklearn |
+| `issue36_huber_inference.rs` | MASS (rlm) |
+| `issue37_ridge_inference.rs` | stats, MASS (closed-form ridge) |
+| `issue38_no_intercept_r2.rs` | stats (lm) |
+| `issue39_constant_column_no_intercept.rs` | stats (lm) |
+| `issue40_ridge_prediction_interval.rs` | stats, MASS (closed-form ridge) |
+| `issue41_ols_loglik.rs` | stats (logLik) |
+| `issue42_glmm_loglik.rs` | lme4 |
+| `issue43_gamma_dispersion.rs` | stats (glm) |
+| `issue49_negbin_se.rs` | MASS (glm.nb) |
+| `issue50_theil_sen_collinear.rs` | stats (lm) |
+| `issue65_lars_fit_stats.rs` | stats (lm) |
+| `issue72_glm_nb_tweedie_perf.rs` | MASS (glm.nb), statmod |
+| `r_validation_hc.rs` | sandwich |
+| `r_validation_intervals.rs` | stats (lm, glm, predict) |
+
+### JS / WASM bindings
+
+`js/tests/r-validation.test.ts` (#210) and `js/tests/weights-offsets-na.test.ts` (#258) run the WASM build against reference values copied from the Rust validation into `js/tests/references.ts`: `glm` fits from `tests/r_validation_glm_tight.rs` (binomial, Gamma), Poisson / Gamma / Tweedie (p = 1) / negative binomial offsets, binomial prior and case weights (AIC / BIC), OLS and Poisson `na.exclude` residuals and fitted values, and sklearn's Theil–Sen from `tests/fixtures/theil_sen_validation.rs`. The other `js/tests/*.test.ts` check the bindings' behaviour, not reference numbers.
+
+### Ignored tests
+
+- `tests/r_validation_alm_loss.rs::ham_on_clean_data_reaches_greybox` — #261: the HAM loss's Nelder–Mead stops at a local minimum worse than greybox's on clean data (with outliers the crate reaches the global minimum).
+- `tests/issue92_theil_sen_inference.rs::coverage_simulation` and `tests/large_n_tests.rs` — a coverage simulation and a slow large-n test (`cargo test --release -- --ignored`), not reference comparisons.
+
 ## Test Coverage
+
+The table below is the original per-estimator summary; the [inventory](#validation-inventory) lists every file.
 
 | Category | Tests | Tolerance |
 |----------|-------|-----------|
@@ -761,13 +918,13 @@ Validates `LmDynamicRegressor` (normal distribution) against `greybox::lmDynamic
 | LARS / LassoLars | 3 | 1e-6 / 5e-3 |
 | Bayesian Ridge / ARD | 2 | 5e-3 / 5e-2 |
 | GLMM (intercept, slopes, crossed/nested) | 13 | 2e-3 / 1e-2 |
-| **Total** | **483+** | - |
+| **Total (all reference comparisons, see [inventory](#validation-inventory))** | **745** | - |
 
 ## Reproducibility
 
 All validation is reproducible through:
 
-1. **Fixed random seeds**: All R scripts use `set.seed(42)`; all Python scripts use `np.random.default_rng(42)` (or another small constant)
+1. **Fixed random seeds**: Every R script calls `set.seed` (mostly 42); all Python scripts use `np.random.default_rng(42)` (or another small constant)
 2. **Pinned versions**: R packages from CRAN are loaded at the version installed in CI; the Python venv pins `scikit-learn==1.9.1` and `numpy==2.5.4` via `validation/python/requirements.txt`
 3. **Version-controlled data**: Reference output stored as Rust `const` arrays in `tests/fixtures/*_validation.rs`
 4. **CI/CD verification**: Tests run automatically on every commit
@@ -838,6 +995,7 @@ Rscript tests/r_scripts/generate_validation_210_part17.R   # -> tests/r_validati
 Rscript tests/r_scripts/generate_cv_mae_validation.R   # -> tests/r_validation_cv_mae.rs
 Rscript tests/r_scripts/generate_lars_path_validation.R   # -> tests/r_validation_lars_path.rs
 Rscript tests/r_scripts/generate_hetero_validation.R   # -> tests/r_validation_hetero.rs
+Rscript tests/r_scripts/generate_alm_loss_validation.R   # -> tests/r_validation_alm_loss.rs
 ```
 
 Packages beyond base R: `MASS`, `statmod`, `sandwich`, `lmtest`, `quantreg`,

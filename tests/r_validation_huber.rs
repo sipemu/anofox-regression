@@ -6,6 +6,8 @@
 //! Note: Our IRLS implementation may converge to a slightly different local solution
 //! than R's rlm() due to differences in initialization, scale estimation timing,
 //! and convergence criteria. Tolerances are set accordingly.
+//!
+//! Generator: `tests/r_scripts/generate_huber_validation.R`.
 
 use anofox_regression::solvers::{FittedRegressor, HuberRegressor, Regressor};
 use faer::{Col, Mat};
