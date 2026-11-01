@@ -1,0 +1,13 @@
+# Coverage policy (#182). AGENTS.md asks for 95 %.
+coverage:
+  status:
+    project:
+      default:
+        # Total coverage may not drop by more than 0.1 % (deleting covered
+        # code moves the ratio a little without losing any test).
+        target: auto
+        threshold: 0.1%
+    patch:
+      default:
+        # Lines a PR adds or changes.
+        target: 95%

@@ -26,6 +26,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --all-features
+      - name: Run library tests without features
+        if: matrix.rust == 'stable'
+        run: cargo test --lib --no-default-features
 
   clippy:
     name: Clippy
@@ -86,6 +89,28 @@ jobs:
       - name: Build the packaged crate
         run: cargo package -p anofox-regression
 
+  deny:
+    name: Dependencies (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+
+  semver:
+    name: Semver (report)
+    runs-on: ubuntu-latest
+    # Reports API changes against the latest release (see the step log). Not
+    # blocking before 1.0: the 0.8 cleanup (#177-#180) is breaking by design;
+    # drop `continue-on-error` once 1.0 is out.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        continue-on-error: true
+        with:
+          package: anofox-regression
+
   wasm-test:
     name: WASM/JS Tests
     runs-on: ubuntu-latest
@@ -121,7 +146,9 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate coverage
-        run: cargo llvm-cov --all-features --lcov --output-path lcov.info
+        # Fails below the current line coverage (94 %); AGENTS.md targets 95 %,
+        # which codecov enforces on the lines a PR adds (codecov.yml).
+        run: cargo llvm-cov --all-features --lcov --output-path lcov.info --fail-under-lines 94
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -133,7 +160,7 @@ jobs:
     name: Publish to crates.io
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [test, clippy, fmt, docs, msrv, package]
+    needs: [test, clippy, fmt, docs, msrv, package, deny]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
