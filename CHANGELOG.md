@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-01
+
+A release about correctness: the R-validation audit (#187–#210), robustness
+(#181) and the 1.0 groundwork (#182). It changes behaviour. Read these
+before upgrading:
+
+- **Input checks (#181):** infinite values are an error in every estimator,
+  and NaN is an error in estimators without an `NaAction`. Before, they
+  returned NaN coefficients, panicked or ran out of memory.
+- **`NaAction` is applied (#176):** NaN rows are dropped by default
+  (`na.omit`), where OLS used to error.
+- **Results that now match R:** these give different numbers than in 0.7:
+  - elastic net (#187: the true elastic-net solution);
+  - overdispersed Poisson SEs (#189);
+  - IRLS defaults (#206, the 5th–6th digit);
+  - BKW condition indices (#207);
+  - P-splines (`mgcv` `bs = "ps"`);
+  - the `lmDynamic` LOWESS span (optimised);
+  - penalized-GLM `vcov()` for Gamma, Tweedie and quasi-Poisson (now
+    includes φ);
+  - D1 pooled p-values (Reiter d.f.).
+- **API:** public fields were added to `ConditionDiagnostic`, `PooledFit`
+  and `LaplaceInference`, which breaks struct literals. New `converged()` /
+  `iterations()` on Huber and quantile fits. `pub use faer`. The crate is
+  `#![deny(missing_docs)]` and `#![forbid(unsafe_code)]`, and the MSRV is
+  1.87.
+
+The full list follows.
+
 ### Changed
 
 - **Governance and provenance (#182):**
