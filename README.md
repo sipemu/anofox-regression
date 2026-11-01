@@ -346,6 +346,10 @@ Key attributions:
 - **faer** (MIT) - Linear algebra operations
 - **statrs** (MIT) - Statistical distributions
 
+## Contributing and stability
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) (including how new results are validated), [STABILITY.md](STABILITY.md) (what the version number promises, MSRV and dependency policy) and [SECURITY.md](SECURITY.md).
+
 ## License
 
 MIT License

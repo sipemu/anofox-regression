@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Governance and provenance (#182):**
+  - New `CONTRIBUTING.md` (gates, the validation workflow for new results) and `SECURITY.md`, which points to GitHub's private vulnerability reporting, now enabled.
+  - New `STABILITY.md`: what 1.0 covers (the Rust API and the npm package on the same version line, results within the documented tolerances), the MSRV policy, and the faer policy. The crate now re-exports `faer`, and a faer upgrade that changes its types will be a major release.
+  - The R fixtures can now be reproduced on demand: `validation/regenerate_r_fixtures.sh` regenerates them and `validation/compare_fixtures.py` compares values, ignoring layout. A monthly `Validation fixtures` workflow runs both. `validation/R_VERSIONS.md` records the R 4.6.1 environment, under which 47 of 48 fixtures reproduced exactly.
 - **Packaging (#182):**
   - The crates.io package ships only `src/`, `examples/`, `benches/`, the README, licence, changelog and third-party notices: 157 files and 723 KB, down from 454 files and 8.7 MB, which included fixtures, R scripts, `js/` and CI configuration.
   - `rust-version = "1.87"` (set by `basin` 3.1); CI checks the library on 1.87 with and without features, and builds the packaged crate.
