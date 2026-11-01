@@ -62,6 +62,30 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  msrv:
+    name: MSRV (1.87)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.87"
+      - uses: Swatinem/rust-cache@v2
+      - name: Check the library (no features)
+        run: cargo check --lib -p anofox-regression --no-default-features
+      - name: Check the library (all features)
+        run: cargo check --lib -p anofox-regression --all-features
+
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the packaged crate
+        run: cargo package -p anofox-regression
+
   wasm-test:
     name: WASM/JS Tests
     runs-on: ubuntu-latest
@@ -109,7 +133,7 @@ jobs:
     name: Publish to crates.io
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [test, clippy, fmt, docs]
+    needs: [test, clippy, fmt, docs, msrv, package]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
