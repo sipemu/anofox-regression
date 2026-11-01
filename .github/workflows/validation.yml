@@ -20,7 +20,7 @@ jobs:
           use-public-rspm: true
       - name: Install R packages
         run: |
-          Rscript -e 'install.packages(c("broom", "car", "greybox", "grpreg", "Hmisc",
+          Rscript -e 'install.packages(c("bda", "broom", "car", "greybox", "grpreg", "Hmisc",
             "lavaan", "lme4", "lmtest", "MASS", "mediation", "mice", "multcomp", "nlme", "numDeriv",
             "quantreg", "rms", "sandwich", "statmod", "survival"))'
       - name: Regenerate fixtures
