@@ -88,6 +88,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_gls_validation_210.R` | `nlme::gls` AR(1) REML, CAR(1) ML, `corExp` without / `corGaus`, `corLin`, `corSpher` with nugget, `varIdent` alone, no intercept, prediction SEs (#210) (`tests/r_validation_gls_210.rs`, fixture `tests/fixtures/gls_validation_210.rs`) |
 | `tests/r_scripts/generate_pspline_validation.R` | `PSplineRegressor` vs `mgcv::gam(s(x, bs = "ps"), method = "GCV.Cp")`, incl. fixed `sp` and extrapolation (#210) (`tests/r_validation_pspline.rs`) |
 | `tests/r_scripts/generate_validation_210_part10.R` | `rms::robcov(orm)`, multi-category LR test, `pentrace` on an ordinal response (#210) (`tests/r_validation_210_part10.rs`) |
+| `tests/r_scripts/generate_validation_210_part13.R` | Penalized-GLM Laplace priors vs `glmnet(penalty.factor)`, Tweedie p = 1.5 vs `statmod::tweedie` (#210) (`tests/r_validation_210_part13.rs`) |
 | `tests/r_scripts/generate_cv_mae_validation.R` | `cv.glmnet(type.measure = "mae")` on fixed folds (#210) (`tests/r_validation_cv_mae.rs`) |
 | `tests/r_scripts/generate_lars_path_validation.R` | LAR / lasso path vs `lars::lars` (#210) (`tests/r_validation_lars_path.rs`) |
 | `tests/r_scripts/generate_hetero_validation.R` | White (3 regressors) and custom-z Breusch–Pagan vs `lmtest::bptest` (#210) (`tests/r_validation_hetero.rs`) |
@@ -827,6 +828,7 @@ Rscript tests/r_scripts/generate_validation_210_part6.R   # -> tests/r_validatio
 Rscript tests/r_scripts/generate_gls_validation_210.R > tests/fixtures/gls_validation_210.rs
 Rscript tests/r_scripts/generate_pspline_validation.R   # -> tests/r_validation_pspline.rs
 Rscript tests/r_scripts/generate_validation_210_part10.R   # -> tests/r_validation_210_part10.rs
+Rscript tests/r_scripts/generate_validation_210_part13.R   # -> tests/r_validation_210_part13.rs
 Rscript tests/r_scripts/generate_cv_mae_validation.R   # -> tests/r_validation_cv_mae.rs
 Rscript tests/r_scripts/generate_lars_path_validation.R   # -> tests/r_validation_lars_path.rs
 Rscript tests/r_scripts/generate_hetero_validation.R   # -> tests/r_validation_hetero.rs

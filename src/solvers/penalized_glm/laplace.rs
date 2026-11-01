@@ -28,9 +28,14 @@ pub struct LaplaceInference {
     pub ci_lower: Vec<f64>,
     pub ci_upper: Vec<f64>,
     pub confidence_level: f64,
-    /// The full covariance matrix, retained for prediction intervals and for the
-    /// conditional variances of random effects.
+    /// The full covariance matrix, scaled by the dispersion as the standard
+    /// errors are (`std_errors[j]² = vcov[(j, j)]`); retained for prediction
+    /// intervals and for the conditional variances of random effects.
     pub vcov: Mat<f64>,
+    /// The dispersion that scales the covariance (1 for families with a fixed
+    /// dispersion): `vcov` is `covariance_scale` times the inverse of the
+    /// information matrix the curvature came from.
+    pub covariance_scale: f64,
 }
 
 /// Compute inference from the penalized and unpenalized information matrices.
@@ -71,6 +76,8 @@ pub fn inference(
         },
     };
 
+    let vcov = Mat::from_fn(p, p, |r, c| dispersion * vcov[(r, c)]);
+
     let z_crit = normal_quantile(0.5 + confidence_level / 2.0);
 
     let mut std_errors = vec![f64::NAN; p];
@@ -85,7 +92,7 @@ pub fn inference(
         if inactive.get(j).copied().unwrap_or(false) {
             continue;
         }
-        let var = dispersion * vcov[(j, j)];
+        let var = vcov[(j, j)];
         if !var.is_finite() || var < 0.0 {
             continue;
         }
@@ -112,6 +119,7 @@ pub fn inference(
         ci_upper,
         confidence_level,
         vcov,
+        covariance_scale: dispersion,
     })
 }
 

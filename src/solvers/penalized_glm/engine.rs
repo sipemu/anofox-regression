@@ -172,7 +172,12 @@ impl EngineFit {
             intercept_ci_lower: intercept(&inf.ci_lower),
             intercept_ci_upper: intercept(&inf.ci_upper),
             vcov: Some(inf.vcov.clone()),
-            information: Some(self.irls.information.clone()),
+            // the inverse of `vcov`: the curvature over the dispersion
+            information: Some(faer::Mat::from_fn(
+                self.irls.information.nrows(),
+                self.irls.information.ncols(),
+                |r, c| self.irls.information[(r, c)] / inf.covariance_scale,
+            )),
             matrix_parameters,
         })
     }
