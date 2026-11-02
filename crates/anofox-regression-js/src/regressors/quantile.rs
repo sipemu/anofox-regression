@@ -198,3 +198,29 @@ impl Default for QuantileRegressor {
 
 iterative_fit!(FittedQuantile);
 partial_residuals_method!(FittedQuantile);
+
+#[wasm_bindgen]
+impl FittedQuantile {
+    /// Inference of the fit (`summary.rq`): `x` and `y` must be the data it
+    /// was fitted on; `se` is "iid", "nid" or `{ type: "boot", seed?, r? }`.
+    #[wasm_bindgen]
+    pub fn inference(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        y: &[f64],
+        se: JsValue,
+        level: f64,
+    ) -> Result<crate::quantile_inference::QuantileInference, JsError> {
+        let inner = self
+            .fitted
+            .inference(
+                &super::to_mat(x, n_rows, self.n_features)?,
+                &super::to_col(y, n_rows, "y")?,
+                crate::quantile_inference::parse_se(se)?,
+                level,
+            )
+            .map_err(super::fit_error)?;
+        Ok(crate::quantile_inference::QuantileInference { inner })
+    }
+}

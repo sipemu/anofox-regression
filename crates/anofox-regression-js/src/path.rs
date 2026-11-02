@@ -224,7 +224,7 @@ fn ts_options(o: TsOpts) -> TimeSeriesSplitOptions {
 /// Coefficient path over a sequence of penalties.
 #[wasm_bindgen]
 pub struct RegPath {
-    inner: RustRegPath,
+    pub(crate) inner: RustRegPath,
 }
 
 #[wasm_bindgen]
@@ -268,7 +268,7 @@ impl RegPath {
 /// Cross-validated path (`cv.glmnet`).
 #[wasm_bindgen]
 pub struct CvPath {
-    inner: RustCvPath,
+    pub(crate) inner: RustCvPath,
 }
 
 #[wasm_bindgen]

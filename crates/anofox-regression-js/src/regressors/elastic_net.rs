@@ -159,14 +159,7 @@ impl ElasticNetRegressor {
         let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
         let y_col = Col::from_fn(n_rows, |i| y[i]);
 
-        let model = RustElasticNetRegressor::builder()
-            .na_action(self.na_action)
-            .with_intercept(self.with_intercept)
-            .lambda(self.lambda)
-            .alpha(self.alpha)
-            .max_iterations(self.max_iterations)
-            .tolerance(self.tolerance)
-            .build();
+        let model = self.rust();
 
         let fitted = model
             .fit(&x_mat, &y_col)
@@ -187,3 +180,66 @@ impl Default for ElasticNetRegressor {
     }
 }
 partial_residuals_method!(FittedElasticNet);
+
+impl ElasticNetRegressor {
+    fn rust(&self) -> RustElasticNetRegressor {
+        RustElasticNetRegressor::builder()
+            .na_action(self.na_action)
+            .with_intercept(self.with_intercept)
+            .lambda(self.lambda)
+            .alpha(self.alpha)
+            .max_iterations(self.max_iterations)
+            .tolerance(self.tolerance)
+            .build()
+    }
+}
+
+#[wasm_bindgen]
+impl ElasticNetRegressor {
+    /// The elastic-net path (glmnet's objective with this `alpha`) at
+    /// `lambdas`.
+    #[wasm_bindgen]
+    pub fn path(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        n_cols: usize,
+        y: &[f64],
+        lambdas: &[f64],
+    ) -> Result<crate::path::RegPath, JsError> {
+        let p = self
+            .rust()
+            .path(
+                &super::to_mat(x, n_rows, n_cols)?,
+                &super::to_col(y, n_rows, "y")?,
+                lambdas,
+            )
+            .map_err(super::fit_error)?;
+        Ok(crate::path::RegPath { inner: p })
+    }
+
+    /// K-fold CV of the path with fold labels `foldIds`.
+    #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = cvPath)]
+    pub fn cv_path(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        n_cols: usize,
+        y: &[f64],
+        lambdas: &[f64],
+        fold_ids: &[u32],
+    ) -> Result<crate::path::CvPath, JsError> {
+        let folds: Vec<usize> = fold_ids.iter().map(|&f| f as usize).collect();
+        let c = self
+            .rust()
+            .cv_path(
+                &super::to_mat(x, n_rows, n_cols)?,
+                &super::to_col(y, n_rows, "y")?,
+                lambdas,
+                &folds,
+            )
+            .map_err(super::fit_error)?;
+        Ok(crate::path::CvPath { inner: c })
+    }
+}

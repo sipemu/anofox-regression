@@ -205,13 +205,7 @@ impl RidgeRegressor {
         let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
         let y_col = Col::from_fn(n_rows, |i| y[i]);
 
-        let model = RustRidgeRegressor::builder()
-            .na_action(self.na_action)
-            .with_intercept(self.with_intercept)
-            .compute_inference(self.compute_inference)
-            .confidence_level(self.confidence_level)
-            .lambda(self.lambda)
-            .build();
+        let model = self.rust();
 
         let fitted = model
             .fit(&x_mat, &y_col)
@@ -281,5 +275,126 @@ impl FittedRidge {
     pub fn leverage_new(&self, x: &[f64], n_rows: usize) -> Result<Vec<f64>, JsError> {
         let x_mat = super::to_mat(x, n_rows, self.n_features)?;
         Ok(self.fitted.leverage_new(&x_mat).iter().copied().collect())
+    }
+}
+
+impl RidgeRegressor {
+    fn rust(&self) -> RustRidgeRegressor {
+        RustRidgeRegressor::builder()
+            .na_action(self.na_action)
+            .with_intercept(self.with_intercept)
+            .compute_inference(self.compute_inference)
+            .confidence_level(self.confidence_level)
+            .lambda(self.lambda)
+            .build()
+    }
+
+    fn wrap(&self, fitted: anofox_regression::solvers::FittedRidge, p: usize) -> FittedRidge {
+        FittedRidge {
+            fitted,
+            n_features: p,
+            lambda: self.lambda,
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl RidgeRegressor {
+    /// Fit from a `SufficientStats` state (λ applied here, so one state
+    /// serves any λ).
+    #[wasm_bindgen(js_name = fitFromState)]
+    pub fn fit_from_state(
+        &self,
+        state: &crate::streaming::SufficientStats,
+    ) -> Result<FittedRidge, JsError> {
+        let f = self
+            .rust()
+            .fit_from_state(&state.inner)
+            .map_err(super::fit_error)?;
+        Ok(self.wrap(f, state.inner.n_features()))
+    }
+
+    /// Fit from a `MomentAccumulator`.
+    #[wasm_bindgen(js_name = fitFromAccumulator)]
+    pub fn fit_from_accumulator(
+        &self,
+        acc: &crate::streaming::MomentAccumulator,
+    ) -> Result<FittedRidge, JsError> {
+        let f = self
+            .rust()
+            .fit_from_accumulator(&acc.inner)
+            .map_err(super::fit_error)?;
+        Ok(self.wrap(f, acc.inner.n_features()))
+    }
+
+    /// Fit from raw moments: `xtx` (row-major p × p), `xty`, `sumX`, `sumY`
+    /// and `n`.
+    #[wasm_bindgen(js_name = fitFromMoments)]
+    pub fn fit_from_moments(
+        &self,
+        xtx: &[f64],
+        xty: &[f64],
+        sum_x: &[f64],
+        sum_y: f64,
+        n: usize,
+    ) -> Result<FittedRidge, JsError> {
+        let p = xty.len();
+        let f = self
+            .rust()
+            .fit_from_moments(
+                &crate::inference::square(xtx, p, "xtx")?,
+                &super::to_col(xty, p, "xty")?,
+                &super::to_col(sum_x, p, "sumX")?,
+                sum_y,
+                n,
+            )
+            .map_err(super::fit_error)?;
+        Ok(self.wrap(f, p))
+    }
+
+    /// The ridge path (glmnet's objective, `alpha = 0`) at `lambdas`.
+    #[wasm_bindgen]
+    pub fn path(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        n_cols: usize,
+        y: &[f64],
+        lambdas: &[f64],
+    ) -> Result<crate::path::RegPath, JsError> {
+        let p = self
+            .rust()
+            .path(
+                &super::to_mat(x, n_rows, n_cols)?,
+                &super::to_col(y, n_rows, "y")?,
+                lambdas,
+            )
+            .map_err(super::fit_error)?;
+        Ok(crate::path::RegPath { inner: p })
+    }
+
+    /// K-fold CV of the ridge path with fold labels `foldIds`.
+    #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = cvPath)]
+    pub fn cv_path(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        n_cols: usize,
+        y: &[f64],
+        lambdas: &[f64],
+        fold_ids: &[u32],
+    ) -> Result<crate::path::CvPath, JsError> {
+        let folds: Vec<usize> = fold_ids.iter().map(|&f| f as usize).collect();
+        let c = self
+            .rust()
+            .cv_path(
+                &super::to_mat(x, n_rows, n_cols)?,
+                &super::to_col(y, n_rows, "y")?,
+                lambdas,
+                &folds,
+            )
+            .map_err(super::fit_error)?;
+        Ok(crate::path::CvPath { inner: c })
     }
 }
