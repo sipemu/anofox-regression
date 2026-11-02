@@ -457,6 +457,28 @@ cox.predictSurvival(x0, stratum?)                        // survfit(fit, newdata
 cox.likelihood(); cox.modelLrTest()
 ```
 
+### Splines, designs and effects
+
+```typescript
+// spline bases (matrices are flat row-major)
+const rcs = Rcs.fromData(age, 4);            // or new Rcs(knots); rcs.setNorm('none' | 'last-interval' | 'range')
+const b = rcs.basis(age, 'age');             // Basis: columns(), names(), nonlinear(), nonlinearColumns()
+rcs.restate(intercept, coef).eval(x)         // Hmisc::rcspline.restate
+new Lsp([3, 6]).basis(x, 'x'); restrictedInteraction(b1, b2); rcsDefaultKnots(x, nk, fractied?)
+const d = new Design(); d.add('age', b); d.addRestrictedInteraction(0, 1); d.matrix(); d.terms()
+
+// rms-style effects; options { df? (t reference), level? }
+const spec = new ModelSpec();
+spec.rcs('age', rcs, age); spec.categorical('sex', sex); spec.linear('chol', chol); spec.interaction(0, 2);
+spec.design([age, sex, chol]).matrix()        // fit any regressor on it
+spec.summary(beta, vcov, true)                // summary.rms (exp() → odds / hazard ratios)
+spec.contrast(beta, vcov, true, { age: 60 }, { age: 45 }); spec.doubleContrast(...)
+spec.predictGrid(beta, vcov, true, 0, values?); spec.predictGridSimultaneous(...)
+const nom = spec.nomogram(beta, true, linearPredictors, ticks?, maxscale?, nint?);
+nom.getResult(); nom.functionAxis((lp) => 1 / (1 + Math.exp(-lp))); nom.pointsToLp(total)
+numericLimits(x); simultaneousCritical(rows, vcov, options)
+```
+
 ### Missing values, offsets and prior weights
 
 ```typescript
