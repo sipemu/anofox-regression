@@ -143,6 +143,7 @@ impl Regressor for LarsRegressor {
             full
         };
         let coefs_path: Vec<Vec<f64>> = path.coefs.iter().map(|c| expand(c)).collect();
+        let active: Vec<usize> = path.active.iter().map(|&jj| kept[jj]).collect();
 
         // For LassoLars: linearly interpolate the path so the returned
         // coefficients correspond to exactly the requested alpha. (sklearn
@@ -257,6 +258,7 @@ impl Regressor for LarsRegressor {
             result,
             alphas,
             coefs_path,
+            active,
             x_mean,
             x_norm,
             y_mean,
@@ -377,6 +379,8 @@ struct LarsPath {
     coefs: Vec<Vec<f64>>,
     /// Maximum absolute correlation at each step (= alpha-on-the-path).
     alphas: Vec<f64>,
+    /// Active set at the end of the path, in order of (last) entry.
+    active: Vec<usize>,
 }
 
 fn interpolate_lasso_path(coefs: &[Vec<f64>], alphas: &[f64], target: f64) -> Vec<f64> {
@@ -438,33 +442,48 @@ fn lars_path(
     let mut path = LarsPath {
         coefs: vec![beta.clone()],
         alphas: vec![c.iter().fold(0.0_f64, |acc, &v| acc.max(v.abs()))],
+        active: Vec::new(),
     };
 
     let alpha0 = path.alphas[0];
     let max_steps = (max_active * 4).max(2 * p);
     let mut step = 0;
+    // Set by a Lasso drop step: the next step moves along the new
+    // equiangular direction of the reduced active set without adding a
+    // variable (Efron et al. 2004, §3.1; sklearn `lars_path`). The dropped
+    // variable still has the maximal correlation, so picking the next entry
+    // by `argmax |c|` would re-admit it straight away with its old sign.
+    let mut dropped_last = false;
     while step < max_steps {
-        // Identify next candidate to enter (largest abs correlation).
-        let mut best_j = usize::MAX;
-        let mut best_c = 0.0_f64;
-        for j in 0..p {
-            if active.contains(&j) {
-                continue;
+        let cmax = if dropped_last {
+            active.iter().fold(0.0_f64, |acc, &j| acc.max(c[j].abs()))
+        } else {
+            // Identify next candidate to enter (largest abs correlation).
+            let mut best_j = usize::MAX;
+            let mut best_c = 0.0_f64;
+            for j in 0..p {
+                if active.contains(&j) {
+                    continue;
+                }
+                let aj = c[j].abs();
+                if aj > best_c {
+                    best_c = aj;
+                    best_j = j;
+                }
             }
-            let aj = c[j].abs();
-            if aj > best_c {
-                best_c = aj;
-                best_j = j;
+            // Scale-relative stop: correlations at rounding level relative
+            // to the initial max correlation are treated as zero.
+            if best_j == usize::MAX || best_c <= eps * alpha0 {
+                break;
             }
-        }
-        // Scale-relative stop: correlations at rounding level relative to
-        // the initial max correlation are treated as zero.
-        if best_j == usize::MAX || best_c <= eps * alpha0 {
+            // Add it (sign matches sign of correlation).
+            active.push(best_j);
+            sign[best_j] = c[best_j].signum();
+            best_c
+        };
+        if cmax <= eps * alpha0 {
             break;
         }
-        // Add it (sign matches sign of correlation).
-        active.push(best_j);
-        sign[best_j] = c[best_j].signum();
 
         // Build X_A (with signed columns) and solve for w_A.
         let k = active.len();
@@ -493,8 +512,6 @@ fn lars_path(
             a[j] = s;
         }
 
-        let cmax = best_c; // current max correlation magnitude
-
         // γ from incoming-variable conditions.
         let mut gamma = if active.len() < p {
             let mut g_min = f64::INFINITY;
@@ -517,7 +534,9 @@ fn lars_path(
                     }
                 }
             }
-            g_min
+            // Never step past the point where the active correlations
+            // reach zero (the OLS fit on the active set).
+            g_min.min(cmax / a_a)
         } else {
             // All variables active → step until correlation reaches 0,
             // i.e. project residual onto u_A's coefficient.
@@ -562,6 +581,7 @@ fn lars_path(
         path.alphas.push(alpha);
 
         // Drop (for Lasso) — also revert that variable's β to exactly 0.
+        dropped_last = drop_index.is_some();
         if let Some(idx) = drop_index {
             let dropped = active.remove(idx);
             sign[dropped] = 0.0;
@@ -578,6 +598,7 @@ fn lars_path(
         }
     }
 
+    path.active = active;
     Ok(path)
 }
 
@@ -587,6 +608,7 @@ pub struct FittedLars {
     result: RegressionResult,
     alphas: Vec<f64>,
     coefs_path: Vec<Vec<f64>>,
+    active: Vec<usize>,
     /// Column means used to undo centering when generating the path on the
     /// original predictor scale. Kept for future prediction-interval support.
     #[allow(dead_code)]
@@ -624,6 +646,13 @@ impl FittedLars {
                     .collect()
             })
             .collect()
+    }
+    /// Column indices of the predictors active at the end of the path, in
+    /// the order they (last) entered (sklearn's `active_`). A predictor that
+    /// LassoLars dropped and later re-admitted appears at its re-entry
+    /// position.
+    pub fn active(&self) -> &[usize] {
+        &self.active
     }
     /// Plain LARS or LassoLars.
     pub fn method(&self) -> LarsMethod {

@@ -62,6 +62,30 @@ describe('estimators without JS tests', () => {
     for (let i = 0; i < nRows; i++) expectClose(p[i], Y[i], 0.5);
   });
 
+  it('LassoLars drops a variable whose coefficient crosses zero (#305)', () => {
+    // sklearn lars_path(method="lasso"): feature 2 leaves at knot 3 and
+    // re-enters with the opposite sign at the last step.
+    const xs = [
+      0.22, -0.34, -0.15, -0.4, -0.6, -0.24, -0.27, 0.58, 0.25, -1.46, -0.84, 0.27, -0.0, -1.02,
+      -0.49, -1.19, 1.56, -0.93, 0.39, -0.15, 0.52, 1.34, 1.17, 1.26, 0.91, -0.84, 0.18, -1.02,
+      0.18, -0.42, 0.18, 1.92, -1.03, -0.48, -0.85, 0.06, 0.55, 0.85, 0.52, 0.37, 0.94, -0.35,
+      0.36, -0.05, 0.42, -0.7, -0.12, 0.47, 0.04, 0.72, 0.31, -0.05, -0.27, 0.31, -0.25, 1.15,
+      -0.22, -1.22, -0.77, 1.55, -0.21, -0.24, -0.24, 0.56,
+    ];
+    const ys = [
+      0.41, -0.19, -0.73, -1.47, 0.58, 1.9, -0.61, -0.29, -1.87, 2.17, 0.7, -0.11, 0.4, 0.32,
+      -1.39, -1.02,
+    ];
+    const reg = new wasm.LarsRegressor();
+    reg.setMethod('lasso');
+    const f = reg.fit(new Float64Array(xs), 16, 4, new Float64Array(ys));
+    expect(Array.from(f.active())).toEqual([1, 0, 3, 2]);
+    expect(f.getAlphas().length).toBe(7);
+    expect(f.coefsPath()[4][2]).toBe(0);
+    const b = f.getCoefficients();
+    expectClose(b[2], -1.1654478794527305, 1e-9);
+  });
+
   it('LOWESS of a line is the line', () => {
     const y = Array.from({ length: 15 }, (_, i) => 3 - 0.5 * i);
     const s = wasm.lowessSmooth(vector(y), 0.5);
