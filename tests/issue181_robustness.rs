@@ -450,4 +450,11 @@ fn grouped_survival_and_logistic_traits() {
     let labels = FittedRegressor::predict(&logistic, &xb);
     assert!(labels.iter().all(|&v| v == 0.0 || v == 1.0));
     assert_eq!(FittedRegressor::result(&logistic).coefficients.nrows(), 2);
+    let pi = FittedRegressor::predict_with_interval(
+        &logistic,
+        &xb,
+        Some(anofox_regression::core::IntervalType::Confidence),
+        0.95,
+    );
+    assert!(pi.lower.iter().zip(pi.upper.iter()).all(|(l, u)| l <= u));
 }
