@@ -24,6 +24,7 @@ method solvers::ols::OlsRegressor::with_alias_tolerance  # setRankTolerance
 method solvers::wls::WlsRegressor::{with_alias_tolerance,with_weights}  # setRankTolerance / setWeights
 method solvers::pspline::PSplineRegressor::{build,with_lambda,with_n_basis,with_penalty_order}  # set* methods of PSplineRegressor
 method splines::Rcs::with_norm  # Rcs.setNorm
+method splines::bspline::BSpline::{with_extrapolation,with_bias}  # BSpline.setExtrapolation / setBias
 method solvers::negative_binomial::NegativeBinomialRegressor::with_theta  # NegativeBinomialRegressor.setTheta
 method solvers::binomial::BinomialRegressor::{logistic,probit,cloglog}  # BinomialRegressor.setLink
 method solvers::poisson::PoissonRegressor::{log,identity,sqrt}  # PoissonRegressor.setLink
