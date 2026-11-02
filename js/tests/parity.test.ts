@@ -170,6 +170,28 @@ describe('online updates and states', () => {
   });
 });
 
+describe('ridge conditioning-aware λ (#300)', () => {
+  it('uses the small λ on a well-conditioned design only', () => {
+    const r = new wasm.RidgeRegressor();
+    r.setLambda(5);
+    expect(r.selectLambda(x, n, 2)).toBe(5);
+    r.setConditioning();
+    expect(wasm.gramConditionNumber(x, n, 2, true)).toBeLessThan(1000);
+    expect(r.selectLambda(x, n, 2)).toBe(0.1);
+    const f = r.fit(x, n, 2, yc);
+    expect(f.getResult().lambda).toBe(0.1);
+    // nearly collinear columns: κ above the threshold keeps the configured λ
+    const xc = new Float64Array(n * 2);
+    for (let i = 0; i < n; i++) xc.set([x[2 * i], x[2 * i] + 1e-4 * Math.cos(i)], 2 * i);
+    expect(r.selectLambda(xc, n, 2)).toBe(5);
+    expect(r.fit(xc, n, 2, yc).getResult().lambda).toBe(5);
+    r.setConditioning(0.5, 1e12);
+    expect(r.selectLambda(xc, n, 2)).toBe(0.5);
+    r.clearConditioning();
+    expect(r.selectLambda(x, n, 2)).toBe(5);
+  });
+});
+
 describe('helpers', () => {
   it('pretty, lowess, θ estimators, Gram condition number', () => {
     expect(Array.from(wasm.pretty(0, 1, 5))).toEqual([0, 0.2, 0.4, 0.6000000000000001, 0.8, 1]);

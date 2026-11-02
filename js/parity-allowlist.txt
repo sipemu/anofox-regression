@@ -92,7 +92,7 @@ method solvers::rls::RlsRegressor::initial_p_diagonal  # settings echo
 method solvers::wls::FittedWls::weights  # the weights passed to setWeights
 method solvers::isotonic::IsotonicRegressor::fit_1d  # IsotonicRegressor.fit is fit_1d
 method solvers::penalized_glm::regressor::FittedPenalizedGlm::augment_with  # augment(x, nRows, y, residType)
-method solvers::ridge::RidgeRegressor::{select_lambda,with_conditioning}  # conditioning-based λ selection is not bound yet (follow-up)
+method solvers::ridge::RidgeRegressor::with_conditioning  # RidgeRegressor.setConditioning / clearConditioning
 
 # ---------------------------------------------------------- functions
 fn diagnostics::augment::{augment,augment_with,press}  # augment / press methods of the fitted classes
