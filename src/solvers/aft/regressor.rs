@@ -326,3 +326,16 @@ impl crate::solvers::IterativeFit for FittedAft {
         self.result.core.iterations as usize
     }
 }
+
+impl crate::solvers::SurvivalRegressor for AftRegressor {
+    type Fitted = FittedAft;
+
+    fn fit_survival(
+        &self,
+        x: &Mat<f64>,
+        time: &Col<f64>,
+        event: &[bool],
+    ) -> Result<FittedAft, crate::solvers::RegressionError> {
+        self.fit(x, time, event)
+    }
+}

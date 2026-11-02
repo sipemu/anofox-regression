@@ -1384,3 +1384,17 @@ fn collapse_variogram(pairs: Vec<(f64, f64)>, nint: usize) -> Vec<VariogramBin> 
         })
         .collect()
 }
+
+impl crate::solvers::GroupedRegressor for GlsRegressor {
+    type Fitted = FittedGls;
+
+    /// [`GlsRegressor::fit`] without explicit times (observation order).
+    fn fit_grouped(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        groups: &[usize],
+    ) -> Result<FittedGls, RegressionError> {
+        self.fit(x, y, groups, None)
+    }
+}
