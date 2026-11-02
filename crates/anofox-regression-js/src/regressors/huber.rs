@@ -2,7 +2,7 @@
 
 use anofox_regression::solvers::{
     FittedHuber as RustFittedHuber, FittedRegressor, HuberRegressor as RustHuberRegressor,
-    Regressor,
+    HuberScale, Regressor,
 };
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
@@ -175,6 +175,7 @@ pub struct HuberRegressor {
     with_intercept: bool,
     max_iterations: usize,
     tolerance: f64,
+    scale_method: HuberScale,
 }
 
 #[wasm_bindgen]
@@ -188,7 +189,25 @@ impl HuberRegressor {
             with_intercept: true,
             max_iterations: 100,
             tolerance: 1e-5,
+            scale_method: HuberScale::Mad,
         }
+    }
+
+    /// Scale estimator: "mad" (default, IRLS at the MAD scale as
+    /// `MASS::rlm`) or "joint" (scikit-learn's joint coefficient / scale
+    /// estimator).
+    #[wasm_bindgen(js_name = setScaleMethod)]
+    pub fn set_scale_method(&mut self, method: &str) -> Result<(), JsError> {
+        self.scale_method = match method.to_ascii_lowercase().as_str() {
+            "mad" => HuberScale::Mad,
+            "joint" => HuberScale::Joint,
+            other => {
+                return Err(JsError::new(&format!(
+                    "Unknown scale method '{other}': expected mad or joint"
+                )))
+            }
+        };
+        Ok(())
     }
 
     /// Set the Huber threshold parameter (default: 1.35, must be > 1.0).
@@ -264,6 +283,7 @@ impl HuberRegressor {
             .with_intercept(self.with_intercept)
             .max_iterations(self.max_iterations)
             .tolerance(self.tolerance)
+            .scale_method(self.scale_method)
             .build();
 
         let fitted = model
