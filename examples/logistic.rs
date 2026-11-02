@@ -6,6 +6,7 @@
 //!
 //! Run with: `cargo run --example logistic`
 
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{LogisticRegression, Penalty};
 use faer::{Col, Mat};
 
@@ -47,7 +48,7 @@ fn main() {
         fitted.coefficients()[0],
         fitted.coefficients()[1]
     );
-    println!("IRLS iterations: {}", fitted.n_iter());
+    println!("IRLS iterations: {}", fitted.iterations());
 
     let proba = fitted.predict_proba(&x);
     let preds = fitted.predict(&x);

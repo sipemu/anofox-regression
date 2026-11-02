@@ -30,7 +30,7 @@ fn lars_full_path_matches_r_lm_summary() {
     let (x, y) = data();
     let f = LarsRegressor::builder()
         .method(LarsMethod::Lar)
-        .fit_intercept(true)
+        .with_intercept(true)
         .build()
         .fit(&x, &y)
         .unwrap();
@@ -48,7 +48,7 @@ fn lasso_lars_uses_active_set_df() {
     let f = LarsRegressor::builder()
         .method(LarsMethod::Lasso)
         .alpha(0.05)
-        .fit_intercept(true)
+        .with_intercept(true)
         .build()
         .fit(&x, &y)
         .unwrap();
@@ -68,7 +68,7 @@ fn lars_matches_ols_on_active_set_without_intercept() {
     let (x, y) = data();
     let f = LarsRegressor::builder()
         .method(LarsMethod::Lar)
-        .fit_intercept(false)
+        .with_intercept(false)
         .build()
         .fit(&x, &y)
         .unwrap();
@@ -107,7 +107,7 @@ fn lars_full_path_loglik_and_ic_match_r() {
     ] {
         let r = LarsRegressor::builder()
             .method(LarsMethod::Lar)
-            .fit_intercept(intercept)
+            .with_intercept(intercept)
             .build()
             .fit(&x, &y)
             .unwrap()
@@ -143,7 +143,7 @@ fn lasso_lars_loglik_counts_active_set() {
     let r = LarsRegressor::builder()
         .method(LarsMethod::Lasso)
         .alpha(0.05)
-        .fit_intercept(true)
+        .with_intercept(true)
         .build()
         .fit(&x, &y)
         .unwrap()

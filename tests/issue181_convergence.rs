@@ -1,5 +1,6 @@
 //! #181: Huber and quantile regression report whether they converged.
 
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{HuberRegressor, QuantileRegressor, Regressor};
 use faer::{Col, Mat};
 

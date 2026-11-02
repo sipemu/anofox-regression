@@ -41,7 +41,7 @@ fn bayesian_ridge() {
     });
 
     let fitted = BayesianRidge::builder()
-        .fit_intercept(true)
+        .with_intercept(true)
         .max_iter(300)
         .tolerance(1e-3)
         .build()
@@ -82,7 +82,7 @@ fn ard() {
     });
 
     let fitted = ArdRegression::builder()
-        .fit_intercept(true)
+        .with_intercept(true)
         .max_iter(300)
         .tolerance(1e-3)
         .threshold_lambda(10_000.0)

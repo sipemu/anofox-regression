@@ -590,17 +590,6 @@ impl HasModelInfo for FittedHuber {
 }
 
 impl FittedHuber {
-    /// Whether IRLS converged: the largest coefficient change fell below
-    /// `tolerance` within `max_iterations`.
-    pub fn converged(&self) -> bool {
-        self.status.converged
-    }
-
-    /// IRLS iterations used.
-    pub fn iterations(&self) -> usize {
-        self.status.iterations
-    }
-
     /// Get the estimated scale (sigma) from the MAD estimator.
     pub fn scale(&self) -> f64 {
         self.scale
@@ -785,6 +774,19 @@ impl HuberRegressorBuilder {
             compute_inference: self.compute_inference,
             confidence_level: self.confidence_level,
         }
+    }
+}
+
+impl crate::solvers::IterativeFit for FittedHuber {
+    /// Whether IRLS converged: the largest coefficient change fell below
+    /// `tolerance` within `max_iterations`.
+    fn converged(&self) -> bool {
+        self.status.converged
+    }
+
+    /// IRLS iterations used.
+    fn iterations(&self) -> usize {
+        self.status.iterations
     }
 }
 

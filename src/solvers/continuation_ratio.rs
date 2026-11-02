@@ -283,3 +283,15 @@ impl FittedContinuationRatio {
         self.n_features
     }
 }
+
+impl crate::solvers::IterativeFit for FittedContinuationRatio {
+    /// IRLS of the logistic fit on the expanded data converged.
+    fn converged(&self) -> bool {
+        self.logistic.converged
+    }
+
+    /// IRLS iterations of the logistic fit.
+    fn iterations(&self) -> usize {
+        self.logistic.iterations
+    }
+}

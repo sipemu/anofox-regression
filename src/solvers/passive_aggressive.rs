@@ -100,6 +100,7 @@ impl Regressor for PassiveAggressiveRegressor {
         let n_iter_no_change: usize = 5;
         let tol_threshold = self.tol * n as f64;
         let mut n_iter = 0;
+        let mut converged = false;
         for _epoch in 0..self.max_iter {
             n_iter += 1;
             if self.shuffle {
@@ -119,6 +120,7 @@ impl Regressor for PassiveAggressiveRegressor {
                 best_loss = sum_loss;
             }
             if no_improvement_count >= n_iter_no_change {
+                converged = true;
                 break;
             }
         }
@@ -152,6 +154,7 @@ impl Regressor for PassiveAggressiveRegressor {
             intercept: b,
             with_intercept: self.with_intercept,
             n_iter,
+            converged,
         })
     }
 }
@@ -179,7 +182,7 @@ impl PassiveAggressiveRegressor {
         }
 
         // sklearn computes ||x_i||² over feature columns only — the bias
-        // dimension is *not* included even when fit_intercept=True. We
+        // dimension is *not* included even when with_intercept=True. We
         // therefore use the bare feature norm here as well so the per-step
         // size matches sklearn's _plain_sgd kernel.
         let mut sq_norm = 0.0_f64;
@@ -339,6 +342,7 @@ pub struct FittedPassiveAggressive {
     intercept: f64,
     with_intercept: bool,
     n_iter: usize,
+    converged: bool,
 }
 
 impl HasModelInfo for FittedPassiveAggressive {
@@ -347,12 +351,7 @@ impl HasModelInfo for FittedPassiveAggressive {
     }
 }
 
-impl FittedPassiveAggressive {
-    /// Epochs (passes over the data) run.
-    pub fn n_iter(&self) -> usize {
-        self.n_iter
-    }
-}
+impl FittedPassiveAggressive {}
 
 impl FittedRegressor for FittedPassiveAggressive {
     fn predict(&self, x: &Mat<f64>) -> Col<f64> {
@@ -436,6 +435,19 @@ impl PassiveAggressiveRegressorBuilder {
     /// The configured estimator.
     pub fn build(self) -> PassiveAggressiveRegressor {
         self.inner
+    }
+}
+
+impl crate::solvers::IterativeFit for FittedPassiveAggressive {
+    /// The per-epoch loss stopped improving by `tol · n` for five epochs
+    /// (sklearn's early stop) before `max_iter` epochs.
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// Epochs run (sklearn `n_iter_`).
+    fn iterations(&self) -> usize {
+        self.n_iter
     }
 }
 

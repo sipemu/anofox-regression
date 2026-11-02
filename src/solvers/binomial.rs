@@ -1259,6 +1259,18 @@ impl crate::inference::PredictWithSe for FittedBinomial {
     }
 }
 
+impl crate::solvers::IterativeFit for FittedBinomial {
+    /// See [`IterativeFit::converged`](crate::solvers::IterativeFit::converged).
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// See [`IterativeFit::iterations`](crate::solvers::IterativeFit::iterations).
+    fn iterations(&self) -> usize {
+        self.iterations
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

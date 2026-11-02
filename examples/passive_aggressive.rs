@@ -8,6 +8,7 @@
 //!
 //! Run with: `cargo run --example passive_aggressive`
 
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{
     FittedRegressor, PaLoss, PaState, PassiveAggressiveRegressor, Regressor,
 };
@@ -39,7 +40,7 @@ fn main() {
         r.intercept.unwrap(),
         r.coefficients[0]
     );
-    println!("  iterations until early-stop: {}", fitted.n_iter());
+    println!("  iterations until early-stop: {}", fitted.iterations());
 
     // Streaming use: same updates, one sample at a time.
     let mut state = PaState::new(1);

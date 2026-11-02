@@ -222,3 +222,42 @@ pub(crate) struct Convergence {
     pub(crate) converged: bool,
     pub(crate) iterations: usize,
 }
+
+/// A fit computed by an iterative algorithm (IRLS, Newton, coordinate
+/// descent, an optimiser, …).
+///
+/// By default a fit that stops at its iteration limit is still returned as
+/// `Ok`, with `converged() == false`. [`IterativeFit::ensure_converged`] is
+/// the opt-in strict policy, the same for every estimator:
+///
+/// ```rust
+/// use anofox_regression::prelude::*;
+/// use faer::{Col, Mat};
+///
+/// let x = Mat::from_fn(40, 1, |i, _| i as f64 / 10.0);
+/// let y = Col::from_fn(40, |i| ((0.3 + 0.5 * x[(i, 0)]).exp() + (i % 3) as f64).floor());
+/// let fit = PoissonRegressor::log().build().fit(&x, &y).unwrap();
+/// assert!(fit.converged());
+/// let fit = fit.ensure_converged().unwrap(); // `Err(ConvergenceFailed)` otherwise
+/// assert!(fit.iterations() >= 1);
+/// ```
+pub trait IterativeFit: Sized {
+    /// Whether the algorithm met its stopping rule (see the implementing
+    /// type for what that rule is).
+    fn converged(&self) -> bool;
+
+    /// Iterations (or passes, epochs) the algorithm used.
+    fn iterations(&self) -> usize;
+
+    /// `Ok(self)` if the fit converged, otherwise
+    /// [`RegressionError::ConvergenceFailed`].
+    fn ensure_converged(self) -> Result<Self, RegressionError> {
+        if self.converged() {
+            Ok(self)
+        } else {
+            Err(RegressionError::ConvergenceFailed {
+                iterations: self.iterations(),
+            })
+        }
+    }
+}

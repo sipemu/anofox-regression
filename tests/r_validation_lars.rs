@@ -23,7 +23,7 @@ fn lars_full_path_matches_sklearn() {
 
     let fitted = LarsRegressor::builder()
         .method(LarsMethod::Lar)
-        .fit_intercept(true)
+        .with_intercept(true)
         .n_nonzero_coefs(p)
         .build()
         .fit(&x, &y)
@@ -58,7 +58,7 @@ fn lars_truncated_matches_sklearn() {
 
     let fitted = LarsRegressor::builder()
         .method(LarsMethod::Lar)
-        .fit_intercept(true)
+        .with_intercept(true)
         .n_nonzero_coefs(2)
         .build()
         .fit(&x, &y)
@@ -99,7 +99,7 @@ fn lasso_lars_matches_sklearn() {
 
     let fitted = LarsRegressor::builder()
         .method(LarsMethod::Lasso)
-        .fit_intercept(true)
+        .with_intercept(true)
         .alpha(target_alpha)
         .build()
         .fit(&x, &y)

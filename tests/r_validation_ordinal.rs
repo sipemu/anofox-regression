@@ -4,6 +4,7 @@
 //! Reference values come from `tests/r_scripts/generate_ordinal_validation.R`
 //! (`orm` converged with `eps = 1e-10`, `gradtol = 1e-9`).
 
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{
     FittedOrdinal, OrdinalLink, OrdinalQuantileMethod, OrdinalRegressor,
 };

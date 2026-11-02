@@ -32,7 +32,7 @@ pub enum ConstantColumnPolicy {
 #[non_exhaustive]
 pub struct Design {
     /// Design matrix over retained rows and retained columns, intercept column
-    /// prepended when `fit_intercept` is set.
+    /// prepended when `with_intercept` is set.
     pub matrix: Mat<f64>,
     /// Response over retained rows.
     pub y: Vec<f64>,
@@ -46,7 +46,7 @@ pub struct Design {
     /// Original number of feature columns, before dropping.
     pub n_features_original: usize,
     /// Whether the first column of `matrix` is the intercept.
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
 }
 
 impl Design {
@@ -63,8 +63,8 @@ impl Design {
     /// Expand a parameter-order vector back to the caller's feature order,
     /// inserting `NaN` for dropped columns. Returns `(features, intercept)`.
     pub fn expand(&self, params: &[f64]) -> (Vec<f64>, Option<f64>) {
-        let offset = usize::from(self.fit_intercept);
-        let intercept = if self.fit_intercept {
+        let offset = usize::from(self.with_intercept);
+        let intercept = if self.with_intercept {
             params.first().copied()
         } else {
             None
@@ -94,18 +94,18 @@ impl Design {
         if priors.is_empty() {
             return Ok(if legacy_lambda > 0.0 {
                 // `glm_lambda` has always been a uniform ridge that skips the intercept.
-                Penalty::ridge(p, legacy_lambda, self.fit_intercept)
+                Penalty::ridge(p, legacy_lambda, self.with_intercept)
             } else {
                 Penalty::none(p)
             });
         }
 
-        let expected_with_intercept = self.n_features_original + usize::from(self.fit_intercept);
+        let expected_with_intercept = self.n_features_original + usize::from(self.with_intercept);
         if priors.len() != expected_with_intercept && priors.len() != self.n_features_original {
             return Err(GlmEngineError::InvalidInput(format!(
                 "expected {} priors (one per feature{}), got {}",
                 expected_with_intercept,
-                if self.fit_intercept {
+                if self.with_intercept {
                     " plus one for the intercept"
                 } else {
                     ""
@@ -115,10 +115,10 @@ impl Design {
         }
 
         // Whether the caller supplied a leading intercept prior.
-        let has_intercept_entry = self.fit_intercept && priors.len() == expected_with_intercept;
+        let has_intercept_entry = self.with_intercept && priors.len() == expected_with_intercept;
 
         let mut aligned = vec![PriorSpec::flat(); p];
-        let param_offset = usize::from(self.fit_intercept);
+        let param_offset = usize::from(self.with_intercept);
 
         if has_intercept_entry {
             aligned[0] = priors[0];
@@ -138,7 +138,7 @@ impl Design {
         // A legacy `glm_lambda` composes additively with explicit priors: both are
         // Gaussian precisions on the same coefficients.
         if legacy_lambda > 0.0 {
-            let start = usize::from(self.fit_intercept);
+            let start = usize::from(self.with_intercept);
             for j in start..p {
                 let current = penalty.quadratic.precisions()[j];
                 let loc = penalty.quadratic.locations()[j];
@@ -158,7 +158,7 @@ pub struct DesignSpec<'a> {
     /// Feature columns, each with one value per row.
     pub x: &'a [Vec<f64>],
     /// Prepend an intercept column.
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// 1-based index into `x` of a column to be used as an offset (added to the
     /// linear predictor with coefficient 1 and removed from the design). `None`
     /// means no offset. The value is used as-is; take logs upstream if the link
@@ -173,7 +173,7 @@ pub fn build(spec: &DesignSpec<'_>) -> GlmEngineResult<Design> {
     let DesignSpec {
         y,
         x,
-        fit_intercept,
+        with_intercept,
         offset_column,
         constant_policy,
     } = *spec;
@@ -213,7 +213,7 @@ pub fn build(spec: &DesignSpec<'_>) -> GlmEngineResult<Design> {
 
     let feature_indices: Vec<usize> = (0..x.len()).filter(|i| Some(*i) != offset_idx).collect();
     let n_features_original = feature_indices.len();
-    if n_features_original == 0 && !fit_intercept {
+    if n_features_original == 0 && !with_intercept {
         return Err(GlmEngineError::InsufficientData {
             rows: n_obs,
             cols: 0,
@@ -234,7 +234,7 @@ pub fn build(spec: &DesignSpec<'_>) -> GlmEngineResult<Design> {
     // identically-zero columns are droppable then (see `validation`).
     let is_constant: Vec<bool> = feature_indices
         .iter()
-        .map(|&ci| super::is_droppable_column(&x[ci], &valid_rows, fit_intercept))
+        .map(|&ci| super::is_droppable_column(&x[ci], &valid_rows, with_intercept))
         .collect();
 
     let retained_columns: Vec<usize> = match constant_policy {
@@ -245,9 +245,9 @@ pub fn build(spec: &DesignSpec<'_>) -> GlmEngineResult<Design> {
     };
 
     let n_effective = retained_columns.len();
-    let min_obs = n_effective + usize::from(fit_intercept);
+    let min_obs = n_effective + usize::from(with_intercept);
 
-    if n_effective == 0 && !fit_intercept {
+    if n_effective == 0 && !with_intercept {
         return Err(GlmEngineError::InsufficientData {
             rows: n_valid,
             cols: n_features_original,
@@ -260,10 +260,10 @@ pub fn build(spec: &DesignSpec<'_>) -> GlmEngineResult<Design> {
         });
     }
 
-    let n_params = n_effective + usize::from(fit_intercept);
-    let int_off = usize::from(fit_intercept);
+    let n_params = n_effective + usize::from(with_intercept);
+    let int_off = usize::from(with_intercept);
     let matrix = Mat::from_fn(n_valid, n_params, |i, j| {
-        if fit_intercept && j == 0 {
+        if with_intercept && j == 0 {
             1.0
         } else {
             let ci = feature_indices[retained_columns[j - int_off]];
@@ -281,7 +281,7 @@ pub fn build(spec: &DesignSpec<'_>) -> GlmEngineResult<Design> {
         valid_rows,
         retained_columns,
         n_features_original,
-        fit_intercept,
+        with_intercept,
     })
 }
 
@@ -301,7 +301,7 @@ mod tests {
         let d = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: None,
             constant_policy: ConstantColumnPolicy::Keep,
         })
@@ -321,7 +321,7 @@ mod tests {
         let d = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: None,
             constant_policy: ConstantColumnPolicy::Drop,
         })
@@ -338,7 +338,7 @@ mod tests {
         let d = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: None,
             constant_policy: ConstantColumnPolicy::Drop,
         })
@@ -360,7 +360,7 @@ mod tests {
         let d = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: Some(2),
             constant_policy: ConstantColumnPolicy::Keep,
         })
@@ -378,7 +378,7 @@ mod tests {
         let err = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: Some(9),
             constant_policy: ConstantColumnPolicy::Keep,
         });
@@ -392,7 +392,7 @@ mod tests {
         let err = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: None,
             constant_policy: ConstantColumnPolicy::Keep,
         });
@@ -406,7 +406,7 @@ mod tests {
         let d = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: None,
             constant_policy: ConstantColumnPolicy::Drop,
         })
@@ -429,7 +429,7 @@ mod tests {
         let d = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: None,
             constant_policy: ConstantColumnPolicy::Keep,
         })
@@ -451,7 +451,7 @@ mod tests {
         let d = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: None,
             constant_policy: ConstantColumnPolicy::Keep,
         })
@@ -468,7 +468,7 @@ mod tests {
         let d = build(&DesignSpec {
             y: &y,
             x: &x,
-            fit_intercept: true,
+            with_intercept: true,
             offset_column: None,
             constant_policy: ConstantColumnPolicy::Keep,
         })

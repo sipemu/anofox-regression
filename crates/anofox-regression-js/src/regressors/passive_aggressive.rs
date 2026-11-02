@@ -1,5 +1,6 @@
 //! Passive-Aggressive Regression wrapper for WebAssembly.
 
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{
     FittedPassiveAggressive as RustFittedPa, FittedRegressor, PaLoss,
     PassiveAggressiveRegressor as RustPaRegressor, Regressor,
@@ -34,7 +35,7 @@ impl FittedPassiveAggressive {
         let out = PaResult {
             coefficients: r.coefficients.iter().copied().collect(),
             intercept: r.intercept,
-            n_iter: self.fitted.n_iter(),
+            n_iter: self.fitted.iterations(),
             r_squared: r.r_squared,
             n_observations: r.n_observations,
             residuals: r.residuals.iter().copied().collect(),
@@ -55,7 +56,7 @@ impl FittedPassiveAggressive {
 
     #[wasm_bindgen(js_name = getNIter)]
     pub fn get_n_iter(&self) -> usize {
-        self.fitted.n_iter()
+        self.fitted.iterations()
     }
 
     #[wasm_bindgen]

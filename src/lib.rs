@@ -104,9 +104,9 @@ pub mod prelude {
         FittedIsotonic, FittedLogistic, FittedNegativeBinomial, FittedPSpline, FittedPls,
         FittedPoisson, FittedQuantile, FittedRegressor, FittedTweedie, GammaRegressor, GlmmDdf,
         GlmmInference, GlmmRegressor, GlmmRegressorBuilder, HuberRegressor, IsotonicRegressor,
-        LinkFunction, LogisticRegression, NegativeBinomialRegressor, OlsRegressor, OutOfBounds,
-        PSplineRegressor, Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor, Regressor,
-        RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
+        IterativeFit, LinkFunction, LogisticRegression, NegativeBinomialRegressor, OlsRegressor,
+        OutOfBounds, PSplineRegressor, Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor,
+        Regressor, RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
     };
 }
 

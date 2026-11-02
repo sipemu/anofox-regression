@@ -18,6 +18,7 @@
 //!
 //! ```
 //! use anofox_regression::solvers::aft::{AftDistribution, AftRegressor};
+//! use anofox_regression::solvers::IterativeFit;
 //! use faer::{Col, Mat};
 //!
 //! let x = Mat::from_fn(10, 1, |i, _| (i % 2) as f64);

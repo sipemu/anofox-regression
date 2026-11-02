@@ -73,12 +73,12 @@ struct Centered {
     y_mean: f64,
 }
 
-fn center(x: &Mat<f64>, y: &Col<f64>, fit_intercept: bool) -> Centered {
+fn center(x: &Mat<f64>, y: &Col<f64>, with_intercept: bool) -> Centered {
     let n = x.nrows();
     let p = x.ncols();
     let mut x_mean = vec![0.0_f64; p];
     let mut y_mean = 0.0_f64;
-    if fit_intercept {
+    if with_intercept {
         for j in 0..p {
             x_mean[j] = (0..n).map(|i| x[(i, j)]).sum::<f64>() / n as f64;
         }
@@ -326,7 +326,7 @@ fn linear_predict(x: &Mat<f64>, result: &RegressionResult) -> Col<f64> {
 /// updates.
 #[derive(Debug, Clone)]
 pub struct BayesianRidge {
-    fit_intercept: bool,
+    with_intercept: bool,
     max_iter: usize,
     tol: f64,
     alpha_1: f64,
@@ -340,7 +340,7 @@ pub struct BayesianRidge {
 impl Default for BayesianRidge {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             max_iter: 300,
             tol: 1e-3,
             alpha_1: 1e-6,
@@ -398,7 +398,7 @@ impl Regressor for BayesianRidge {
         check_dims(x, y, 1)?;
         let n = x.nrows();
         let p = x.ncols();
-        let c = center(x, y, self.fit_intercept);
+        let c = center(x, y, self.with_intercept);
 
         let svd =
             c.xc.thin_svd()
@@ -422,6 +422,7 @@ impl Regressor for BayesianRidge {
 
         let mut coef_old: Option<Vec<f64>> = None;
         let mut n_iter = 0;
+        let mut converged = false;
         for iter in 0..self.max_iter {
             n_iter = iter + 1;
             let (coef, sse) = parts.coef(&c.xc, &c.yc, alpha, lambda);
@@ -439,6 +440,7 @@ impl Regressor for BayesianRidge {
             if let Some(old) = &coef_old {
                 let change: f64 = old.iter().zip(&coef).map(|(a, b)| (a - b).abs()).sum();
                 if change < self.tol {
+                    converged = true;
                     break;
                 }
             }
@@ -466,7 +468,7 @@ impl Regressor for BayesianRidge {
         );
 
         let intercept = self
-            .fit_intercept
+            .with_intercept
             .then(|| c.y_mean - c.x_mean.iter().zip(&coef).map(|(m, b)| m * b).sum::<f64>());
         let result = bayesian_result(x, y, &coef, intercept);
 
@@ -477,6 +479,7 @@ impl Regressor for BayesianRidge {
             sigma,
             x_mean: c.x_mean,
             n_iter,
+            converged,
             log_marginal_likelihood,
         })
     }
@@ -521,6 +524,7 @@ pub struct FittedBayesianRidge {
     sigma: Mat<f64>,
     x_mean: Vec<f64>,
     n_iter: usize,
+    converged: bool,
     log_marginal_likelihood: f64,
 }
 
@@ -548,10 +552,6 @@ impl FittedBayesianRidge {
         (0..self.sigma.nrows())
             .map(|j| self.sigma[(j, j)])
             .collect()
-    }
-    /// Number of evidence iterations run (sklearn `n_iter_`).
-    pub fn n_iter(&self) -> usize {
-        self.n_iter
     }
     /// Log marginal likelihood (evidence) at the converged hyperparameters,
     /// sklearn's final `scores_` entry with `compute_score=True`.
@@ -608,9 +608,9 @@ pub struct BayesianRidgeBuilder {
     inner: BayesianRidge,
 }
 impl BayesianRidgeBuilder {
-    /// Fit an intercept (default `true`; sklearn `fit_intercept`).
-    pub fn fit_intercept(mut self, v: bool) -> Self {
-        self.inner.fit_intercept = v;
+    /// Fit an intercept (default `true`; sklearn `with_intercept`).
+    pub fn with_intercept(mut self, v: bool) -> Self {
+        self.inner.with_intercept = v;
         self
     }
     /// Maximum evidence-maximisation iterations (default 300).
@@ -667,7 +667,7 @@ impl BayesianRidgeBuilder {
 /// Automatic Relevance Determination regression.
 #[derive(Debug, Clone)]
 pub struct ArdRegression {
-    fit_intercept: bool,
+    with_intercept: bool,
     max_iter: usize,
     tol: f64,
     alpha_1: f64,
@@ -681,7 +681,7 @@ pub struct ArdRegression {
 impl Default for ArdRegression {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             max_iter: 300,
             tol: 1e-3,
             alpha_1: 1e-6,
@@ -734,7 +734,7 @@ impl Regressor for ArdRegression {
         check_dims(x, y, 2)?;
         let n = x.nrows();
         let p = x.ncols();
-        let c = center(x, y, self.fit_intercept);
+        let c = center(x, y, self.with_intercept);
 
         let mut alpha = 1.0 / (variance(&c.yc) + f64::EPSILON);
         let mut lambdas = vec![1.0_f64; p];
@@ -751,6 +751,7 @@ impl Regressor for ArdRegression {
 
         let mut coef_old: Option<Vec<f64>> = None;
         let mut n_iter = 0;
+        let mut converged = false;
         for iter in 0..self.max_iter {
             n_iter = iter + 1;
             let sigma = Self::sigma(&xtx, alpha, &lambdas, &kept)?;
@@ -780,11 +781,14 @@ impl Regressor for ArdRegression {
             if let Some(old) = &coef_old {
                 let change: f64 = old.iter().zip(&coef).map(|(a, b)| (a - b).abs()).sum();
                 if change < self.tol {
+                    converged = true;
                     break;
                 }
             }
             coef_old = Some(coef.clone());
             if kept.is_empty() {
+                // every feature pruned: nothing left to iterate on
+                converged = true;
                 break;
             }
         }
@@ -799,7 +803,7 @@ impl Regressor for ArdRegression {
         };
 
         let intercept = self
-            .fit_intercept
+            .with_intercept
             .then(|| c.y_mean - c.x_mean.iter().zip(&coef).map(|(m, b)| m * b).sum::<f64>());
         let result = bayesian_result(x, y, &coef, intercept);
 
@@ -811,6 +815,7 @@ impl Regressor for ArdRegression {
             kept,
             x_mean: c.x_mean,
             n_iter,
+            converged,
         })
     }
 }
@@ -825,6 +830,7 @@ pub struct FittedArd {
     kept: Vec<usize>,
     x_mean: Vec<f64>,
     n_iter: usize,
+    converged: bool,
 }
 
 impl HasModelInfo for FittedArd {
@@ -857,10 +863,6 @@ impl FittedArd {
             d[j] = self.sigma[(i, i)];
         }
         d
-    }
-    /// Number of iterations run (sklearn `n_iter_`).
-    pub fn n_iter(&self) -> usize {
-        self.n_iter
     }
     /// Posterior predictive standard deviation of the rows of `x`, as
     /// sklearn's `predict(X, return_std=True)`.
@@ -910,9 +912,9 @@ pub struct ArdRegressionBuilder {
     inner: ArdRegression,
 }
 impl ArdRegressionBuilder {
-    /// Fit an intercept (default `true`; sklearn `fit_intercept`).
-    pub fn fit_intercept(mut self, v: bool) -> Self {
-        self.inner.fit_intercept = v;
+    /// Fit an intercept (default `true`; sklearn `with_intercept`).
+    pub fn with_intercept(mut self, v: bool) -> Self {
+        self.inner.with_intercept = v;
         self
     }
     /// Maximum evidence-maximisation iterations (default 300).
@@ -970,6 +972,32 @@ fn compute_r_squared(y: &Col<f64>, residuals: &Col<f64>) -> f64 {
         }
     } else {
         1.0 - rss / tss
+    }
+}
+
+impl crate::solvers::IterativeFit for FittedBayesianRidge {
+    /// The coefficients changed by less than `tol` (L1) between two evidence
+    /// iterations.
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// Evidence iterations run (sklearn `n_iter_`).
+    fn iterations(&self) -> usize {
+        self.n_iter
+    }
+}
+
+impl crate::solvers::IterativeFit for FittedArd {
+    /// The coefficients changed by less than `tol` (L1) between two
+    /// iterations, or every feature was pruned.
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// Iterations run (sklearn `n_iter_`).
+    fn iterations(&self) -> usize {
+        self.n_iter
     }
 }
 

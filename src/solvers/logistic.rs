@@ -212,11 +212,6 @@ impl FittedLogistic {
     pub fn inner(&self) -> &FittedBinomial {
         &self.inner
     }
-
-    /// Return the number of IRLS iterations used to fit the model.
-    pub fn n_iter(&self) -> usize {
-        self.inner.iterations
-    }
 }
 
 /// Builder for configuring a [`LogisticRegression`] model.
@@ -337,9 +332,22 @@ impl LogisticRegressionBuilder {
     }
 }
 
+impl crate::solvers::IterativeFit for FittedLogistic {
+    /// See [`IterativeFit::converged`](crate::solvers::IterativeFit::converged).
+    fn converged(&self) -> bool {
+        self.inner.converged
+    }
+
+    /// Return the number of IRLS iterations used to fit the model.
+    fn iterations(&self) -> usize {
+        self.inner.iterations
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::solvers::IterativeFit;
 
     /// Helper: create binary classification data with overlapping classes.
     ///
@@ -394,7 +402,7 @@ mod tests {
         assert!(acc > 0.8, "accuracy should be > 0.8, got {}", acc);
 
         // n_iter should be positive
-        assert!(fitted.n_iter() > 0);
+        assert!(fitted.iterations() > 0);
     }
 
     #[test]

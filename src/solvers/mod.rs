@@ -108,6 +108,6 @@ pub use suff_stats::SufficientStats;
 pub use theil_sen::{
     FittedTheilSen, TheilSenCiMethod, TheilSenRegressor, TheilSenRegressorBuilder,
 };
-pub use traits::{FittedRegressor, RegressionError, Regressor};
+pub use traits::{FittedRegressor, IterativeFit, RegressionError, Regressor};
 pub use tweedie::{FittedTweedie, TweedieRegressor};
 pub use wls::{FittedWls, WlsRegressor, WlsRegressorBuilder};

@@ -246,7 +246,7 @@ impl Residualizer {
 /// Added-variable (partial regression) coordinates for every column of `x`, as
 /// `car::avPlots` on `lm(y ~ x, weights = weights)`: `x_j` and `y` are each
 /// regressed by (weighted) least squares on the other columns plus, with
-/// `fit_intercept`, a constant, and the raw residuals are returned.
+/// `with_intercept`, a constant, and the raw residuals are returned.
 ///
 /// # Errors
 ///
@@ -256,7 +256,7 @@ pub fn added_variable(
     x: &Mat<f64>,
     y: &Col<f64>,
     weights: Option<&Col<f64>>,
-    fit_intercept: bool,
+    with_intercept: bool,
 ) -> Result<Vec<AddedVariable>, RegressionError> {
     let n = x.nrows();
     if y.nrows() != n || weights.is_some_and(|w| w.nrows() != n) {
@@ -271,13 +271,13 @@ pub fn added_variable(
     {
         return Err(RegressionError::InvalidWeights);
     }
-    let off = usize::from(fit_intercept);
+    let off = usize::from(with_intercept);
     let yv: Vec<f64> = (0..n).map(|i| y[i]).collect();
     Ok((0..x.ncols())
         .map(|j| {
             let others: Vec<usize> = (0..x.ncols()).filter(|&k| k != j).collect();
             let z = Mat::from_fn(n, others.len() + off, |i, k| {
-                if fit_intercept && k == 0 {
+                if with_intercept && k == 0 {
                     1.0
                 } else {
                     x[(i, others[k - off])]

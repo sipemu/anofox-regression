@@ -1,5 +1,6 @@
 //! Logistic Regression wrapper for WebAssembly.
 
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{
     FittedLogistic as RustFittedLogistic, FittedRegressor,
     LogisticRegression as RustLogisticRegression, Penalty,
@@ -58,7 +59,7 @@ impl FittedLogistic {
             intercept: result.intercept,
             deviance: inner.deviance,
             null_deviance: inner.null_deviance,
-            iterations: self.fitted.n_iter(),
+            iterations: self.fitted.iterations(),
             n_observations: result.n_observations,
             aic: result.aic,
             bic: result.bic,
@@ -92,7 +93,7 @@ impl FittedLogistic {
     /// Get the number of IRLS iterations used to fit the model.
     #[wasm_bindgen(js_name = getNIter)]
     pub fn get_n_iter(&self) -> usize {
-        self.fitted.n_iter()
+        self.fitted.iterations()
     }
 
     /// Predict class labels (0.0 or 1.0) using the configured threshold.

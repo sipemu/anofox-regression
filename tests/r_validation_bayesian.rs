@@ -9,6 +9,7 @@
 #![allow(dead_code)]
 
 use anofox_regression::core::IntervalType;
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{ArdRegression, BayesianRidge, FittedRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -55,7 +56,7 @@ fn check_bayesian_ridge(
     y: &[f64],
     n: usize,
     p: usize,
-    fit_intercept: bool,
+    with_intercept: bool,
     intercept: Option<f64>,
     coefs: &[f64],
     alpha: f64,
@@ -70,7 +71,7 @@ fn check_bayesian_ridge(
     let x = matrix(x_flat, n, p);
     let y = Col::from_fn(n, |i| y[i]);
     let fitted = BayesianRidge::builder()
-        .fit_intercept(fit_intercept)
+        .with_intercept(with_intercept)
         .build()
         .fit(&x, &y)
         .unwrap();
@@ -93,7 +94,7 @@ fn check_bayesian_ridge(
         1e-6,
     );
     assert_all_close("sigma", &flat(fitted.sigma()), sigma, TOL);
-    assert_eq!(fitted.n_iter(), n_iter, "n_iter");
+    assert_eq!(fitted.iterations(), n_iter, "n_iter");
 
     let xq = matrix(query.0, query.1, p);
     assert_all_close("predict", &col(&fitted.predict(&xq)), pred, TOL);
@@ -219,7 +220,7 @@ fn ard_matches_sklearn() {
     let y = Col::from_fn(N_ARD, |i| Y_ARD[i]);
 
     let fitted = ArdRegression::builder()
-        .fit_intercept(true)
+        .with_intercept(true)
         .max_iter(300)
         .tolerance(1e-3)
         .threshold_lambda(10_000.0)
@@ -246,7 +247,7 @@ fn ard_matches_sklearn() {
         .collect();
     assert_eq!(kept, EXPECTED_KEPT_ARD.to_vec(), "kept features");
     assert_all_close("sigma", &flat(fitted.sigma()), &EXPECTED_SIGMA_ARD, TOL);
-    assert_eq!(fitted.n_iter(), EXPECTED_N_ITER_ARD, "n_iter");
+    assert_eq!(fitted.iterations(), EXPECTED_N_ITER_ARD, "n_iter");
 
     let xq = matrix(&X_QUERY_ARD_FLAT, N_QUERY_ARD, P_ARD);
     assert_all_close(
@@ -303,7 +304,7 @@ fn check_credible(
     }
 }
 
-/// (x row-major, y, n, p, fit_intercept)
+/// (x row-major, y, n, p, with_intercept)
 type Case<'a> = (&'a [f64], &'a [f64], usize, usize, bool);
 
 #[test]
@@ -345,7 +346,7 @@ fn bayesian_ridge_credible_intervals_match_sklearn_posterior() {
         let x = matrix(x_flat, n, p);
         let y = Col::from_fn(n, |i| y[i]);
         let fitted = BayesianRidge::builder()
-            .fit_intercept(intercept)
+            .with_intercept(intercept)
             .build()
             .fit(&x, &y)
             .unwrap();
