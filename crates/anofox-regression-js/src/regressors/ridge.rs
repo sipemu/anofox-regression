@@ -259,3 +259,27 @@ impl FittedRidge {
         Ok(crate::convert::ToJs::to_js(&loo))
     }
 }
+predict_se_method!(FittedRidge);
+
+#[wasm_bindgen]
+impl FittedRidge {
+    /// Covariance of the coefficients `σ̂² M`, intercept first (nested
+    /// rows); undefined without a variance factor.
+    #[wasm_bindgen]
+    pub fn vcov(&self) -> JsValue {
+        crate::convert::ToJs::to_js(&self.fitted.vcov())
+    }
+
+    /// Variance factor `M` with `Var(β̂) = σ² M`, intercept first.
+    #[wasm_bindgen(js_name = varianceFactor)]
+    pub fn variance_factor(&self) -> JsValue {
+        crate::convert::ToJs::to_js(&self.fitted.variance_factor().cloned())
+    }
+
+    /// Leverage `x₀ᵀ M x₀` of new rows.
+    #[wasm_bindgen(js_name = leverageNew)]
+    pub fn leverage_new(&self, x: &[f64], n_rows: usize) -> Result<Vec<f64>, JsError> {
+        let x_mat = super::to_mat(x, n_rows, self.n_features)?;
+        Ok(self.fitted.leverage_new(&x_mat).iter().copied().collect())
+    }
+}

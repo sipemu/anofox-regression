@@ -491,14 +491,18 @@ pub fn influential_dffits_js(
 /// A GLM family for the residual functions: "poisson" (link "log" |
 /// "identity" | "sqrt"), "binomial" (link "logit" | "probit" | "cloglog"),
 /// "negative_binomial" (`param` = θ), "gamma" or "tweedie" (`param` = power).
-enum Family {
+pub(crate) enum Family {
     Poisson(PoissonFamily),
     Binomial(BinomialFamily),
     NegativeBinomial(NegativeBinomialFamily),
     Tweedie(TweedieFamily),
 }
 
-fn parse_family(family: &str, link: Option<String>, param: Option<f64>) -> Result<Family, JsError> {
+pub(crate) fn parse_family(
+    family: &str,
+    link: Option<String>,
+    param: Option<f64>,
+) -> Result<Family, JsError> {
     let bad_link = |l: &str| JsError::new(&format!("Unknown link '{}' for {}", l, family));
     Ok(match family {
         "poisson" => Family::Poisson(PoissonFamily::new(match link.as_deref() {
@@ -528,6 +532,18 @@ fn parse_family(family: &str, link: Option<String>, param: Option<f64>) -> Resul
         )))
         }
     })
+}
+
+impl Family {
+    /// The family as a trait object.
+    pub(crate) fn as_dyn(&self) -> &dyn anofox_regression::core::GlmFamily {
+        match self {
+            Family::Poisson(f) => f,
+            Family::Binomial(f) => f,
+            Family::NegativeBinomial(f) => f,
+            Family::Tweedie(f) => f,
+        }
+    }
 }
 
 /// Call a generic `fn<F: GlmFamily>` with the concrete family.

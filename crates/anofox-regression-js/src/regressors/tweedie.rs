@@ -277,3 +277,5 @@ iterative_fit!(FittedTweedie);
 
 augment_methods!(FittedTweedie);
 partial_residuals_method!(FittedTweedie);
+predict_se_method!(FittedTweedie);
+likelihood_methods!(FittedTweedie);

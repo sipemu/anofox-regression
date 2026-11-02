@@ -110,6 +110,58 @@ macro_rules! partial_residuals_method {
     )*};
 }
 
+/// `predictSe` on a fitted wrapper whose inner model implements the Rust
+/// `PredictWithSe` trait.
+macro_rules! predict_se_method {
+    ($($wrapper:ident),* $(,)?) => {$(
+        #[wasm_bindgen]
+        impl $wrapper {
+            /// Predictions with standard errors and intervals (`predict(...,
+            /// se.fit = TRUE)`): `options` = `{ scale?: "response" | "link",
+            /// interval?: "confidence" | "prediction", level? }`. Returns
+            /// `{ fit, seFit, lower, upper, scale, interval, level, df,
+            /// residualScale? }`.
+            #[wasm_bindgen(js_name = predictSe)]
+            pub fn predict_se(
+                &self,
+                x: &[f64],
+                n_rows: usize,
+                options: JsValue,
+            ) -> Result<JsValue, JsError> {
+                let x_mat = $crate::regressors::to_mat(x, n_rows, self.n_features)?;
+                let options = $crate::inference::parse_predict_se_options(options)?;
+                let p = anofox_regression::inference::PredictWithSe::predict_se(&self.fitted, &x_mat, &options)
+                    .map_err($crate::regressors::fit_error)?;
+                Ok($crate::convert::ToJs::to_js(&p))
+            }
+        }
+    )*};
+}
+
+/// `likelihood` and `modelLrTest` on a fitted wrapper whose inner model
+/// implements the Rust `LikelihoodFit` trait.
+macro_rules! likelihood_methods {
+    ($($wrapper:ident),* $(,)?) => {$(
+        #[wasm_bindgen]
+        impl $wrapper {
+            /// What `lrTest` needs: `{ minusTwoLoglik, nullMinusTwoLoglik?,
+            /// lrDispersion, nParameters }`.
+            #[wasm_bindgen]
+            pub fn likelihood(&self) -> JsValue {
+                $crate::inference::likelihood_summary(&self.fitted)
+            }
+
+            /// Likelihood-ratio test against the null model:
+            /// `{ statistic, df, pValue }` (undefined when the null
+            /// likelihood is unknown).
+            #[wasm_bindgen(js_name = modelLrTest)]
+            pub fn model_lr_test(&self) -> JsValue {
+                $crate::inference::model_lr(&self.fitted)
+            }
+        }
+    )*};
+}
+
 mod aft;
 mod aid;
 mod alm;

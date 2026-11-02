@@ -197,3 +197,55 @@ impl Default for WlsRegressor {
 
 augment_methods!(FittedWls);
 partial_residuals_method!(FittedWls);
+predict_se_method!(FittedWls);
+
+#[wasm_bindgen]
+impl FittedWls {
+    /// Covariance of the coefficients `σ̂² M`, intercept first (nested
+    /// rows); undefined without a variance factor.
+    #[wasm_bindgen]
+    pub fn vcov(&self) -> JsValue {
+        crate::convert::ToJs::to_js(&self.fitted.vcov())
+    }
+
+    /// Variance factor `M` with `Var(β̂) = σ² M`, intercept first.
+    #[wasm_bindgen(js_name = varianceFactor)]
+    pub fn variance_factor(&self) -> JsValue {
+        crate::convert::ToJs::to_js(&self.fitted.variance_factor())
+    }
+
+    /// Leverage `x₀ᵀ M x₀` of new rows.
+    #[wasm_bindgen(js_name = leverageNew)]
+    pub fn leverage_new(&self, x: &[f64], n_rows: usize) -> Result<Vec<f64>, JsError> {
+        let x_mat = super::to_mat(x, n_rows, self.n_features)?;
+        Ok(self.fitted.leverage_new(&x_mat).iter().copied().collect())
+    }
+}
+
+#[wasm_bindgen]
+impl FittedWls {
+    /// Cluster-robust covariance (`sandwich::vcovCL`), intercept first:
+    /// `clusters` is one or two arrays of cluster codes, `options` a preset
+    /// ("cr1" default, "hc0", "robcov") or `{ type, cadjust }`. `x` is the
+    /// design of the fit.
+    #[wasm_bindgen(js_name = clusterVcov)]
+    pub fn cluster_vcov(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        clusters: JsValue,
+        options: JsValue,
+    ) -> Result<JsValue, JsError> {
+        let x_mat = super::to_mat(x, n_rows, self.n_features)?;
+        let c = crate::inference::parse_clusters(clusters, n_rows)?;
+        let v = self
+            .fitted
+            .cluster_vcov(
+                &x_mat,
+                &crate::inference::cluster_refs(&c),
+                &crate::inference::parse_cluster_options(options)?,
+            )
+            .map_err(super::fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&v))
+    }
+}

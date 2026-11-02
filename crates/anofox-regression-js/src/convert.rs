@@ -78,6 +78,12 @@ impl<A: ToJs, B: ToJs> ToJs for (A, B) {
     }
 }
 
+impl<A: ToJs, B: ToJs, C: ToJs> ToJs for (A, B, C) {
+    fn to_js(&self) -> JsValue {
+        Array::of3(&self.0.to_js(), &self.1.to_js(), &self.2.to_js()).into()
+    }
+}
+
 impl ToJs for Col<f64> {
     fn to_js(&self) -> JsValue {
         self.iter()

@@ -412,3 +412,4 @@ impl Default for PenalizedGlmRegressor {
 }
 
 iterative_fit!(FittedPenalizedGlm);
+predict_se_method!(FittedPenalizedGlm);

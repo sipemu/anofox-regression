@@ -299,3 +299,5 @@ iterative_fit!(FittedPoisson);
 
 augment_methods!(FittedPoisson);
 partial_residuals_method!(FittedPoisson);
+predict_se_method!(FittedPoisson);
+likelihood_methods!(FittedPoisson);
