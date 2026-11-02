@@ -369,10 +369,13 @@ impl SufficientStats {
     }
 
     /// Weighted means of the predictors.
-    pub fn mean_x(&self) -> Vec<f64> {
-        (0..self.n_features)
-            .map(|j| self.shift_x[j] + self.mean_x[j])
-            .collect()
+    pub fn mean_x(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = {
+            (0..self.n_features)
+                .map(|j| self.shift_x[j] + self.mean_x[j])
+                .collect()
+        };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
 
     /// Weighted mean of the response.
@@ -387,8 +390,8 @@ impl SufficientStats {
     }
 
     /// Centred co-moments `Σ wᵢ (xᵢ − x̄)(yᵢ − ȳ)`.
-    pub fn centered_xy(&self) -> &[f64] {
-        &self.cxy
+    pub fn centered_xy(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.cxy)
     }
 
     /// Centred response sum of squares `Σ wᵢ (yᵢ − ȳ)²`.
@@ -935,7 +938,8 @@ mod tests {
         s.push_weighted(&[5.0], 9.0, 0.0).unwrap();
         assert_eq!(s.n_observations(), 2);
         assert_eq!(s.n_positive(), 1);
-        assert_eq!(s.mean_x(), vec![1.0]);
+        assert_eq!(s.mean_x()[0], 1.0);
+        assert_eq!(s.mean_x().nrows(), 1);
     }
 
     #[test]

@@ -1251,14 +1251,14 @@ impl FittedGls {
     /// symmetry), `φ` (AR(1), continuous AR(1)), `range` and optionally
     /// `nugget` (spatial), or the correlations `r_12, r_13, …, r_23, …`
     /// (unstructured).
-    pub fn correlation_params(&self) -> &[f64] {
-        &self.correlation_params
+    pub fn correlation_params(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.correlation_params)
     }
 
     /// Variance-function parameters: the standard-deviation ratios of the
     /// non-reference strata (`varIdent`) or `δ` (`varPower`, `varExp`).
-    pub fn variance_params(&self) -> &[f64] {
-        &self.variance_params
+    pub fn variance_params(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.variance_params)
     }
 
     /// Approximate intervals of the variance–covariance parameters; `None`

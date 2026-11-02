@@ -285,7 +285,7 @@ fn lar_and_lasso_paths_match_lars() {
             .fit(&x, &y)
             .unwrap();
         let alphas = f.alphas();
-        assert_eq!(alphas.len(), lambda.len() + 1, "{m:?} steps");
+        assert_eq!(alphas.nrows(), lambda.len() + 1, "{m:?} steps");
         for k in 0..lambda.len() {
             assert!(
                 (alphas[k] - lambda[k]).abs() < 1e-10 * lambda[k],

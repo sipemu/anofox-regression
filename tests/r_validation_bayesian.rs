@@ -249,7 +249,12 @@ fn ard_matches_sklearn() {
         TOL,
     );
     assert_close("alpha", fitted.alpha(), EXPECTED_ALPHA_ARD, TOL);
-    assert_all_close("lambda", fitted.lambdas(), &EXPECTED_LAMBDAS_ARD, 1e-6);
+    assert_all_close(
+        "lambda",
+        &fitted.lambdas().iter().copied().collect::<Vec<_>>(),
+        &EXPECTED_LAMBDAS_ARD,
+        1e-6,
+    );
     let kept: Vec<f64> = (0..P_ARD)
         .map(|j| f64::from(u8::from(fitted.kept_features().contains(&j))))
         .collect();

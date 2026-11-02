@@ -39,7 +39,7 @@ impl FittedLars {
             n_observations: r.n_observations,
             residuals: r.residuals.iter().copied().collect(),
             fitted_values: r.fitted_values.iter().copied().collect(),
-            alphas: self.fitted.alphas().to_vec(),
+            alphas: self.fitted.alphas().iter().copied().collect::<Vec<_>>(),
             coefs_path: self.fitted.coefs_path(),
         };
         serde_wasm_bindgen::to_value(&out).map_err(|e| JsError::new(&e.to_string()))
@@ -57,7 +57,7 @@ impl FittedLars {
 
     #[wasm_bindgen(js_name = getAlphas)]
     pub fn get_alphas(&self) -> Vec<f64> {
-        self.fitted.alphas().to_vec()
+        self.fitted.alphas().iter().copied().collect::<Vec<_>>()
     }
 
     #[wasm_bindgen]

@@ -32,7 +32,8 @@
 //! // the path stops at alpha = 0.1 with a shrunken first coefficient
 //! let b = &fitted.result().coefficients;
 //! assert!(b[0] > 0.0 && b[0] < 3.0);
-//! assert!(fitted.alphas().windows(2).all(|w| w[1] <= w[0]));
+//! let alphas = fitted.alphas();
+//! assert!((1..alphas.nrows()).all(|k| alphas[k] <= alphas[k - 1]));
 //! # Ok(())
 //! # }
 //! ```
@@ -608,8 +609,8 @@ impl FittedLars {
     /// The largest absolute correlation `maxⱼ |xⱼᵀ r|` of the (centred,
     /// optionally standardised) predictors with the residual at each path
     /// step, decreasing.
-    pub fn alphas(&self) -> &[f64] {
-        &self.alphas
+    pub fn alphas(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.alphas)
     }
     /// Path of coefficients, transformed back to the original predictor
     /// scale (one row per path step, length `p` per row).

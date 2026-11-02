@@ -264,7 +264,7 @@ fn lars_path_has_the_same_shape() {
     let fit = LarsRegressor::builder().build().fit(&x, &y).unwrap();
     let path = fit.path();
     assert_eq!(path.coefficients.nrows(), P);
-    assert_eq!(path.len(), fit.alphas().len());
+    assert_eq!(path.len(), fit.alphas().nrows());
     let last = path.len() - 1;
     // The end of the LARS path is the OLS fit.
     for j in 0..P {

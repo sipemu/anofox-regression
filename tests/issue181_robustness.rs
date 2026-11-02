@@ -432,7 +432,7 @@ fn grouped_survival_and_logistic_traits() {
         .build()
         .fit_grouped(&x, &y, &g)
         .unwrap();
-    assert_eq!(glmm.fixed_effects().len(), 3);
+    assert_eq!(glmm.fixed_effects().nrows(), 3);
     let gls = GlsRegressor::builder()
         .build()
         .fit_grouped(&x, &y, &g)
