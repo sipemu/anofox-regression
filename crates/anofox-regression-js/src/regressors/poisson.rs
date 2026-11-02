@@ -146,6 +146,7 @@ pub struct PoissonRegressor {
     compute_inference: bool,
     max_iterations: usize,
     tolerance: f64,
+    error_on_non_convergence: bool,
 }
 
 #[wasm_bindgen]
@@ -161,6 +162,7 @@ impl PoissonRegressor {
             compute_inference: true,
             max_iterations: 25,
             tolerance: 1e-8,
+            error_on_non_convergence: true,
         }
     }
 
@@ -208,6 +210,14 @@ impl PoissonRegressor {
     #[wasm_bindgen(js_name = setTolerance)]
     pub fn set_tolerance(&mut self, tol: f64) {
         self.tolerance = tol;
+    }
+
+    /// Set whether a fit that does not converge within the maximum
+    /// iterations throws (default `true`). With `false` the last iterate is
+    /// returned and `getConverged()` reports `false`.
+    #[wasm_bindgen(js_name = setErrorOnNonConvergence)]
+    pub fn set_error_on_non_convergence(&mut self, error: bool) {
+        self.error_on_non_convergence = error;
     }
 
     /// Fit the Poisson model to count data.
@@ -259,7 +269,8 @@ impl PoissonRegressor {
             .with_intercept(self.with_intercept)
             .compute_inference(self.compute_inference)
             .max_iterations(self.max_iterations)
-            .tolerance(self.tolerance);
+            .tolerance(self.tolerance)
+            .error_on_non_convergence(self.error_on_non_convergence);
 
         if let Some(offset) = row_column(&self.offset, n_rows, "offset")? {
             builder = builder.offset(offset);
@@ -283,3 +294,5 @@ impl Default for PoissonRegressor {
         Self::new()
     }
 }
+
+iterative_fit!(FittedPoisson);

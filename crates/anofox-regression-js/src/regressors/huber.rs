@@ -282,3 +282,5 @@ impl Default for HuberRegressor {
         Self::new()
     }
 }
+
+iterative_fit!(FittedHuber);

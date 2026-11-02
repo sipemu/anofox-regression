@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **JS/WASM parity, phase 1a (#287).** The npm package gains `GlsRegressor` (`nlme::gls`: correlation structures, variance functions, residual types, `predictWithSe`, `variogram`), `AftRegressor` (`survival::survreg`: four distributions, inference, priors, quantile / survival / CDF predictions, standardized and Cox–Snell residuals, score contributions) and `PSplineRegressor` (`mgcv::gam(bs = "ps")`, with confidence and prediction intervals). Every iterative fitted model has `getConverged()` / `getIterations()` (the Rust `IterativeFit` trait), and the IRLS GLMs have `setErrorOnNonConvergence`. The JS tests check the new wrappers against the R reference values of the Rust validation.
+
 ### Changed
 
 - **Public surface cleanup (#180).** Breaking:

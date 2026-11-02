@@ -191,3 +191,5 @@ impl Default for PassiveAggressiveRegressor {
         Self::new()
     }
 }
+
+iterative_fit!(FittedPassiveAggressive);

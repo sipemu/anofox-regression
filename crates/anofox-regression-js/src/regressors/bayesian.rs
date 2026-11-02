@@ -351,3 +351,5 @@ impl Default for ArdRegression {
         Self::new()
     }
 }
+
+iterative_fit!(FittedArd, FittedBayesianRidge);
