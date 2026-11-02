@@ -548,10 +548,13 @@ impl FittedBayesianRidge {
         &self.sigma
     }
     /// Diagonal of the posterior covariance: the posterior variances.
-    pub fn sigma_diag(&self) -> Vec<f64> {
-        (0..self.sigma.nrows())
-            .map(|j| self.sigma[(j, j)])
-            .collect()
+    pub fn sigma_diag(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = {
+            (0..self.sigma.nrows())
+                .map(|j| self.sigma[(j, j)])
+                .collect()
+        };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
     /// Log marginal likelihood (evidence) at the converged hyperparameters,
     /// sklearn's final `scores_` entry with `compute_score=True`.
@@ -845,8 +848,8 @@ impl FittedArd {
         self.alpha
     }
     /// Estimated per-feature weight precisions `λ_j` (sklearn `lambda_`).
-    pub fn lambdas(&self) -> &[f64] {
-        &self.lambdas
+    pub fn lambdas(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.lambdas)
     }
     /// Indices of the features kept (`λ_j < threshold_lambda`).
     pub fn kept_features(&self) -> &[usize] {
@@ -857,12 +860,15 @@ impl FittedArd {
         &self.sigma
     }
     /// Posterior variance of every coefficient; 0 for pruned features.
-    pub fn sigma_diag(&self) -> Vec<f64> {
-        let mut d = vec![0.0; self.lambdas.len()];
-        for (i, &j) in self.kept.iter().enumerate() {
-            d[j] = self.sigma[(i, i)];
-        }
-        d
+    pub fn sigma_diag(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = {
+            let mut d = vec![0.0; self.lambdas.len()];
+            for (i, &j) in self.kept.iter().enumerate() {
+                d[j] = self.sigma[(i, i)];
+            }
+            d
+        };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
     /// Posterior predictive standard deviation of the rows of `x`, as
     /// sklearn's `predict(X, return_std=True)`.

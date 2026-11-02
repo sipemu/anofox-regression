@@ -1312,31 +1312,34 @@ impl FittedGlmm {
     }
 
     /// Fixed-effect coefficients (element 0 is the intercept when present).
-    pub fn fixed_effects(&self) -> &[f64] {
-        &self.fixed_effects
+    pub fn fixed_effects(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.fixed_effects)
     }
 
     /// Standard errors of the fixed effects.
-    pub fn std_errors(&self) -> &[f64] {
-        &self.std_errors
+    pub fn std_errors(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.std_errors)
     }
 
     /// Wald z statistics `β̂ / SE` of the fixed effects (element 0 is the
     /// intercept when present), as in the `z value` / `t value` column of
     /// `summary()` for `lme4::glmer` / `lmer`. `NaN` where the SE is not a
     /// positive finite number.
-    pub fn z_values(&self) -> Vec<f64> {
-        self.fixed_effects
-            .iter()
-            .zip(&self.std_errors)
-            .map(|(&b, &se)| {
-                if se.is_finite() && se > 0.0 {
-                    b / se
-                } else {
-                    f64::NAN
-                }
-            })
-            .collect()
+    pub fn z_values(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = {
+            self.fixed_effects
+                .iter()
+                .zip(&self.std_errors)
+                .map(|(&b, &se)| {
+                    if se.is_finite() && se > 0.0 {
+                        b / se
+                    } else {
+                        f64::NAN
+                    }
+                })
+                .collect()
+        };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
 
     /// Two-sided asymptotic normal p-values `2·(1 − Φ(|z|))` of the fixed
@@ -1344,18 +1347,21 @@ impl FittedGlmm {
     /// is the large-sample normal approximation (lme4 prints no p-value for
     /// `lmer`); for `lmerTest`'s Satterthwaite t-tests see
     /// [`inference`](Self::inference).
-    pub fn p_values(&self) -> Vec<f64> {
-        let normal = Normal::new(0.0, 1.0).expect("standard normal");
-        self.z_values()
-            .into_iter()
-            .map(|z| {
-                if z.is_finite() {
-                    2.0 * normal.sf(z.abs())
-                } else {
-                    f64::NAN
-                }
-            })
-            .collect()
+    pub fn p_values(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = {
+            let normal = Normal::new(0.0, 1.0).expect("standard normal");
+            self.z_values()
+                .iter()
+                .map(|&z| {
+                    if z.is_finite() {
+                        2.0 * normal.sf(z.abs())
+                    } else {
+                        f64::NAN
+                    }
+                })
+                .collect()
+        };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
 
     /// Wald confidence intervals `β̂ ∓ z_{(1+level)/2}·SE` for the fixed
@@ -1413,7 +1419,7 @@ impl FittedGlmm {
     ///   built with [`satterthwaite(true)`](GlmmRegressorBuilder::satterthwaite);
     ///   an error otherwise.
     pub fn inference(&self, ddf: GlmmDdf, level: f64) -> Result<GlmmInference, RegressionError> {
-        let statistics = self.z_values();
+        let statistics: Vec<f64> = self.z_values().iter().copied().collect();
         match ddf {
             GlmmDdf::Wald => {
                 let (conf_low, conf_high) = self.conf_int(level);
@@ -1421,7 +1427,7 @@ impl FittedGlmm {
                     std_errors: self.std_errors.clone(),
                     statistics,
                     df: None,
-                    p_values: self.p_values(),
+                    p_values: self.p_values().iter().copied().collect(),
                     conf_low,
                     conf_high,
                 })
@@ -1478,19 +1484,19 @@ impl FittedGlmm {
     }
 
     /// The non-intercept fixed-effect slopes.
-    pub fn slopes(&self) -> &[f64] {
-        if self.with_intercept {
+    pub fn slopes(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(if self.with_intercept {
             &self.fixed_effects[1..]
         } else {
             &self.fixed_effects
-        }
+        })
     }
 
     /// The random **intercept** BLUP for each group (0-based) — component 0 of
     /// the random effects. See [`random_effects_matrix`](Self::random_effects_matrix)
     /// for the full per-group vectors when random slopes are present.
-    pub fn random_effects(&self) -> &[f64] {
-        &self.re_intercept
+    pub fn random_effects(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.re_intercept)
     }
 
     /// The full random-effects BLUPs, one `q`-vector per group (`n_groups × q`).
@@ -1503,8 +1509,9 @@ impl FittedGlmm {
 
     /// Conditional standard error of the random **intercept** BLUP of each
     /// group — component 0 of [`random_effects_se_matrix`](Self::random_effects_se_matrix).
-    pub fn random_effects_se(&self) -> Vec<f64> {
-        self.re_se.iter().map(|s| s[0]).collect()
+    pub fn random_effects_se(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = { self.re_se.iter().map(|s| s[0]).collect() };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
 
     /// Conditional standard errors of the BLUPs, one `q`-vector per group
@@ -1531,10 +1538,13 @@ impl FittedGlmm {
     }
 
     /// Standard deviations of the random effects — `sqrt(diag Σ)`.
-    pub fn random_sd(&self) -> Vec<f64> {
-        (0..self.q)
-            .map(|i| self.cov[i][i].max(0.0).sqrt())
-            .collect()
+    pub fn random_sd(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = {
+            (0..self.q)
+                .map(|i| self.cov[i][i].max(0.0).sqrt())
+                .collect()
+        };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
 
     /// Correlation matrix of the random effects (`q × q`).
@@ -1711,32 +1721,35 @@ impl FittedGlmm {
 
     /// Conditional fitted values of the training data on the response scale,
     /// `g⁻¹(x'β + z'b + offset)` with the BLUPs — lme4's `fitted()`.
-    pub fn fitted_values(&self) -> &[f64] {
-        &self.observations.fitted
+    pub fn fitted_values(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.observations.fitted)
     }
 
     /// Population-level fitted values of the training data on the response
     /// scale, `g⁻¹(x'β + offset)` (random effects at zero).
-    pub fn fitted_population(&self) -> &[f64] {
-        &self.observations.fitted_population
+    pub fn fitted_population(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.observations.fitted_population)
     }
 
     /// Response residuals `y − fitted` of the training data — lme4's
     /// `residuals(type = "response")`.
-    pub fn residuals(&self) -> Vec<f64> {
-        self.observations
-            .y
-            .iter()
-            .zip(&self.observations.fitted)
-            .map(|(y, mu)| y - mu)
-            .collect()
+    pub fn residuals(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = {
+            self.observations
+                .y
+                .iter()
+                .zip(&self.observations.fitted)
+                .map(|(y, mu)| y - mu)
+                .collect()
+        };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
 
     /// Pearson residuals `(y − μ)/sqrt(V(μ))` of the training data — lme4's
     /// `residuals(type = "pearson")` (not divided by σ; equal to the response
     /// residuals for the Gaussian LMM).
-    pub fn pearson_residuals(&self) -> &[f64] {
-        &self.observations.pearson
+    pub fn pearson_residuals(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.observations.pearson)
     }
 
     /// Residual degrees of freedom `n − k` with `k` the

@@ -41,7 +41,7 @@ impl FittedBayesianRidge {
             intercept: r.intercept,
             alpha: self.fitted.alpha(),
             lambda: self.fitted.lambda(),
-            sigma_diag: self.fitted.sigma_diag().to_vec(),
+            sigma_diag: self.fitted.sigma_diag().iter().copied().collect::<Vec<_>>(),
             r_squared: r.r_squared,
             n_observations: r.n_observations,
             residuals: r.residuals.iter().copied().collect(),
@@ -208,7 +208,7 @@ impl FittedArd {
             coefficients: r.coefficients.iter().copied().collect(),
             intercept: r.intercept,
             alpha: self.fitted.alpha(),
-            lambdas: self.fitted.lambdas().to_vec(),
+            lambdas: self.fitted.lambdas().iter().copied().collect::<Vec<_>>(),
             r_squared: r.r_squared,
             n_observations: r.n_observations,
             residuals: r.residuals.iter().copied().collect(),
@@ -229,7 +229,7 @@ impl FittedArd {
 
     #[wasm_bindgen(js_name = getLambdas)]
     pub fn get_lambdas(&self) -> Vec<f64> {
-        self.fitted.lambdas().to_vec()
+        self.fitted.lambdas().iter().copied().collect::<Vec<_>>()
     }
 
     #[wasm_bindgen(js_name = getAlpha)]

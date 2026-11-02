@@ -518,8 +518,8 @@ impl FittedPenalizedGlm {
         &self.result
     }
     /// Fitted means over the rows used.
-    pub fn fitted_values(&self) -> &[f64] {
-        &self.result.fitted_values
+    pub fn fitted_values(&self) -> faer::ColRef<'_, f64> {
+        faer::ColRef::from_slice(&self.result.fitted_values)
     }
 
     /// Per-observation diagnostics (fitted mean, deviance residual, `rstandard`,

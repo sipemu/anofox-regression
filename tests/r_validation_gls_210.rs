@@ -81,11 +81,16 @@ fn check(
     close(&format!("{tag} BIC"), f.bic(), ll[2], 1e-7);
     all_close(
         &format!("{tag} cor"),
-        f.correlation_params(),
+        &f.correlation_params().iter().copied().collect::<Vec<_>>(),
         cor,
         10.0 * tol,
     );
-    all_close(&format!("{tag} var"), f.variance_params(), var, 10.0 * tol);
+    all_close(
+        &format!("{tag} var"),
+        &f.variance_params().iter().copied().collect::<Vec<_>>(),
+        var,
+        10.0 * tol,
+    );
 }
 
 #[test]
@@ -201,7 +206,12 @@ fn spatial_structures_with_nugget_match_nlme() {
         let v: Vec<f64> = (0..p * p).map(|k| f.vcov()[(k / p, k % p)]).collect();
         all_close(&format!("{tag} vcov"), &v, vcov, 1e-3);
         close(&format!("{tag} sigma"), f.sigma(), sigma[0], 1e-3);
-        all_close(&format!("{tag} cor"), f.correlation_params(), par, 5e-2);
+        all_close(
+            &format!("{tag} cor"),
+            &f.correlation_params().iter().copied().collect::<Vec<_>>(),
+            par,
+            5e-2,
+        );
     }
 }
 

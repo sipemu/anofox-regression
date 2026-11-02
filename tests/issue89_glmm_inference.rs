@@ -73,7 +73,12 @@ fn check_satterthwaite(tag: &str, fit: &FittedGlmm, df: &[f64], p: &[f64], lo: &
     close_all(&format!("{tag} p"), &inf.p_values, p, 1e-6);
     close_all(&format!("{tag} lo95"), &inf.conf_low, lo, 1e-7);
     close_all(&format!("{tag} hi95"), &inf.conf_high, hi, 1e-7);
-    close_all(&format!("{tag} t"), &inf.statistics, &fit.z_values(), 0.0);
+    close_all(
+        &format!("{tag} t"),
+        &inf.statistics,
+        &fit.z_values().iter().copied().collect::<Vec<_>>(),
+        0.0,
+    );
 }
 
 /// BLUP SEs of a factor, comparing level `l` of R's (sorted) order with the
@@ -120,16 +125,21 @@ fn check_observations(
     df_resid: f64,
     tol: f64,
 ) {
-    close_all(&format!("{tag} fitted"), fit.fitted_values(), fitted, tol);
+    close_all(
+        &format!("{tag} fitted"),
+        &fit.fitted_values().iter().copied().collect::<Vec<_>>(),
+        fitted,
+        tol,
+    );
     close_all(
         &format!("{tag} fitted_population"),
-        fit.fitted_population(),
+        &fit.fitted_population().iter().copied().collect::<Vec<_>>(),
         pop,
         tol,
     );
     close_all(
         &format!("{tag} pearson"),
-        fit.pearson_residuals(),
+        &fit.pearson_residuals().iter().copied().collect::<Vec<_>>(),
         pearson,
         tol,
     );
@@ -138,7 +148,7 @@ fn check_observations(
     let resid = fit.residuals();
     let y: Vec<f64> = resid
         .iter()
-        .zip(fit.fitted_values())
+        .zip(fit.fitted_values().iter())
         .map(|(r, m)| r + m)
         .collect();
     for (i, r) in resid.iter().enumerate() {
@@ -632,9 +642,10 @@ fn wald_inference_matches_the_existing_accessors() {
     assert!(fit.inference(GlmmDdf::Satterthwaite, 0.95).is_err());
     let w = fit.inference(GlmmDdf::Wald, 0.9).unwrap();
     let (lo, hi) = fit.conf_int(0.9);
-    assert_eq!(w.std_errors, fit.std_errors());
-    assert_eq!(w.statistics, fit.z_values());
-    assert_eq!(w.p_values, fit.p_values());
+    let v = |c: faer::ColRef<'_, f64>| c.iter().copied().collect::<Vec<f64>>();
+    assert_eq!(w.std_errors, v(fit.std_errors()));
+    assert_eq!(w.statistics, v(fit.z_values().as_ref()));
+    assert_eq!(w.p_values, v(fit.p_values().as_ref()));
     assert_eq!(w.conf_low, lo);
     assert_eq!(w.conf_high, hi);
     let (lo, _) = fit.random_effects_conf_int(1.5);

@@ -83,12 +83,27 @@ fn check_single(
     tol: f64,
 ) {
     assert!(m.converged(), "{tag}: not converged");
-    close_vec(&format!("{tag} fixef"), m.fixed_effects(), fixef, tol);
-    close_vec(&format!("{tag} se"), m.std_errors(), se, tol);
+    close_vec(
+        &format!("{tag} fixef"),
+        &m.fixed_effects().iter().copied().collect::<Vec<_>>(),
+        fixef,
+        tol,
+    );
+    close_vec(
+        &format!("{tag} se"),
+        &m.std_errors().iter().copied().collect::<Vec<_>>(),
+        se,
+        tol,
+    );
     close(&format!("{tag} loglik"), m.log_likelihood(), loglik, tol);
     close(&format!("{tag} sigma"), m.sigma(), sigma, tol);
     close(&format!("{tag} sd_re"), m.sd_random(), sd_re, tol);
-    close_vec(&format!("{tag} blup"), m.random_effects(), blup, tol);
+    close_vec(
+        &format!("{tag} blup"),
+        &m.random_effects().iter().copied().collect::<Vec<_>>(),
+        blup,
+        tol,
+    );
 }
 
 // PIRLS / θ-search resolution; glmer.nb's own θ search (optimize) is the
@@ -252,8 +267,18 @@ fn check_crossed_slopes(
     tol: f64,
 ) {
     assert!(m.converged(), "{tag}: not converged");
-    close_vec(&format!("{tag} fixef"), m.fixed_effects(), fixef, tol);
-    close_vec(&format!("{tag} se"), m.std_errors(), se, tol);
+    close_vec(
+        &format!("{tag} fixef"),
+        &m.fixed_effects().iter().copied().collect::<Vec<_>>(),
+        fixef,
+        tol,
+    );
+    close_vec(
+        &format!("{tag} se"),
+        &m.std_errors().iter().copied().collect::<Vec<_>>(),
+        se,
+        tol,
+    );
     close(&format!("{tag} loglik"), m.log_likelihood(), loglik, tol);
     close(&format!("{tag} sigma"), m.sigma(), sigma, tol);
     assert_eq!(m.n_factors(), 2);
@@ -343,8 +368,18 @@ fn poisson_crossed_with_random_slope_matches_glmer() {
 fn gamma_crossed_matches_glmer() {
     let m = crossed_fit(GlmmRegressor::gamma(), &Y_P);
     assert!(m.converged());
-    close_vec("GA_P fixef", m.fixed_effects(), &GA_P_FIXEF, TOL);
-    close_vec("GA_P se", m.std_errors(), &GA_P_SE, TOL);
+    close_vec(
+        "GA_P fixef",
+        &m.fixed_effects().iter().copied().collect::<Vec<_>>(),
+        &GA_P_FIXEF,
+        TOL,
+    );
+    close_vec(
+        "GA_P se",
+        &m.std_errors().iter().copied().collect::<Vec<_>>(),
+        &GA_P_SE,
+        TOL,
+    );
     close("GA_P loglik", m.log_likelihood(), GA_P_LOGLIK, TOL);
     close("GA_P sigma", m.sigma(), GA_P_SIGMA, TOL);
     close("GA_P sd_a", m.factors()[0].sd, GA_P_SD_A0, TOL);

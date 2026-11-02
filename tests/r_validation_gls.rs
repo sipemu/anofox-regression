@@ -88,8 +88,18 @@ fn check(
     close(&format!("{tag} logLik"), f.log_likelihood(), ll[0], 1e-7);
     close(&format!("{tag} AIC"), f.aic(), ll[1], 1e-7);
     close(&format!("{tag} BIC"), f.bic(), ll[2], 1e-7);
-    all_close(&format!("{tag} cor"), f.correlation_params(), cor, tol_par);
-    all_close(&format!("{tag} var"), f.variance_params(), var, tol_par);
+    all_close(
+        &format!("{tag} cor"),
+        &f.correlation_params().iter().copied().collect::<Vec<_>>(),
+        cor,
+        tol_par,
+    );
+    all_close(
+        &format!("{tag} var"),
+        &f.variance_params().iter().copied().collect::<Vec<_>>(),
+        var,
+        tol_par,
+    );
 }
 
 /// `intervals(fit, which = "var-cov")` flattened as (lower, est, upper) per
@@ -230,7 +240,12 @@ fn spatial_structures_match_nlme() {
     // the range is weakly identified (≈ 29 with a CI to 670): compare the
     // likelihood tightly, the parameters loosely
     close("EXP logLik", f.log_likelihood(), EXP_NUG_LOGLIK[0], 1e-7);
-    all_close("EXP cor", f.correlation_params(), &EXP_NUG_COR, 2e-2);
+    all_close(
+        "EXP cor",
+        &f.correlation_params().iter().copied().collect::<Vec<_>>(),
+        &EXP_NUG_COR,
+        2e-2,
+    );
     let b: Vec<f64> = f.coefficients().iter().copied().collect();
     all_close("EXP coef", &b, &EXP_NUG_COEF, 1e-3);
     close("EXP sigma", f.sigma(), EXP_NUG_SIGMA[0], 1e-3);
