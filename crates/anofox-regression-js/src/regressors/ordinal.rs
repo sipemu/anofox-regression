@@ -221,6 +221,33 @@ impl FittedOrdinal {
         Ok(mat_flat(&s))
     }
 
+    /// Cluster-robust covariance of (intercepts, slopes) (`rms::robcov` with
+    /// the "robcov" preset), row-major nested rows. `x` and `y` are the data
+    /// of the fit; see `clusterSandwich` for `clusters` and `options`.
+    #[wasm_bindgen(js_name = clusterVcov)]
+    pub fn cluster_vcov(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        y: &[f64],
+        clusters: JsValue,
+        options: JsValue,
+    ) -> Result<JsValue, JsError> {
+        let x_mat = self.mat(x, n_rows)?;
+        let y_col = to_col(y, n_rows, "target")?;
+        let c = crate::inference::parse_clusters(clusters, n_rows)?;
+        let v = self
+            .fitted
+            .cluster_vcov(
+                &x_mat,
+                &y_col,
+                &crate::inference::cluster_refs(&c),
+                &crate::inference::parse_cluster_options(options)?,
+            )
+            .map_err(fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&v))
+    }
+
     /// `xᵀβ` per row (no intercept, no offset).
     #[wasm_bindgen(js_name = linearPredictor)]
     pub fn linear_predictor(&self, x: &[f64], n_rows: usize) -> Result<Vec<f64>, JsError> {

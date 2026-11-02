@@ -203,6 +203,36 @@ impl FittedAft {
         ))
     }
 
+    /// Cluster-robust covariance of (intercept, coefficients, log scale)
+    /// (`survreg(..., cluster = id)` with the "robcov" preset). Needs a fit
+    /// with inference.
+    #[wasm_bindgen(js_name = clusterVcov)]
+    pub fn cluster_vcov(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        time: &[f64],
+        event: &[u8],
+        clusters: JsValue,
+        options: JsValue,
+    ) -> Result<JsValue, JsError> {
+        let x_mat = self.mat(x, n_rows)?;
+        let time = to_col(time, n_rows, "time")?;
+        let event: Vec<bool> = event.iter().map(|&e| e != 0).collect();
+        let c = crate::inference::parse_clusters(clusters, n_rows)?;
+        let v = self
+            .fitted
+            .cluster_vcov(
+                &x_mat,
+                &time,
+                &event,
+                &crate::inference::cluster_refs(&c),
+                &crate::inference::parse_cluster_options(options)?,
+            )
+            .map_err(fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&v))
+    }
+
     /// Per-observation score contributions, row-major `n_rows × k` with `k`
     /// = intercept + coefficients + log scale (when estimated).
     #[wasm_bindgen(js_name = scoreContributions)]
@@ -362,3 +392,4 @@ impl Default for AftRegressor {
 }
 
 iterative_fit!(FittedAft);
+likelihood_methods!(FittedAft);

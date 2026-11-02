@@ -408,6 +408,34 @@ breuschPagan(res, z, nCols, studentize); whiteTest(res, x, nCols);
 addedVariable(x, nRows, nCols, y, w?, withIntercept); checkBinarySeparation / detectSeparation(...)
 ```
 
+### Inference
+
+```typescript
+// methods
+fitted.predictSe(x, nRows, { scale?: 'response' | 'link', interval?: 'confidence' | 'prediction', level? })
+//   OLS, WLS, Ridge, Poisson, Binomial, NegativeBinomial, Tweedie, Gamma, PenalizedGlm
+fitted.likelihood(); fitted.modelLrTest()   // GLM fits, AFT, FittedGlm; lrTest(reduced.likelihood(), full.likelihood())
+fittedOls.clusterVcov(x, nRows, [codes, codes2?], 'cr1' | 'hc0' | 'robcov' | { type: 'hc0'..'hc3', cadjust })
+//   also WLS, Ordinal (x, nRows, y, ...), AFT (x, nRows, time, event, ...)
+fittedOls.hcStandardErrors(x, nRows, 'hc3'); fittedOls.hcInference(x, nRows, 'hc3')
+fittedOls.vcov(); fittedOls.varianceFactor(); fittedOls.leverageNew(x, nRows)  // also WLS, Ridge
+
+// free functions
+const terms = new TermMap(); terms.addMain('x1', [0, 1, 1]); terms.addInteraction(a, b, false);
+anova(beta, vcov, terms, dfResidual?, sigma2?)          // rms::anova
+fastbw(beta, vcov, nIntercepts, terms, 'aic' | 'p', threshold?, 'residual' | 'individual', k?)
+waldTest(beta, vcov, c, r?, dfResidual?); waldChunk(beta, vcov, columns, dfResidual?)
+anovaTable(x, nRows, nCols, y, terms?: number[][], 'I' | 'II')
+nestedFTest(xReduced, pReduced, xFull, pFull, y); nestedFTestIndices(xFull, p, y, reduced)
+fitGlm(family, x, nRows, nCols, y, { dispersion?: number | 'estimated', weights?, offset?, link?, param? })
+glmScoreTest(...); profileConfint(...); lrTest(reduced, full)
+lmClusterVcov(...); glmClusterVcov(...); clusterSandwich(bread, scores, nRows, clusters, options)
+poolRubin(estimates, vcovs, dfComplete?).waldD1(indices)  // Rubin's rules
+approximateModel(...); approximationPath(...); heuristicShrinkage(lr, df); shrinkSlopes(...)
+computeHcStandardErrors / computeHcInference / computeXtxInverse / computeVarianceFactor /
+computeRidgeVarianceFactor / computePredictionIntervals / intervalsFromVarianceFactor / leverageNew
+```
+
 ### Missing values, offsets and prior weights
 
 ```typescript

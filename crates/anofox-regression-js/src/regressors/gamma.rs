@@ -287,3 +287,5 @@ iterative_fit!(FittedGamma);
 
 augment_methods!(FittedGamma);
 partial_residuals_method!(FittedGamma);
+predict_se_method!(FittedGamma);
+likelihood_methods!(FittedGamma);

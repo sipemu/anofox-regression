@@ -273,3 +273,5 @@ iterative_fit!(FittedNegativeBinomial);
 
 augment_methods!(FittedNegativeBinomial);
 partial_residuals_method!(FittedNegativeBinomial);
+predict_se_method!(FittedNegativeBinomial);
+likelihood_methods!(FittedNegativeBinomial);

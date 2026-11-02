@@ -275,3 +275,5 @@ iterative_fit!(FittedBinomial);
 
 augment_methods!(FittedBinomial);
 partial_residuals_method!(FittedBinomial);
+predict_se_method!(FittedBinomial);
+likelihood_methods!(FittedBinomial);
