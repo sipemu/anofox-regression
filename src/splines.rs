@@ -11,6 +11,9 @@
 //!   moved to the 5th smallest / largest value when `n < 100`, and special
 //!   handling of heavily tied extremes.
 //! * [`Lsp`] – linear spline `x, (x − t₁)₊, …` (`rms::lsp`).
+//! * [`BSpline`] – B-spline basis of any degree with uniform, quantile or
+//!   explicit knots and five extrapolation modes, as scikit-learn's
+//!   `SplineTransformer`.
 //! * [`restricted_interaction`] – `rms::%ia%`: the products of two bases
 //!   without the doubly nonlinear terms (RMS §2.7.2).
 //!
@@ -37,6 +40,10 @@
 use crate::numeric::quantile::quantile7;
 use faer::Mat;
 use thiserror::Error;
+
+mod bspline;
+
+pub use bspline::{BSpline, KnotPlacement, SplineExtrapolation};
 
 /// Errors from building a spline basis.
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -73,6 +80,24 @@ pub enum SplineError {
     /// Bases of a product have different row counts.
     #[error("bases have {0} and {1} rows")]
     RowMismatch(usize, usize),
+    /// A B-spline needs at least 2 base knots.
+    #[error("need at least 2 knots, got {0}")]
+    TooFewBaseKnots(usize),
+    /// B-spline knots must be strictly increasing.
+    #[error("knots must be sorted without duplicates")]
+    UnsortedKnots,
+    /// A value lies outside the base knots of a spline with
+    /// [`SplineExtrapolation::Error`].
+    #[error("x = {0} is beyond the limits of the knots")]
+    OutsideKnots(f64),
+    /// Periodic B-splines need `degree < n_knots`.
+    #[error("periodic splines require degree < n_knots, got degree {degree} and {n_knots} knots")]
+    PeriodicDegree {
+        /// The spline degree.
+        degree: usize,
+        /// The number of base knots.
+        n_knots: usize,
+    },
 }
 
 /// Columns of a basis with their names and nonlinearity flags.
