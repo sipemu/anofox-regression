@@ -472,10 +472,10 @@ fn augment_residual_type_names_and_wrappers() {
     assert_eq!(ResidualType::Pearson.as_str(), "pearson");
     assert_eq!(ResidualType::Deviance.as_str(), "deviance");
 
-    // LogisticRegression delegates to its binomial fit.
+    // LogisticRegressor delegates to its binomial fit.
     let x = design(&[&MT_MPG]);
     let y = col(&MT_VS);
-    let fit = LogisticRegression::builder()
+    let fit = LogisticRegressor::builder()
         .tolerance(1e-12)
         .build()
         .fit(&x, &y)

@@ -1,11 +1,11 @@
 //! Bayesian linear regression: empirical-Bayes / type-II ML estimators.
 //!
-//! [`BayesianRidge`] places a Gaussian prior `β | λ ~ N(0, λ⁻¹ I)` and
+//! [`BayesianRidgeRegressor`] places a Gaussian prior `β | λ ~ N(0, λ⁻¹ I)` and
 //! tunes the noise precision `α` and weight precision `λ` jointly via the
 //! evidence approximation (a.k.a. ML-II). Closed-form updates use the
 //! singular-value decomposition of the centered design matrix.
 //!
-//! [`ArdRegression`] is the same model with a *per-feature* precision
+//! [`ArdRegressor`] is the same model with a *per-feature* precision
 //! `λ_j`; large `λ_j` drives the corresponding `β_j` toward zero, giving
 //! automatic feature relevance pruning.
 //!
@@ -32,14 +32,14 @@
 //! # Example
 //!
 //! ```rust
-//! use anofox_regression::solvers::{BayesianRidge, Regressor, FittedRegressor};
+//! use anofox_regression::solvers::{BayesianRidgeRegressor, Regressor, FittedRegressor};
 //! # use faer::{Col, Mat};
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let x = Mat::from_fn(40, 2, |i, j| ((i * (j + 3)) as f64 * 0.31).cos());
 //! let y = Col::from_fn(40, |i| 0.5 + x[(i, 0)] - 2.0 * x[(i, 1)] + 0.01 * (i % 5) as f64);
 //! let x_new = Mat::from_fn(3, 2, |i, j| (i + j) as f64 * 0.2);
 //!
-//! let fitted = BayesianRidge::builder()
+//! let fitted = BayesianRidgeRegressor::builder()
 //!     .max_iter(300)
 //!     .tolerance(1e-3)
 //!     .build()
@@ -319,13 +319,13 @@ fn linear_predict(x: &Mat<f64>, result: &RegressionResult) -> Col<f64> {
 }
 
 // ----------------------------------------------------------------------------
-// BayesianRidge
+// BayesianRidgeRegressor
 // ----------------------------------------------------------------------------
 
 /// Bayesian Ridge regression with evidence-maximisation hyperparameter
 /// updates.
 #[derive(Debug, Clone)]
-pub struct BayesianRidge {
+pub struct BayesianRidgeRegressor {
     with_intercept: bool,
     max_iter: usize,
     tol: f64,
@@ -337,7 +337,7 @@ pub struct BayesianRidge {
     lambda_init: Option<f64>,
 }
 
-impl Default for BayesianRidge {
+impl Default for BayesianRidgeRegressor {
     fn default() -> Self {
         Self {
             with_intercept: true,
@@ -353,14 +353,14 @@ impl Default for BayesianRidge {
     }
 }
 
-impl BayesianRidge {
+impl BayesianRidgeRegressor {
     /// A builder with sklearn's defaults.
-    pub fn builder() -> BayesianRidgeBuilder {
-        BayesianRidgeBuilder::default()
+    pub fn builder() -> BayesianRidgeRegressorBuilder {
+        BayesianRidgeRegressorBuilder::default()
     }
 }
 
-/// The SVD pieces of the centered design used by the BayesianRidge updates.
+/// The SVD pieces of the centered design used by the BayesianRidgeRegressor updates.
 struct RidgeSvd {
     v: Mat<f64>,
     s: Vec<f64>,
@@ -390,7 +390,7 @@ impl RidgeSvd {
     }
 }
 
-impl Regressor for BayesianRidge {
+impl Regressor for BayesianRidgeRegressor {
     type Fitted = FittedBayesianRidge;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
@@ -485,7 +485,7 @@ impl Regressor for BayesianRidge {
     }
 }
 
-impl BayesianRidge {
+impl BayesianRidgeRegressor {
     /// sklearn's `_log_marginal_likelihood` (the last entry of `scores_`).
     #[allow(clippy::too_many_arguments)]
     fn log_marginal_likelihood(
@@ -602,12 +602,12 @@ impl FittedRegressor for FittedBayesianRidge {
     }
 }
 
-/// Builder for [`BayesianRidge`].
+/// Builder for [`BayesianRidgeRegressor`].
 #[derive(Debug, Clone, Default)]
-pub struct BayesianRidgeBuilder {
-    inner: BayesianRidge,
+pub struct BayesianRidgeRegressorBuilder {
+    inner: BayesianRidgeRegressor,
 }
-impl BayesianRidgeBuilder {
+impl BayesianRidgeRegressorBuilder {
     /// Fit an intercept (default `true`; sklearn `with_intercept`).
     pub fn with_intercept(mut self, v: bool) -> Self {
         self.inner.with_intercept = v;
@@ -655,7 +655,7 @@ impl BayesianRidgeBuilder {
         self
     }
     /// The configured estimator.
-    pub fn build(self) -> BayesianRidge {
+    pub fn build(self) -> BayesianRidgeRegressor {
         self.inner
     }
 }
@@ -666,7 +666,7 @@ impl BayesianRidgeBuilder {
 
 /// Automatic Relevance Determination regression.
 #[derive(Debug, Clone)]
-pub struct ArdRegression {
+pub struct ArdRegressor {
     with_intercept: bool,
     max_iter: usize,
     tol: f64,
@@ -678,7 +678,7 @@ pub struct ArdRegression {
     threshold_lambda: f64,
 }
 
-impl Default for ArdRegression {
+impl Default for ArdRegressor {
     fn default() -> Self {
         Self {
             with_intercept: true,
@@ -693,10 +693,10 @@ impl Default for ArdRegression {
     }
 }
 
-impl ArdRegression {
+impl ArdRegressor {
     /// A builder with sklearn's defaults.
-    pub fn builder() -> ArdRegressionBuilder {
-        ArdRegressionBuilder::default()
+    pub fn builder() -> ArdRegressorBuilder {
+        ArdRegressorBuilder::default()
     }
 
     /// `Σ = (diag(λ_kept) + α X_keptᵀ X_kept)⁻¹` over the kept features.
@@ -726,7 +726,7 @@ impl ArdRegression {
     }
 }
 
-impl Regressor for ArdRegression {
+impl Regressor for ArdRegressor {
     type Fitted = FittedArd;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
@@ -906,12 +906,12 @@ impl FittedRegressor for FittedArd {
     }
 }
 
-/// Builder for [`ArdRegression`].
+/// Builder for [`ArdRegressor`].
 #[derive(Debug, Clone, Default)]
-pub struct ArdRegressionBuilder {
-    inner: ArdRegression,
+pub struct ArdRegressorBuilder {
+    inner: ArdRegressor,
 }
-impl ArdRegressionBuilder {
+impl ArdRegressorBuilder {
     /// Fit an intercept (default `true`; sklearn `with_intercept`).
     pub fn with_intercept(mut self, v: bool) -> Self {
         self.inner.with_intercept = v;
@@ -954,7 +954,7 @@ impl ArdRegressionBuilder {
         self
     }
     /// The configured estimator.
-    pub fn build(self) -> ArdRegression {
+    pub fn build(self) -> ArdRegressor {
         self.inner
     }
 }
@@ -1026,7 +1026,10 @@ mod tests {
             v
         });
 
-        let fitted = BayesianRidge::builder().build().fit(&x, &y).unwrap();
+        let fitted = BayesianRidgeRegressor::builder()
+            .build()
+            .fit(&x, &y)
+            .unwrap();
         for j in 0..p {
             assert!(
                 (fitted.result.coefficients[j] - true_beta[j]).abs() < 0.1,
@@ -1059,7 +1062,7 @@ mod tests {
             v
         });
 
-        let fitted = ArdRegression::builder()
+        let fitted = ArdRegressor::builder()
             .threshold_lambda(10_000.0)
             .build()
             .fit(&x, &y)

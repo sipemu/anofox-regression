@@ -1,13 +1,13 @@
-//! R Validation Tests for LogisticRegression.
+//! R Validation Tests for LogisticRegressor.
 //!
-//! These tests compare anofox-regression's LogisticRegression against R's
-//! glm(family = binomial(link = "logit")) output. Since LogisticRegression
+//! These tests compare anofox-regression's LogisticRegressor against R's
+//! glm(family = binomial(link = "logit")) output. Since LogisticRegressor
 //! wraps BinomialRegressor (which is already R-validated), coefficients
 //! should match very closely.
 //!
 //! Generator: `tests/r_scripts/generate_logistic_validation.R`.
 
-use anofox_regression::solvers::LogisticRegression;
+use anofox_regression::solvers::LogisticRegressor;
 use faer::{Col, Mat};
 
 // ============================================================================
@@ -337,7 +337,7 @@ fn test_logistic_simple_coefficients_vs_r() {
     let x = Mat::from_fn(N_SIMPLE, 1, |i, _| X_SIMPLE[i]);
     let y = Col::from_fn(N_SIMPLE, |i| Y_SIMPLE[i]);
 
-    let model = LogisticRegression::builder().with_intercept(true).build();
+    let model = LogisticRegressor::builder().with_intercept(true).build();
     let fitted = model.fit(&x, &y).unwrap();
 
     let intercept = fitted.intercept().unwrap();
@@ -363,7 +363,7 @@ fn test_logistic_simple_probabilities_vs_r() {
     let x = Mat::from_fn(N_SIMPLE, 1, |i, _| X_SIMPLE[i]);
     let y = Col::from_fn(N_SIMPLE, |i| Y_SIMPLE[i]);
 
-    let model = LogisticRegression::builder().with_intercept(true).build();
+    let model = LogisticRegressor::builder().with_intercept(true).build();
     let fitted = model.fit(&x, &y).unwrap();
 
     let probs = fitted.predict_proba(&x);
@@ -385,7 +385,7 @@ fn test_logistic_simple_classes_vs_r() {
     let x = Mat::from_fn(N_SIMPLE, 1, |i, _| X_SIMPLE[i]);
     let y = Col::from_fn(N_SIMPLE, |i| Y_SIMPLE[i]);
 
-    let model = LogisticRegression::builder().with_intercept(true).build();
+    let model = LogisticRegressor::builder().with_intercept(true).build();
     let fitted = model.fit(&x, &y).unwrap();
 
     let classes = fitted.predict(&x);
@@ -405,7 +405,7 @@ fn test_logistic_simple_accuracy_vs_r() {
     let x = Mat::from_fn(N_SIMPLE, 1, |i, _| X_SIMPLE[i]);
     let y = Col::from_fn(N_SIMPLE, |i| Y_SIMPLE[i]);
 
-    let model = LogisticRegression::builder().with_intercept(true).build();
+    let model = LogisticRegressor::builder().with_intercept(true).build();
     let fitted = model.fit(&x, &y).unwrap();
 
     let accuracy = fitted.score(&x, &y);
@@ -429,7 +429,7 @@ fn test_logistic_simple_logodds_vs_r() {
     let x = Mat::from_fn(N_SIMPLE, 1, |i, _| X_SIMPLE[i]);
     let y = Col::from_fn(N_SIMPLE, |i| Y_SIMPLE[i]);
 
-    let model = LogisticRegression::builder().with_intercept(true).build();
+    let model = LogisticRegressor::builder().with_intercept(true).build();
     let fitted = model.fit(&x, &y).unwrap();
 
     let logodds = fitted.decision_function(&x);
@@ -468,7 +468,7 @@ fn test_logistic_multi_predictor_vs_r() {
     );
     let y = Col::from_fn(N_MULTI, |i| Y_MULTI[i]);
 
-    let model = LogisticRegression::builder().with_intercept(true).build();
+    let model = LogisticRegressor::builder().with_intercept(true).build();
     let fitted = model.fit(&x, &y).unwrap();
 
     let intercept = fitted.intercept().unwrap();
@@ -519,7 +519,7 @@ fn test_logistic_separated_data_vs_r() {
     let x = Mat::from_fn(N_SEP, 1, |i, _| X_SEP[i]);
     let y = Col::from_fn(N_SEP, |i| Y_SEP[i]);
 
-    let model = LogisticRegression::builder().with_intercept(true).build();
+    let model = LogisticRegressor::builder().with_intercept(true).build();
     let fitted = model.fit(&x, &y).unwrap();
 
     let intercept = fitted.intercept().unwrap();
@@ -557,7 +557,7 @@ fn test_logistic_l2_shrinkage() {
     let y = Col::from_fn(N_SIMPLE, |i| Y_SIMPLE[i]);
 
     // Fit unregularized model and verify it matches R baseline
-    let model_unreg = LogisticRegression::builder().with_intercept(true).build();
+    let model_unreg = LogisticRegressor::builder().with_intercept(true).build();
     let fitted_unreg = model_unreg.fit(&x, &y).unwrap();
 
     let unreg_intercept = fitted_unreg.intercept().unwrap();
@@ -577,7 +577,7 @@ fn test_logistic_l2_shrinkage() {
     );
 
     // Fit with L2 regularization
-    let model_l2 = LogisticRegression::builder()
+    let model_l2 = LogisticRegressor::builder()
         .with_intercept(true)
         .l2(1.0)
         .build();

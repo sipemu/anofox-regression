@@ -2,8 +2,8 @@
 
 use anofox_regression::prelude::*;
 use anofox_regression::solvers::{
-    ArdRegression, BayesianRidge, LarsRegressor, LmDynamicRegressor, PassiveAggressiveRegressor,
-    RansacRegressor, TheilSenRegressor,
+    ArdRegressor, BayesianRidgeRegressor, LarsRegressor, LmDynamicRegressor,
+    PassiveAggressiveRegressor, RansacRegressor, TheilSenRegressor,
 };
 use faer::{Col, Mat};
 
@@ -74,9 +74,12 @@ fn linear_models() {
     assert_eq!(f.model_info(), gaussian("elastic_net"));
     let f = LarsRegressor::builder().build().fit(&x, &y).unwrap();
     assert_eq!(f.model_info(), gaussian("lars"));
-    let f = BayesianRidge::builder().build().fit(&x, &y).unwrap();
+    let f = BayesianRidgeRegressor::builder()
+        .build()
+        .fit(&x, &y)
+        .unwrap();
     assert_eq!(f.model_info(), gaussian("bayesian_ridge"));
-    let f = ArdRegression::builder().build().fit(&x, &y).unwrap();
+    let f = ArdRegressor::builder().build().fit(&x, &y).unwrap();
     assert_eq!(f.model_info(), gaussian("ard"));
     let f = PlsRegressor::builder()
         .n_components(1)
@@ -155,7 +158,7 @@ fn glm_families_and_links() {
         info("binomial", Some("binomial"), "cloglog")
     );
 
-    let f = LogisticRegression::builder().build().fit(&x, &yb).unwrap();
+    let f = LogisticRegressor::builder().build().fit(&x, &yb).unwrap();
     assert_eq!(f.model_info(), info("logistic", Some("binomial"), "logit"));
 
     let f = PoissonRegressor::log().build().fit(&x, &yc).unwrap();

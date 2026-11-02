@@ -56,7 +56,6 @@ mod macros;
 pub mod core;
 pub mod design;
 pub mod diagnostics;
-pub mod distributions;
 pub mod effects;
 pub mod error;
 pub mod imputation;
@@ -104,7 +103,7 @@ pub mod prelude {
         FittedIsotonic, FittedLogistic, FittedNegativeBinomial, FittedPSpline, FittedPls,
         FittedPoisson, FittedQuantile, FittedRegressor, FittedTweedie, GammaRegressor, GlmmDdf,
         GlmmInference, GlmmRegressor, GlmmRegressorBuilder, HuberRegressor, IsotonicRegressor,
-        IterativeFit, LinkFunction, LogisticRegression, NegativeBinomialRegressor, OlsRegressor,
+        IterativeFit, LinkFunction, LogisticRegressor, NegativeBinomialRegressor, OlsRegressor,
         OutOfBounds, PSplineRegressor, Penalty, PlsRegressor, PoissonRegressor, QuantileRegressor,
         Regressor, RidgeRegressor, RlsRegressor, TweedieRegressor, WlsRegressor,
     };

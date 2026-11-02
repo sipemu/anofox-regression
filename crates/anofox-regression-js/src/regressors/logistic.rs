@@ -3,7 +3,7 @@
 use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{
     FittedLogistic as RustFittedLogistic, FittedRegressor,
-    LogisticRegression as RustLogisticRegression, Penalty,
+    LogisticRegressor as RustLogisticRegression, Penalty,
 };
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};

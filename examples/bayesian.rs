@@ -1,16 +1,18 @@
 //! # Bayesian Ridge and ARD Regression
 //!
-//! `BayesianRidge` places a Gaussian prior on the coefficients and tunes
+//! `BayesianRidgeRegressor` places a Gaussian prior on the coefficients and tunes
 //! the noise precision α and weight precision λ jointly via type-II
 //! maximum likelihood (evidence approximation).
 //!
-//! `ArdRegression` extends this with a *per-feature* precision λ_j: large
+//! `ArdRegressor` extends this with a *per-feature* precision λ_j: large
 //! λ_j shrinks the corresponding β_j to zero, giving automatic feature
 //! relevance pruning.
 //!
 //! Run with: `cargo run --example bayesian`
 
-use anofox_regression::solvers::{ArdRegression, BayesianRidge, FittedRegressor, Regressor};
+use anofox_regression::solvers::{
+    ArdRegressor, BayesianRidgeRegressor, FittedRegressor, Regressor,
+};
 use faer::{Col, Mat};
 
 fn main() {
@@ -40,7 +42,7 @@ fn bayesian_ridge() {
         v
     });
 
-    let fitted = BayesianRidge::builder()
+    let fitted = BayesianRidgeRegressor::builder()
         .with_intercept(true)
         .max_iter(300)
         .tolerance(1e-3)
@@ -81,7 +83,7 @@ fn ard() {
         v
     });
 
-    let fitted = ArdRegression::builder()
+    let fitted = ArdRegressor::builder()
         .with_intercept(true)
         .max_iter(300)
         .tolerance(1e-3)

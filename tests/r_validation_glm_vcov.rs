@@ -5,7 +5,7 @@
 //! `tests/r_scripts/generate_glm_vcov_validation.R`.
 
 use anofox_regression::solvers::{
-    BinomialRegressor, GammaRegressor, LogisticRegression, NegativeBinomialRegressor,
+    BinomialRegressor, GammaRegressor, LogisticRegressor, NegativeBinomialRegressor,
     PoissonRegressor, Regressor, TweedieRegressor,
 };
 use faer::{Col, Mat};
@@ -111,13 +111,13 @@ fn glm_vcov_matches_r() {
         &VCOV_GAMMA,
         1e-6,
     );
-    let logistic = LogisticRegression::builder()
+    let logistic = LogisticRegressor::builder()
         .with_intercept(true)
         .compute_inference(true)
         .tolerance(1e-12)
         .build();
     assert_vcov(
-        "LogisticRegression",
+        "LogisticRegressor",
         logistic.fit(&x, &y(&Y_BIN)).unwrap().vcov(),
         &VCOV_BIN,
         1e-6,

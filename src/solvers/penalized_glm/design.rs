@@ -10,7 +10,7 @@
 //! core would still pass while the SQL-visible behaviour regressed.
 
 use crate::solvers::penalized_glm::error::{GlmEngineError, GlmEngineResult};
-use crate::solvers::penalized_glm::types::{PriorSpec, VcovType};
+use crate::solvers::penalized_glm::types::PriorSpec;
 use faer::Mat;
 
 use super::penalty::{Penalty, QuadraticPenalty};
@@ -283,11 +283,6 @@ pub fn build(spec: &DesignSpec<'_>) -> GlmEngineResult<Design> {
         n_features_original,
         with_intercept,
     })
-}
-
-/// Resolve the covariance type, defaulting to `Laplace`.
-pub fn resolve_vcov(requested: VcovType) -> VcovType {
-    requested
 }
 
 #[cfg(test)]

@@ -173,7 +173,7 @@ cargo run --example passive_aggressive  # PA-I / PA-II + partial_fit
 cargo run --example poisson             # Poisson GLM
 cargo run --example negative_binomial   # Negative Binomial GLM
 cargo run --example binomial            # Binomial GLM (logit/probit/cloglog)
-cargo run --example logistic            # LogisticRegression (sklearn-style)
+cargo run --example logistic            # LogisticRegressor (sklearn-style)
 cargo run --example tweedie             # Tweedie GLM
 cargo run --example gamma               # Gamma GLM (log link)
 
@@ -293,7 +293,7 @@ This library is developed using Test-Driven Development (TDD) against establishe
 | `WlsRegressor` | `lm()` with weights | stats |
 | `RidgeRegressor`, `ElasticNetRegressor` | `glmnet()` | glmnet |
 | `HuberRegressor` | `rlm(psi=psi.huber)` | MASS |
-| `LogisticRegression` | `glm(..., family=binomial)` | stats |
+| `LogisticRegressor` | `glm(..., family=binomial)` | stats |
 | `BlsRegressor` | `nnls()` | nnls |
 | `PoissonRegressor` | `glm(..., family=poisson)` | stats |
 | `BinomialRegressor` | `glm(..., family=binomial)` | stats |
@@ -322,8 +322,8 @@ This library is developed using Test-Driven Development (TDD) against establishe
 | `RansacRegressor` | `linear_model.RANSACRegressor` |
 | `PassiveAggressiveRegressor` | `linear_model.PassiveAggressiveRegressor` |
 | `LarsRegressor`, LassoLars variant | `linear_model.Lars`, `linear_model.LassoLars` |
-| `BayesianRidge` | `linear_model.BayesianRidge` |
-| `ArdRegression` | `linear_model.ARDRegression` |
+| `BayesianRidgeRegressor` | `linear_model.BayesianRidge` |
+| `ArdRegressor` | `linear_model.ARDRegression` |
 
 745 reference comparisons check numerical agreement with the chosen oracle within documented tolerances; [`validation/VALIDATION.md`](validation/VALIDATION.md) maps every reference script to its tests.
 

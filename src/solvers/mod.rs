@@ -53,8 +53,8 @@ pub use alm::{
     AlmDistribution, AlmLoss, AlmRegressor, AlmRegressorBuilder, FittedAlm, LinkFunction,
 };
 pub use bayesian::{
-    ArdRegression, ArdRegressionBuilder, BayesianRidge, BayesianRidgeBuilder, CredibleIntervals,
-    FittedArd, FittedBayesianRidge,
+    ArdRegressor, ArdRegressorBuilder, BayesianRidgeRegressor, BayesianRidgeRegressorBuilder,
+    CredibleIntervals, FittedArd, FittedBayesianRidge,
 };
 pub use binomial::{BinomialRegressor, FittedBinomial};
 pub use bls::{BlsRegressor, FittedBls};
@@ -75,9 +75,10 @@ pub use huber::{FittedHuber, HuberRegressor, HuberRegressorBuilder};
 pub use isotonic::{FittedIsotonic, IsotonicRegressor, IsotonicRegressorBuilder, OutOfBounds};
 pub use lars::{FittedLars, LarsMethod, LarsRegressor, LarsRegressorBuilder};
 pub use lm_dynamic::{
-    FittedLmDynamic, InformationCriterion, LmDynamicRegressor, LmDynamicRegressorBuilder, ModelSpec,
+    CandidateModel, FittedLmDynamic, InformationCriterion, LmDynamicRegressor,
+    LmDynamicRegressorBuilder,
 };
-pub use logistic::{FittedLogistic, LogisticRegression, LogisticRegressionBuilder, Penalty};
+pub use logistic::{FittedLogistic, LogisticRegressor, LogisticRegressorBuilder, Penalty};
 pub use moments::MomentAccumulator;
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
 pub use ols::{FittedOls, OlsRegressor, OlsRegressorBuilder};
@@ -113,3 +114,16 @@ pub use traits::{
 };
 pub use tweedie::{FittedTweedie, TweedieRegressor};
 pub use wls::{FittedWls, WlsRegressor, WlsRegressorBuilder};
+
+/// Former name of [`LogisticRegressor`].
+#[deprecated(since = "0.9.0", note = "renamed to `LogisticRegressor`")]
+pub type LogisticRegression = LogisticRegressor;
+/// Former name of [`LogisticRegressorBuilder`].
+#[deprecated(since = "0.9.0", note = "renamed to `LogisticRegressorBuilder`")]
+pub type LogisticRegressionBuilder = LogisticRegressorBuilder;
+/// Former name of [`BayesianRidgeRegressor`].
+#[deprecated(since = "0.9.0", note = "renamed to `BayesianRidgeRegressor`")]
+pub type BayesianRidge = BayesianRidgeRegressor;
+/// Former name of [`ArdRegressor`].
+#[deprecated(since = "0.9.0", note = "renamed to `ArdRegressor`")]
+pub type ArdRegression = ArdRegressor;

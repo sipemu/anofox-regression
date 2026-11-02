@@ -6,7 +6,7 @@
 //! (`lrm(penalty = 1, penalty.matrix = diag(λ))`).
 
 use anofox_regression::solvers::{
-    BinomialRegressor, FittedRegressor, LogisticRegression, Regressor,
+    BinomialRegressor, FittedRegressor, LogisticRegressor, Regressor,
 };
 use faer::{Col, Mat};
 
@@ -201,7 +201,7 @@ fn l2_penalised_coefficients_and_ses_match_rms() {
 fn logistic_regression_l2_uses_the_same_penalised_ses() {
     let x = Mat::from_fn(N, 2, |i, j| if j == 0 { X1[i] } else { X2[i] });
     let y = Col::from_fn(N, |i| Y[i]);
-    let fit = LogisticRegression::builder()
+    let fit = LogisticRegressor::builder()
         .l2(5.0)
         .compute_inference(true)
         .tolerance(1e-14)

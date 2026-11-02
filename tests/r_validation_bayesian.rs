@@ -1,4 +1,4 @@
-//! BayesianRidge and ARDRegression validation against scikit-learn 1.9.1.
+//! BayesianRidgeRegressor and ARDRegression validation against scikit-learn 1.9.1.
 //!
 //! Reference values come from
 //! `validation/python/generate_bayesian_validation.py`. Both estimators
@@ -10,7 +10,9 @@
 
 use anofox_regression::core::IntervalType;
 use anofox_regression::solvers::IterativeFit;
-use anofox_regression::solvers::{ArdRegression, BayesianRidge, FittedRegressor, Regressor};
+use anofox_regression::solvers::{
+    ArdRegressor, BayesianRidgeRegressor, FittedRegressor, Regressor,
+};
 use faer::{Col, Mat};
 
 include!("fixtures/bayesian_validation.rs");
@@ -70,7 +72,7 @@ fn check_bayesian_ridge(
 ) {
     let x = matrix(x_flat, n, p);
     let y = Col::from_fn(n, |i| y[i]);
-    let fitted = BayesianRidge::builder()
+    let fitted = BayesianRidgeRegressor::builder()
         .with_intercept(with_intercept)
         .build()
         .fit(&x, &y)
@@ -168,7 +170,10 @@ fn bayesian_ridge_without_intercept_matches_sklearn() {
 fn bayesian_ridge_intervals_use_posterior_predictive_std() {
     let x = matrix(&X_BR_FLAT, N_BR, P_BR);
     let y = Col::from_fn(N_BR, |i| Y_BR[i]);
-    let fitted = BayesianRidge::builder().build().fit(&x, &y).unwrap();
+    let fitted = BayesianRidgeRegressor::builder()
+        .build()
+        .fit(&x, &y)
+        .unwrap();
     let xq = matrix(&X_QUERY_BR_FLAT, N_QUERY_BR, P_BR);
 
     let z = 1.959_963_984_540_054;
@@ -206,7 +211,10 @@ fn bayesian_ridge_intervals_use_posterior_predictive_std() {
 fn bayesian_fit_statistics_are_not_reported_as_zero() {
     let x = matrix(&X_BR_FLAT, N_BR, P_BR);
     let y = Col::from_fn(N_BR, |i| Y_BR[i]);
-    let fitted = BayesianRidge::builder().build().fit(&x, &y).unwrap();
+    let fitted = BayesianRidgeRegressor::builder()
+        .build()
+        .fit(&x, &y)
+        .unwrap();
     let r = fitted.result();
     assert!(r.r_squared > 0.9);
     for v in [r.log_likelihood, r.aic, r.bic, r.f_statistic, r.rmse] {
@@ -219,7 +227,7 @@ fn ard_matches_sklearn() {
     let x = matrix(&X_ARD_FLAT, N_ARD, P_ARD);
     let y = Col::from_fn(N_ARD, |i| Y_ARD[i]);
 
-    let fitted = ArdRegression::builder()
+    let fitted = ArdRegressor::builder()
         .with_intercept(true)
         .max_iter(300)
         .tolerance(1e-3)
@@ -345,7 +353,7 @@ fn bayesian_ridge_credible_intervals_match_sklearn_posterior() {
     for ((x_flat, y, n, p, intercept), (sd, lo, hi, b0)) in cases.into_iter().zip(expected) {
         let x = matrix(x_flat, n, p);
         let y = Col::from_fn(n, |i| y[i]);
-        let fitted = BayesianRidge::builder()
+        let fitted = BayesianRidgeRegressor::builder()
             .with_intercept(intercept)
             .build()
             .fit(&x, &y)
@@ -358,7 +366,7 @@ fn bayesian_ridge_credible_intervals_match_sklearn_posterior() {
 fn ard_credible_intervals_match_sklearn_posterior() {
     let x = matrix(&X_ARD_FLAT, N_ARD, P_ARD);
     let y = Col::from_fn(N_ARD, |i| Y_ARD[i]);
-    let fitted = ArdRegression::builder().build().fit(&x, &y).unwrap();
+    let fitted = ArdRegressor::builder().build().fit(&x, &y).unwrap();
     let ci = fitted.credible_intervals(0.9);
     check_credible(
         &ci,

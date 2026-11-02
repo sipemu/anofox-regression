@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Public surface cleanup (#180).** Breaking:
+  - **statrs is no longer part of the API.** The `distributions` module only re-exported `statrs` types, and nothing else in the public API names a statrs type; it is removed. Use statrs directly if you need its distributions.
+  - **The penalized-GLM building blocks are crate-private:** `engine`, `irls`, `laplace`, `loglik`, `normal_eq`, `penalty` and `design`. The estimator, families, options, results and errors stay public.
+  - **Renames:** `lm_dynamic::ModelSpec` → `CandidateModel` (it clashed with `effects::ModelSpec`). `LogisticRegression` → `LogisticRegressor`, `BayesianRidge` → `BayesianRidgeRegressor` and `ArdRegression` → `ArdRegressor`, with their builders, following the `*Regressor` convention; the old names stay as deprecated aliases. The JS/WASM class names are unchanged.
+  - **faer** is re-exported (`anofox_regression::faer`) under the policy in `STABILITY.md`. `SufficientStats` / `fit_from_state` stay public: they are the documented distributed-fitting API, not plumbing. Merging the duplicated private numerics is internal and tracked in #284.
 - **Consistent estimator API, part 1 (#179).** Breaking:
   - **`with_intercept` everywhere:** `fit_intercept` builder methods and fields (`BayesianRidge`, `ArdRegression`, `LarsRegressor`, `PathOptions`, `AftOptions`, the penalized-GLM options) are renamed to `with_intercept`.
   - **New `IterativeFit` trait** (in the prelude): `converged()`, `iterations()` and the opt-in strict policy `fit(..)?.ensure_converged()?`, which returns `ConvergenceFailed`. It is implemented by the IRLS GLMs (Poisson, binomial, negative binomial, Tweedie, Gamma), logistic, GLMM, ordinal, continuation ratio, penalized GLM, AFT, Huber, quantile, Bayesian ridge, ARD and passive-aggressive. Bayesian ridge, ARD and passive-aggressive now record convergence (the tolerance or early-stop rule). The inherent `converged()` / `iterations()` / `n_iter()` methods are replaced by the trait, and iteration counts are `usize`. ALM, GLS and Theil–Sen follow in #281.

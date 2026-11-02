@@ -36,7 +36,7 @@ use crate::diagnostics::accuracy::{
     quantile7,
 };
 use crate::solvers::lowess::{lowess, LowessOptions};
-use crate::solvers::{FittedRegressor, LogisticRegression, OlsRegressor, Regressor};
+use crate::solvers::{FittedRegressor, LogisticRegressor, OlsRegressor, Regressor};
 use crate::survival::cox::{coxph, CoxFit, CoxInput, CoxOptions};
 use crate::survival::{kaplan_meier, SurvfitOptions};
 use faer::{Col, Mat};
@@ -401,7 +401,7 @@ fn check_xy(x: &Mat<f64>, y: &[f64]) -> Result<(), ValidationError> {
 fn fit_logistic(x: &Mat<f64>, y: &[f64], rows: &[usize]) -> Option<Vec<f64>> {
     let xr = rows_of(x, rows);
     let yr = Col::from_fn(rows.len(), |i| y[rows[i]]);
-    let f = LogisticRegression::builder()
+    let f = LogisticRegressor::builder()
         .tolerance(1e-12)
         .max_iterations(100)
         .build()
