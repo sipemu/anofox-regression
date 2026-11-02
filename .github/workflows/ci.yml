@@ -134,6 +134,29 @@ jobs:
         working-directory: js
         run: npm test
 
+  js-parity:
+    name: JS/WASM parity
+    runs-on: ubuntu-latest
+    # Every public Rust item needs a JS binding or an allow-list entry with a
+    # reason (js/parity-allowlist.txt, scripts/js_parity.py; #287). The
+    # nightly is pinned because the rustdoc JSON format changes between
+    # nightlies.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-03-10
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Rust public API (rustdoc JSON)
+        run: cargo rustdoc --lib -- -Z unstable-options --output-format json
+      - name: Build WASM package
+        run: wasm-pack build crates/anofox-regression-js --target web --out-dir pkg --dev
+      - name: Check parity
+        run: python3 scripts/js_parity.py
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

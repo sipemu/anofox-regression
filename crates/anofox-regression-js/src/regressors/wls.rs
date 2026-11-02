@@ -249,3 +249,27 @@ impl FittedWls {
         Ok(crate::convert::ToJs::to_js(&v))
     }
 }
+
+#[wasm_bindgen]
+impl WlsRegressor {
+    /// Fit from a `SufficientStats` state (weights recorded in the state
+    /// are used; `setWeights` is ignored).
+    #[wasm_bindgen(js_name = fitFromState)]
+    pub fn fit_from_state(
+        &self,
+        state: &crate::streaming::SufficientStats,
+    ) -> Result<FittedWls, JsError> {
+        let fitted = RustWlsRegressor::builder()
+            .na_action(self.na_action)
+            .with_intercept(self.with_intercept)
+            .compute_inference(self.compute_inference)
+            .confidence_level(self.confidence_level)
+            .build()
+            .fit_from_state(&state.inner)
+            .map_err(super::fit_error)?;
+        Ok(FittedWls {
+            fitted,
+            n_features: state.inner.n_features(),
+        })
+    }
+}

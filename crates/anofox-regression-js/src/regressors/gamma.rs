@@ -289,3 +289,6 @@ augment_methods!(FittedGamma);
 partial_residuals_method!(FittedGamma);
 predict_se_method!(FittedGamma);
 likelihood_methods!(FittedGamma);
+
+predict_col_methods!(FittedGamma { "predictMu" => predict_mu });
+vcov_method!(FittedGamma);

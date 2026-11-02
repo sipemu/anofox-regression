@@ -212,3 +212,63 @@ impl Default for LmDynamicRegressor {
     }
 }
 partial_residuals_method!(FittedLmDynamic);
+
+#[wasm_bindgen]
+impl FittedLmDynamic {
+    /// Model-averaged coefficients at observation `i` (undefined out of
+    /// range).
+    #[wasm_bindgen(js_name = coefficientsAt)]
+    pub fn coefficients_at(&self, i: usize) -> Option<Vec<f64>> {
+        self.fitted
+            .coefficients_at(i)
+            .map(|c| c.iter().copied().collect())
+    }
+
+    /// Coefficient `j` at observation `i`.
+    #[wasm_bindgen(js_name = coefficientAt)]
+    pub fn coefficient_at(&self, i: usize, j: usize) -> Option<f64> {
+        self.fitted.coefficient_at(i, j)
+    }
+
+    /// Model weights per observation (`n × models`), row-major.
+    #[wasm_bindgen(js_name = modelWeights)]
+    pub fn model_weights(&self) -> Vec<f64> {
+        super::mat_flat(self.fitted.model_weights())
+    }
+
+    /// Point-wise information criteria (`n × models`), row-major.
+    #[wasm_bindgen(js_name = pointwiseIc)]
+    pub fn pointwise_ic(&self) -> Vec<f64> {
+        super::mat_flat(self.fitted.pointwise_ic())
+    }
+
+    /// LOWESS-smoothed weights, row-major (undefined without smoothing).
+    #[wasm_bindgen(js_name = smoothedWeights)]
+    pub fn smoothed_weights(&self) -> Option<Vec<f64>> {
+        self.fitted.smoothed_weights().map(super::mat_flat)
+    }
+
+    /// The smoothing span used (undefined without smoothing).
+    #[wasm_bindgen]
+    pub fn span(&self) -> Option<f64> {
+        self.fitted.span()
+    }
+
+    /// Criterion of the span selection at span `f`.
+    #[wasm_bindgen(js_name = spanCriterion)]
+    pub fn span_criterion(&self, f: f64) -> f64 {
+        self.fitted.span_criterion(f)
+    }
+
+    /// Variables of each candidate model: `[[columns], ...]`.
+    #[wasm_bindgen(js_name = modelSpecs)]
+    pub fn model_specs(&self) -> JsValue {
+        let specs: Vec<Vec<usize>> = self
+            .fitted
+            .model_specs()
+            .iter()
+            .map(|m| m.included_vars.clone())
+            .collect();
+        crate::convert::ToJs::to_js(&specs)
+    }
+}

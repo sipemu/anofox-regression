@@ -393,3 +393,34 @@ impl Default for AftRegressor {
 
 iterative_fit!(FittedAft);
 likelihood_methods!(FittedAft);
+
+#[wasm_bindgen]
+impl FittedAft {
+    /// Survival-time quantiles at probabilities `probs` for one covariate
+    /// row.
+    #[wasm_bindgen]
+    pub fn quantiles(&self, x_row: &[f64], probs: &[f64]) -> Result<Vec<f64>, JsError> {
+        self.check_row(x_row)?;
+        Ok(self.fitted.quantiles(x_row, probs))
+    }
+
+    /// Survival probabilities at `times` for one covariate row.
+    #[wasm_bindgen(js_name = survivalCurve)]
+    pub fn survival_curve(&self, x_row: &[f64], times: &[f64]) -> Result<Vec<f64>, JsError> {
+        self.check_row(x_row)?;
+        Ok(self.fitted.survival_curve(x_row, times))
+    }
+}
+
+impl FittedAft {
+    fn check_row(&self, x_row: &[f64]) -> Result<(), JsError> {
+        if x_row.len() != self.n_features {
+            return Err(JsError::new(&format!(
+                "Expected {} values, got {}",
+                self.n_features,
+                x_row.len()
+            )));
+        }
+        Ok(())
+    }
+}

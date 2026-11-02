@@ -224,3 +224,17 @@ impl FittedQuantile {
         Ok(crate::quantile_inference::QuantileInference { inner })
     }
 }
+
+scalar_methods!(FittedQuantile {
+    "checkLoss" => check_loss,
+    "pseudoRSquared" => pseudo_r_squared,
+});
+
+#[wasm_bindgen]
+impl FittedQuantile {
+    /// Whether the model has an intercept.
+    #[wasm_bindgen(js_name = hasIntercept)]
+    pub fn has_intercept(&self) -> bool {
+        self.fitted.has_intercept()
+    }
+}

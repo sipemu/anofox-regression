@@ -275,3 +275,12 @@ augment_methods!(FittedNegativeBinomial);
 partial_residuals_method!(FittedNegativeBinomial);
 predict_se_method!(FittedNegativeBinomial);
 likelihood_methods!(FittedNegativeBinomial);
+
+glm_residual_methods!(FittedNegativeBinomial);
+predict_col_methods!(FittedNegativeBinomial {
+    "predictLinear" => predict_linear,
+    "predictCount" => predict_count,
+});
+predict_with_se_method!(FittedNegativeBinomial);
+vcov_method!(FittedNegativeBinomial);
+scalar_methods!(FittedNegativeBinomial { "overdispersionRatio" => overdispersion_ratio });

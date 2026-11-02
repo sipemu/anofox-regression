@@ -159,21 +159,7 @@ impl PassiveAggressiveRegressor {
         let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
         let y_col = Col::from_fn(n_rows, |i| y[i]);
 
-        let loss = match self.loss.as_str() {
-            "squared_epsilon_insensitive" | "squared" => PaLoss::SquaredEpsilonInsensitive,
-            _ => PaLoss::EpsilonInsensitive,
-        };
-
-        let model = RustPaRegressor::builder()
-            .c(self.c)
-            .epsilon(self.epsilon)
-            .with_intercept(self.with_intercept)
-            .max_iter(self.max_iter)
-            .tolerance(self.tolerance)
-            .shuffle(self.shuffle)
-            .loss(loss)
-            .random_state(self.random_state)
-            .build();
+        let model = self.rust();
 
         let fitted = model
             .fit(&x_mat, &y_col)
@@ -194,3 +180,63 @@ impl Default for PassiveAggressiveRegressor {
 
 iterative_fit!(FittedPassiveAggressive);
 partial_residuals_method!(FittedPassiveAggressive);
+
+impl PassiveAggressiveRegressor {
+    fn rust(&self) -> RustPaRegressor {
+        let loss = match self.loss.as_str() {
+            "squared_epsilon_insensitive" | "squared" => PaLoss::SquaredEpsilonInsensitive,
+            _ => PaLoss::EpsilonInsensitive,
+        };
+        RustPaRegressor::builder()
+            .c(self.c)
+            .epsilon(self.epsilon)
+            .with_intercept(self.with_intercept)
+            .max_iter(self.max_iter)
+            .tolerance(self.tolerance)
+            .shuffle(self.shuffle)
+            .loss(loss)
+            .random_state(self.random_state)
+            .build()
+    }
+}
+
+/// Streaming state of a passive-aggressive model (weights and intercept),
+/// updated by `PassiveAggressiveRegressor.partialFit`.
+#[wasm_bindgen]
+pub struct PaState {
+    inner: anofox_regression::solvers::PaState,
+}
+
+#[wasm_bindgen]
+impl PaState {
+    /// All-zero weights and intercept for `nFeatures` predictors.
+    #[wasm_bindgen(constructor)]
+    pub fn new(n_features: usize) -> Self {
+        Self {
+            inner: anofox_regression::solvers::PaState::new(n_features),
+        }
+    }
+
+    /// Current coefficients.
+    #[wasm_bindgen(getter)]
+    pub fn weights(&self) -> Vec<f64> {
+        self.inner.weights.clone()
+    }
+
+    /// Current intercept.
+    #[wasm_bindgen(getter)]
+    pub fn intercept(&self) -> f64 {
+        self.inner.intercept
+    }
+}
+
+#[wasm_bindgen]
+impl PassiveAggressiveRegressor {
+    /// One online update with a new sample (scikit-learn's `partial_fit`).
+    #[wasm_bindgen(js_name = partialFit)]
+    pub fn partial_fit(&self, state: &mut PaState, x_row: &[f64], y: f64) -> Result<(), JsError> {
+        self.rust()
+            .partial_fit(&mut state.inner, x_row, y)
+            .map_err(super::fit_error)
+    }
+}

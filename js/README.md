@@ -554,6 +554,29 @@ new RidgeRegressor().path(x, nRows, nCols, y, lambdas); new ElasticNetRegressor(
 new LarsRegressor().fit(x, nRows, nCols, y).path()
 ```
 
+### More on the fitted models
+
+```typescript
+// IRLS GLMs (Poisson, Binomial, NegativeBinomial, Tweedie, Gamma)
+fitted.devianceResiduals(); fitted.pearsonResiduals(); fitted.workingResiduals()
+fitted.predictLinear(x, n); fitted.predictCount(x, n)          // predictProbability / predictEta / predictMu
+fitted.predictWithSe(x, n, 'link', 'confidence', 0.95); fitted.vcov()
+// Bayesian ridge / ARD
+fitted.predictStd(x, n); fitted.credibleIntervals(0.9); fitted.sigma()
+// online updates
+fittedRls.update(xRow, y); const s = new PaState(p); new PassiveAggressiveRegressor().partialFit(s, xRow, y)
+// helpers
+lowess(x, y, { frac: 2 / 3 }); pretty(lo, hi, 5); estimateThetaMl(y, mu); gramConditionNumber(x, n, p, true)
+```
+
+### Parity with the Rust crate
+
+The npm package has the same functionality as the Rust crate. CI lists the
+public Rust API and the WASM exports and fails when a public item has no
+binding, unless [`js/parity-allowlist.txt`](https://github.com/sipemu/anofox-regression/blob/main/js/parity-allowlist.txt) lists it with
+a reason. Builders and option structs are `set*` methods and plain option
+objects, result structs are plain objects, and enums are strings.
+
 ### Missing values, offsets and prior weights
 
 ```typescript

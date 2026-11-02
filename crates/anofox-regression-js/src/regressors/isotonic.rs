@@ -154,3 +154,31 @@ impl Default for IsotonicRegressor {
         Self::new()
     }
 }
+
+#[wasm_bindgen]
+impl FittedIsotonic {
+    /// Prediction at one value.
+    #[wasm_bindgen(js_name = predictSingle)]
+    pub fn predict_single(&self, x: f64) -> f64 {
+        self.fitted.predict_single(x)
+    }
+
+    /// Predictions at a vector of values.
+    #[wasm_bindgen(js_name = predict1d)]
+    pub fn predict_1d(&self, x: &[f64]) -> Vec<f64> {
+        let c = Col::from_fn(x.len(), |i| x[i]);
+        self.fitted.predict_1d(&c).iter().copied().collect()
+    }
+
+    /// Breakpoints of the step function.
+    #[wasm_bindgen(js_name = xThresholds)]
+    pub fn x_thresholds(&self) -> Vec<f64> {
+        self.fitted.x_thresholds().iter().copied().collect()
+    }
+
+    /// Fitted values at the breakpoints.
+    #[wasm_bindgen(js_name = yValues)]
+    pub fn y_values(&self) -> Vec<f64> {
+        self.fitted.y_values().iter().copied().collect()
+    }
+}

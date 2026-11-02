@@ -301,3 +301,8 @@ augment_methods!(FittedPoisson);
 partial_residuals_method!(FittedPoisson);
 predict_se_method!(FittedPoisson);
 likelihood_methods!(FittedPoisson);
+
+glm_residual_methods!(FittedPoisson);
+predict_col_methods!(FittedPoisson { "predictLinear" => predict_linear, "predictCount" => predict_count });
+predict_with_se_method!(FittedPoisson);
+vcov_method!(FittedPoisson);

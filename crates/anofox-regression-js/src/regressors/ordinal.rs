@@ -498,3 +498,19 @@ pub fn xmean_ordinaly_js(x: &[f64], y: &[f64], cr: bool) -> Result<JsValue, JsEr
 }
 
 iterative_fit!(FittedOrdinal);
+
+#[wasm_bindgen]
+impl FittedOrdinal {
+    /// The penalty matrix of a penalized fit, row-major (undefined
+    /// otherwise).
+    #[wasm_bindgen(js_name = penaltyMatrix)]
+    pub fn penalty_matrix(&self) -> Option<Vec<f64>> {
+        self.fitted.penalty_matrix().map(super::mat_flat)
+    }
+
+    /// (Weighted) count of each response level.
+    #[wasm_bindgen]
+    pub fn counts(&self) -> Vec<f64> {
+        self.fitted.counts().to_vec()
+    }
+}

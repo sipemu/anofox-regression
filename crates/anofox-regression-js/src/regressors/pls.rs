@@ -195,3 +195,29 @@ impl Default for PlsRegressor {
     }
 }
 partial_residuals_method!(FittedPls);
+
+col_methods!(FittedPls {
+    "explainedVarianceRatio" => explained_variance_ratio,
+    "yLoadings" => y_loadings,
+});
+
+#[wasm_bindgen]
+impl FittedPls {
+    /// X scores (`n × components`), row-major.
+    #[wasm_bindgen]
+    pub fn scores(&self) -> Vec<f64> {
+        super::mat_flat(self.fitted.scores())
+    }
+
+    /// X weights (`p × components`), row-major.
+    #[wasm_bindgen]
+    pub fn weights(&self) -> Vec<f64> {
+        super::mat_flat(self.fitted.weights())
+    }
+
+    /// X loadings (`p × components`), row-major.
+    #[wasm_bindgen(js_name = xLoadings)]
+    pub fn x_loadings(&self) -> Vec<f64> {
+        super::mat_flat(self.fitted.x_loadings())
+    }
+}

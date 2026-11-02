@@ -243,3 +243,5 @@ impl ElasticNetRegressor {
         Ok(crate::path::CvPath { inner: c })
     }
 }
+
+scalar_methods!(FittedElasticNet { "nNonzero" => n_nonzero });

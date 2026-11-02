@@ -206,3 +206,12 @@ impl Default for RansacRegressor {
     }
 }
 partial_residuals_method!(FittedRansac);
+
+#[wasm_bindgen]
+impl FittedRansac {
+    /// The OLS fit on the final inlier set.
+    #[wasm_bindgen(js_name = inlierFit)]
+    pub fn inlier_fit(&self) -> super::FittedOls {
+        super::FittedOls::from_rust(self.fitted.inlier_fit().clone(), self.n_features)
+    }
+}

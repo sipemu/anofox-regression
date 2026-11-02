@@ -153,3 +153,27 @@ impl Default for RlsRegressor {
     }
 }
 partial_residuals_method!(FittedRls);
+
+#[wasm_bindgen]
+impl FittedRls {
+    /// Update the fit online with one new row; returns the prior
+    /// prediction error `y − ŷ`.
+    #[wasm_bindgen]
+    pub fn update(&mut self, x_row: &[f64], y: f64) -> Result<f64, JsError> {
+        if x_row.len() != self.n_features {
+            return Err(JsError::new(&format!(
+                "Expected {} values, got {}",
+                self.n_features,
+                x_row.len()
+            )));
+        }
+        let x = Col::from_fn(x_row.len(), |i| x_row[i]);
+        Ok(self.fitted.update(&x, y))
+    }
+
+    /// The inverse-information matrix `P`, row-major.
+    #[wasm_bindgen(js_name = pMatrix)]
+    pub fn p_matrix(&self) -> Vec<f64> {
+        super::mat_flat(self.fitted.p_matrix())
+    }
+}
