@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-02
+
+The 1.0 release candidate (#183). Breaking for Rust users: the API cleanup of
+#177–#180 (extensible types, unified errors, a consistent estimator API and a
+smaller public surface; see *Changed*). The npm package now has the same
+functionality as the Rust crate, and CI enforces this (#287).
+
 ### Added
 
 - **JS/WASM parity, phase 1a (#287).** The npm package gains `GlsRegressor` (`nlme::gls`: correlation structures, variance functions, residual types, `predictWithSe`, `variogram`), `AftRegressor` (`survival::survreg`: four distributions, inference, priors, quantile / survival / CDF predictions, standardized and Cox–Snell residuals, score contributions) and `PSplineRegressor` (`mgcv::gam(bs = "ps")`, with confidence and prediction intervals). Every iterative fitted model has `getConverged()` / `getIterations()` (the Rust `IterativeFit` trait), and the IRLS GLMs have `setErrorOnNonConvergence`. The JS tests check the new wrappers against the R reference values of the Rust validation.
@@ -26,7 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Internal: shared numerics (#284).** The private Cholesky (pspline, GLMM, GLS), jittered SPD solve (Huber, quantile), golden-section and Nelder–Mead (P-spline, GLMM) and R type-7 quantile / median copies (accuracy, splines, mediation, Theil–Sen, RANSAC, Huber, validation) now live once in a crate-private `numeric` module. No API change. A non-finite Cholesky pivot is now rejected everywhere, and the mediation / Theil–Sen quantiles use R's exact type-7 rule; results can move in the last bits.
 - **Public surface cleanup (#180).** Breaking:
   - **statrs is no longer part of the API.** The `distributions` module only re-exported `statrs` types, and nothing else in the public API names a statrs type; it is removed. Use statrs directly if you need its distributions.
   - **The penalized-GLM building blocks are crate-private:** `engine`, `irls`, `laplace`, `loglik`, `normal_eq`, `penalty` and `design`. The estimator, families, options, results and errors stay public.
@@ -49,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The 14 public functions that returned `Result<_, &'static str>` return `RegressionError` (singular → `SingularMatrix`): `compute_xtx_inverse*`, `compute_xtwx_inverse*`, `compute_hc_standard_errors` / `compute_hc_inference`, `FittedOls::hc_standard_errors` / `hc_inference`, the variance-factor helpers and `CoefficientInference`.
   - `TweedieRegressor::builder().var_power(p)` with `p ∈ (0, 1)` panicked inside `TweedieFamily::new`. The builder now leaves the check to `fit`, which returns `InvalidParameter { name: "var_power" }`. Every error branch touched here is tested in `tests/issue178_errors.rs`.
   - `PenalizedGlmRegressor::fit` / `augment`, `AftRegressor::fit`, `diagnostics::augment_glm*` and the partial-residual functions return `RegressionError` like the other estimators. `GlmEngineError` converts structurally: `InvalidValue` becomes `InvalidParameter`, and `NumericalFailure` becomes `NumericalError`.
+- **Internal: shared numerics (#284).** The private Cholesky (pspline, GLMM, GLS), jittered SPD solve (Huber, quantile), golden-section and Nelder–Mead (P-spline, GLMM) and R type-7 quantile / median copies (accuracy, splines, mediation, Theil–Sen, RANSAC, Huber, validation) now live once in a crate-private `numeric` module. No API change. A non-finite Cholesky pivot is now rejected everywhere, and the mediation / Theil–Sen quantiles use R's exact type-7 rule; results can move in the last bits.
 
 ## [0.8.0] - 2026-11-01
 
