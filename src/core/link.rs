@@ -7,6 +7,7 @@ use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
 /// Link function types for binomial regression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum BinomialLink {
     /// Logit link (canonical): g(μ) = log(μ/(1-μ))
     #[default]

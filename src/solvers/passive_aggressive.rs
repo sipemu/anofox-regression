@@ -28,6 +28,7 @@ use faer::{Col, Mat};
 
 /// Loss variant for Passive-Aggressive updates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PaLoss {
     /// `max(0, |r| − ε)` — PA-I.
     #[default]
@@ -257,6 +258,7 @@ impl PassiveAggressiveRegressor {
 
 /// In-progress PA state for streaming use via [`PassiveAggressiveRegressor::partial_fit`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PaState {
     /// Current coefficients.
     pub weights: Vec<f64>,

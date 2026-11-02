@@ -69,6 +69,7 @@ use std::f64::consts::PI;
 /// the iterative optimization process. Different loss functions provide
 /// different trade-offs between efficiency and robustness.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub enum AlmLoss {
     /// Maximum Likelihood Estimation (default).
     /// Uses log-likelihood for convergence criterion.
@@ -116,6 +117,7 @@ impl AlmLoss {
 
 /// Distribution families supported by the ALM.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub enum AlmDistribution {
     /// Normal (Gaussian) distribution - standard linear regression
     #[default]
@@ -363,6 +365,7 @@ impl AlmDistribution {
 
 /// Link functions for relating the linear predictor to the mean.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum LinkFunction {
     /// Identity: mu = eta
     Identity,

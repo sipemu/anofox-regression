@@ -41,6 +41,7 @@ use statrs::distribution::{ChiSquared, ContinuousCDF, Normal};
 
 /// Handling of tied event times.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Ties {
     /// Efron's approximation (coxph's default).
     #[default]
@@ -51,6 +52,7 @@ pub enum Ties {
 
 /// Options of [`coxph`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct CoxOptions {
     /// Tie handling.
     pub ties: Ties,
@@ -65,6 +67,15 @@ pub struct CoxOptions {
     /// Merge near-equal times as R's `Surv(..., timefix = TRUE)`.
     pub timefix: bool,
 }
+
+setters!(CoxOptions {
+    ties: Ties,
+    max_iter: usize,
+    eps: f64,
+    ridge: f64,
+    conf_level: f64,
+    timefix: bool,
+});
 
 impl Default for CoxOptions {
     fn default() -> Self {
@@ -81,6 +92,7 @@ impl Default for CoxOptions {
 
 /// Survival data of a Cox model.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct CoxInput<'a> {
     /// Stop (event / censoring) times.
     pub time: &'a [f64],
@@ -404,6 +416,7 @@ fn quad(v: &[f64], m: &Mat<f64>) -> f64 {
 
 /// Time transformation of the proportional-hazards test ([`CoxFit::cox_zph`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ZphTransform {
     /// `1 − S(t−)` of the pooled Kaplan–Meier curve (`cox.zph`'s default).
     #[default]
@@ -418,6 +431,7 @@ pub enum ZphTransform {
 
 /// One row of the proportional-hazards test.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct ZphTest {
     /// Score χ².
     pub chisq: f64,
@@ -429,6 +443,7 @@ pub struct ZphTest {
 
 /// Result of [`CoxFit::cox_zph`] (`survival::cox.zph`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct CoxZph {
     /// One test per term (column group).
     pub terms: Vec<ZphTest>,
@@ -561,6 +576,7 @@ pub fn coxph(
 
 /// A predicted survival curve of a Cox model.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct CoxSurvCurve {
     /// Distinct times of the stratum (events and censorings).
     pub time: Vec<f64>,

@@ -37,6 +37,7 @@ pub enum LikelihoodError {
 
 /// A χ² test.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct ChiSqTest {
     /// Test statistic.
     pub statistic: f64,
@@ -190,6 +191,7 @@ impl LikelihoodFit for crate::survival::cox::CoxFit {
 
 /// Dispersion of a GLM.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Dispersion {
     /// Known (1 for binomial and Poisson).
     Fixed(f64),
@@ -200,6 +202,7 @@ pub enum Dispersion {
 /// Data of a GLM: design without intercept column, response, optional
 /// prior weights and offset.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct GlmData<'a> {
     /// Covariates (no intercept column).
     pub x: &'a Mat<f64>,
@@ -211,6 +214,48 @@ pub struct GlmData<'a> {
     pub weights: Option<&'a [f64]>,
     /// Offset.
     pub offset: Option<&'a [f64]>,
+}
+
+impl<'a> GlmData<'a> {
+    /// `y` on the covariates `x`, with an intercept, unit prior weights and
+    /// no offset.
+    pub fn new(x: &'a Mat<f64>, y: &'a [f64]) -> Self {
+        Self {
+            x,
+            with_intercept: true,
+            y,
+            weights: None,
+            offset: None,
+        }
+    }
+
+    /// Fit an intercept (default `true`).
+    #[must_use]
+    pub fn with_intercept(mut self, with_intercept: bool) -> Self {
+        self.with_intercept = with_intercept;
+        self
+    }
+
+    /// Prior weights (`None`: unit weights).
+    #[must_use]
+    pub fn weights(mut self, weights: Option<&'a [f64]>) -> Self {
+        self.weights = weights;
+        self
+    }
+
+    /// Offset (`None`: no offset).
+    #[must_use]
+    pub fn offset(mut self, offset: Option<&'a [f64]>) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    /// The same data with other covariates (a nested model).
+    #[must_use]
+    pub fn covariates(mut self, x: &'a Mat<f64>) -> Self {
+        self.x = x;
+        self
+    }
 }
 
 impl GlmData<'_> {
@@ -240,6 +285,7 @@ impl GlmData<'_> {
 
 /// A GLM fitted by [`fit_glm`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GlmFit {
     /// Coefficients (intercept first when fitted).
     pub coefficients: Vec<f64>,
@@ -410,6 +456,7 @@ pub fn fit_glm<F: GlmFamily + ?Sized>(
 
 /// Rao score test for adding the columns `x_add` to the model of `reduced`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ScoreTest {
     /// Joint score χ² `Uᵀ S⁻¹ U / φ`.
     pub test: ChiSqTest,

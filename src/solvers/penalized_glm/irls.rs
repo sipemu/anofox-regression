@@ -20,6 +20,7 @@ use super::penalty::{Penalty, QuadraticPenalty};
 
 /// Tuning for the IRLS loop.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct IrlsConfig {
     /// Maximum IRLS iterations (default 100).
     pub max_iterations: usize,
@@ -55,6 +56,7 @@ impl Default for IrlsConfig {
 /// Outcome of a penalized IRLS fit, in design-matrix parameter order
 /// (intercept first when one was fitted).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct IrlsFit {
     /// Coefficients.
     pub beta: Vec<f64>,

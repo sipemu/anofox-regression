@@ -32,15 +32,14 @@ fn x() -> Mat<f64> {
 }
 
 fn smooth() -> AregOptions {
-    AregOptions {
-        nk: 4,
-        x_types: Some(vec![
+    AregOptions::default()
+        .nk(4)
+        .x_types(Some(vec![
             AregType::Spline,
             AregType::Spline,
             AregType::Categorical,
-        ]),
-        y_type: AregType::Spline,
-    }
+        ]))
+        .y_type(AregType::Spline)
 }
 
 fn v(c: &faer::Col<f64>) -> Vec<f64> {
@@ -76,15 +75,14 @@ fn smooth_response_matches_hmisc() {
 
 #[test]
 fn linear_response_is_least_squares() {
-    let opts = AregOptions {
-        nk: 5,
-        x_types: Some(vec![
+    let opts = AregOptions::default()
+        .nk(5)
+        .x_types(Some(vec![
             AregType::Spline,
             AregType::Linear,
             AregType::Categorical,
-        ]),
-        y_type: AregType::Linear,
-    };
+        ]))
+        .y_type(AregType::Linear);
     let f = areg(&x(), &Y, &opts).unwrap();
     all_close("xcoef", &v(&f.x_coefficients), &L_XCOEF, 1e-8);
     // Hmisc reports ycoefficients = 1; ours keep the intercept slot
@@ -126,28 +124,16 @@ fn bootstrap_optimism_matches_hmisc() {
 fn rejects_bad_input() {
     let x = x();
     assert!(areg(&x, &Y[..N - 1], &AregOptions::default()).is_err());
-    let wrong_types = AregOptions {
-        x_types: Some(vec![AregType::Spline]),
-        ..AregOptions::default()
-    };
+    let wrong_types = AregOptions::default().x_types(Some(vec![AregType::Spline]));
     assert!(areg(&x, &Y, &wrong_types).is_err());
-    let cat_y = AregOptions {
-        y_type: AregType::Categorical,
-        ..AregOptions::default()
-    };
+    let cat_y = AregOptions::default().y_type(AregType::Categorical);
     // a categorical response with 150 levels leaves too few observations
     assert!(areg(&x, &Y, &cat_y).is_err());
     let constant = Mat::from_fn(N, 1, |_, _| 1.0);
-    let one_level = AregOptions {
-        x_types: Some(vec![AregType::Categorical]),
-        ..AregOptions::default()
-    };
+    let one_level = AregOptions::default().x_types(Some(vec![AregType::Categorical]));
     assert!(areg(&constant, &Y, &one_level).is_err());
     // nk = 0: every spline is linear
-    let lin = AregOptions {
-        nk: 0,
-        ..AregOptions::default()
-    };
+    let lin = AregOptions::default().nk(0);
     let f = areg(&x, &Y, &lin).unwrap();
     assert_eq!((f.x_df.clone(), f.y_df), (vec![1, 1, 1], 1));
 }

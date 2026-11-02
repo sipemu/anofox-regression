@@ -75,11 +75,9 @@ fn mtcars() -> (Mat<f64>, Col<f64>) {
 }
 
 fn options(anova_type: AnovaType, with_intercept: bool) -> AnovaTableOptions {
-    AnovaTableOptions {
-        anova_type,
-        with_intercept,
-        ..Default::default()
-    }
+    AnovaTableOptions::default()
+        .anova_type(anova_type)
+        .with_intercept(with_intercept)
 }
 
 /// (df, sum_sq, F, p) per term, then (residual df, residual SS).

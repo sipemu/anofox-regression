@@ -95,6 +95,7 @@ pub enum NestedFTestError {
 
 /// Options for [`nested_f_test`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NestedFTestOptions {
     /// Fit an intercept in both models (default `true`).
     pub with_intercept: bool,
@@ -102,6 +103,11 @@ pub struct NestedFTestOptions {
     /// (default `1e-10`, as [`OlsRegressor`]).
     pub rank_tolerance: f64,
 }
+
+setters!(NestedFTestOptions {
+    with_intercept: bool,
+    rank_tolerance: f64,
+});
 
 impl Default for NestedFTestOptions {
     fn default() -> Self {
@@ -114,6 +120,7 @@ impl Default for NestedFTestOptions {
 
 /// Result of a nested-model F test.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct NestedFTest {
     /// `((RSS_r − RSS_f) / df1) / (RSS_f / df2)`; NaN when `df1` or `df2` is 0.
     pub f_statistic: f64,

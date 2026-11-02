@@ -41,6 +41,7 @@ fn demand_type_label(t: DemandType) -> &'static str {
     match t {
         DemandType::Regular => "regular",
         DemandType::Intermittent => "intermittent",
+        _ => "unknown",
     }
 }
 
@@ -53,6 +54,7 @@ fn distribution_label(d: DemandDistribution) -> &'static str {
         DemandDistribution::Gamma => "gamma",
         DemandDistribution::LogNormal => "logNormal",
         DemandDistribution::RectifiedNormal => "rectifiedNormal",
+        _ => "unknown",
     }
 }
 
@@ -64,6 +66,7 @@ fn anomaly_label(a: AnomalyType) -> &'static str {
         AnomalyType::ObsoleteProduct => "obsoleteProduct",
         AnomalyType::HighOutlier => "highOutlier",
         AnomalyType::LowOutlier => "lowOutlier",
+        _ => "unknown",
     }
 }
 

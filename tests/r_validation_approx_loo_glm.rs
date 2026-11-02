@@ -79,11 +79,9 @@ fn poisson_approx_loo_matches_r() {
 #[test]
 fn penalized_engine_poisson_approx_loo_matches_r() {
     let x = vec![MT_WT.to_vec(), MT_HP.to_vec()];
-    let opts = PoissonOptions {
-        max_iterations: 200,
-        tolerance: 1e-15,
-        ..Default::default()
-    };
+    let opts = PoissonOptions::default()
+        .max_iterations(200)
+        .tolerance(1e-15);
     let fit = fit_poisson(&MT_CARB, &x, &opts).unwrap();
     let a = augment_glm(&fit, &MT_CARB, &x).unwrap();
     check(

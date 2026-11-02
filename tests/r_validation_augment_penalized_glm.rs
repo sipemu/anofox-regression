@@ -125,11 +125,9 @@ fn assert_same(label: &str, a: &Augment, b: &Augment, tol: f64) {
 }
 
 fn poisson_opts() -> PoissonOptions {
-    PoissonOptions {
-        max_iterations: MAX_ITER,
-        tolerance: ETOL,
-        ..Default::default()
-    }
+    PoissonOptions::default()
+        .max_iterations(MAX_ITER)
+        .tolerance(ETOL)
 }
 
 // ------------------------------------------------------------ R validation
@@ -144,10 +142,7 @@ fn poisson_matches_r() {
 fn poisson_with_offset_matches_r() {
     let mut x = x_cols();
     x.push(LOG_EXPO.to_vec());
-    let opts = PoissonOptions {
-        offset_column: Some(3),
-        ..poisson_opts()
-    };
+    let opts = poisson_opts().offset_column(Some(3));
     let fit = fit_poisson(&Y_OFF, &x, &opts).unwrap();
     assert_eq!(fit.offset_column, Some(3));
     check("Poisson+offset", &fit, &Y_OFF, &x, &POFF, TOL);
@@ -172,54 +167,43 @@ fn poisson_with_offset_matches_r() {
 
 #[test]
 fn quasipoisson_matches_r() {
-    let opts = PoissonOptions {
-        estimate_dispersion: true,
-        ..poisson_opts()
-    };
+    let opts = poisson_opts().estimate_dispersion(true);
     let fit = fit_poisson(&Y_POIS, &x_cols(), &opts).unwrap();
     check("quasipoisson", &fit, &Y_POIS, &x_cols(), &QPOIS, TOL);
 }
 
 #[test]
 fn binomial_matches_r() {
-    let opts = BinomialOptions {
-        max_iterations: MAX_ITER,
-        tolerance: ETOL,
-        ..Default::default()
-    };
+    let opts = BinomialOptions::default()
+        .max_iterations(MAX_ITER)
+        .tolerance(ETOL);
     let fit = fit_binomial(&Y_BIN, &x_cols(), &opts).unwrap();
     check("binomial", &fit, &Y_BIN, &x_cols(), &BIN, TOL);
 }
 
 #[test]
 fn binomial_proportions_match_r() {
-    let opts = BinomialOptions {
-        max_iterations: MAX_ITER,
-        tolerance: ETOL,
-        ..Default::default()
-    };
+    let opts = BinomialOptions::default()
+        .max_iterations(MAX_ITER)
+        .tolerance(ETOL);
     let fit = fit_binomial(&Y_PROP, &x_cols(), &opts).unwrap();
     check("binomial proportions", &fit, &Y_PROP, &x_cols(), &PROP, TOL);
 }
 
 #[test]
 fn logistic_matches_r() {
-    let opts = LogisticOptions {
-        max_iterations: MAX_ITER,
-        tolerance: ETOL,
-        ..Default::default()
-    };
+    let opts = LogisticOptions::default()
+        .max_iterations(MAX_ITER)
+        .tolerance(ETOL);
     let fit = fit_logistic(&Y_BIN, &x_cols(), &opts).unwrap();
     check("logistic", &fit.fit, &Y_BIN, &x_cols(), &BIN, TOL);
 }
 
 #[test]
 fn negative_binomial_estimated_theta_matches_glm_nb() {
-    let opts = NegBinomialOptions {
-        max_iterations: MAX_ITER,
-        tolerance: ETOL,
-        ..Default::default()
-    };
+    let opts = NegBinomialOptions::default()
+        .max_iterations(MAX_ITER)
+        .tolerance(ETOL);
     let fit = fit_negbinomial(&Y_NB, &x_cols(), &opts).unwrap();
     let theta = fit.core.dispersion.unwrap();
     assert!(
@@ -233,23 +217,19 @@ fn negative_binomial_estimated_theta_matches_glm_nb() {
 
 #[test]
 fn negative_binomial_fixed_theta_matches_r() {
-    let opts = NegBinomialOptions {
-        alpha: Some(2.0),
-        max_iterations: MAX_ITER,
-        tolerance: ETOL,
-        ..Default::default()
-    };
+    let opts = NegBinomialOptions::default()
+        .alpha(Some(2.0))
+        .max_iterations(MAX_ITER)
+        .tolerance(ETOL);
     let fit = fit_negbinomial(&Y_NB, &x_cols(), &opts).unwrap();
     check("NB (theta = 2)", &fit, &Y_NB, &x_cols(), &NBF, TOL);
 }
 
 #[test]
 fn gamma_matches_r() {
-    let opts = GammaOptions {
-        max_iterations: MAX_ITER,
-        tolerance: ETOL,
-        ..Default::default()
-    };
+    let opts = GammaOptions::default()
+        .max_iterations(MAX_ITER)
+        .tolerance(ETOL);
     let fit = fit_gamma(&Y_GAMMA, &x_cols(), &opts).unwrap();
     check("Gamma", &fit, &Y_GAMMA, &x_cols(), &GAMMA, TOL);
 }
@@ -260,12 +240,10 @@ fn tweedie_matches_r() {
         eprintln!("statmod not installed when the fixture was generated: skipped");
         return;
     }
-    let opts = TweedieOptions {
-        power: 1.5,
-        max_iterations: MAX_ITER,
-        tolerance: ETOL,
-        ..Default::default()
-    };
+    let opts = TweedieOptions::default()
+        .power(1.5)
+        .max_iterations(MAX_ITER)
+        .tolerance(ETOL);
     let fit = fit_tweedie(&Y_TW, &x_cols(), &opts).unwrap();
     check("Tweedie p=1.5", &fit, &Y_TW, &x_cols(), &TW, TOL);
 }
@@ -325,10 +303,7 @@ fn dropped_rows_are_nan_and_the_rest_unchanged() {
 
 #[test]
 fn a_penalized_fit_is_rejected() {
-    let ridge = PoissonOptions {
-        lambda: 0.5,
-        ..poisson_opts()
-    };
+    let ridge = poisson_opts().lambda(0.5);
     let fit = fit_poisson(&Y_POIS, &x_cols(), &ridge).unwrap();
     assert!(fit.penalized);
     assert!(matches!(
@@ -394,11 +369,9 @@ fn equals_augment_on_the_dedicated_regressors() {
     let eng = fit_binomial(
         &Y_BIN,
         &x_cols(),
-        &BinomialOptions {
-            max_iterations: MAX_ITER,
-            tolerance: ETOL,
-            ..Default::default()
-        },
+        &BinomialOptions::default()
+            .max_iterations(MAX_ITER)
+            .tolerance(ETOL),
     )
     .unwrap();
     assert_same(
@@ -419,11 +392,9 @@ fn equals_augment_on_the_dedicated_regressors() {
     let eng = fit_logistic(
         &Y_BIN,
         &x_cols(),
-        &LogisticOptions {
-            max_iterations: MAX_ITER,
-            tolerance: ETOL,
-            ..Default::default()
-        },
+        &LogisticOptions::default()
+            .max_iterations(MAX_ITER)
+            .tolerance(ETOL),
     )
     .unwrap();
     assert_same(
@@ -446,12 +417,10 @@ fn equals_augment_on_the_dedicated_regressors() {
     let eng = fit_negbinomial(
         &Y_NB,
         &x_cols(),
-        &NegBinomialOptions {
-            alpha: Some(2.0),
-            max_iterations: MAX_ITER,
-            tolerance: ETOL,
-            ..Default::default()
-        },
+        &NegBinomialOptions::default()
+            .alpha(Some(2.0))
+            .max_iterations(MAX_ITER)
+            .tolerance(ETOL),
     )
     .unwrap();
     assert_same(
@@ -471,11 +440,9 @@ fn equals_augment_on_the_dedicated_regressors() {
     let eng = fit_negbinomial(
         &Y_NB,
         &x_cols(),
-        &NegBinomialOptions {
-            max_iterations: MAX_ITER,
-            tolerance: ETOL,
-            ..Default::default()
-        },
+        &NegBinomialOptions::default()
+            .max_iterations(MAX_ITER)
+            .tolerance(ETOL),
     )
     .unwrap();
     assert_same(
@@ -496,11 +463,9 @@ fn equals_augment_on_the_dedicated_regressors() {
     let eng = fit_gamma(
         &Y_GAMMA,
         &x_cols(),
-        &GammaOptions {
-            max_iterations: MAX_ITER,
-            tolerance: ETOL,
-            ..Default::default()
-        },
+        &GammaOptions::default()
+            .max_iterations(MAX_ITER)
+            .tolerance(ETOL),
     )
     .unwrap();
     assert_same(
@@ -528,12 +493,10 @@ fn equals_augment_on_the_dedicated_regressors() {
     let eng = fit_tweedie(
         &ytw,
         &x_cols(),
-        &TweedieOptions {
-            power: 1.5,
-            max_iterations: MAX_ITER,
-            tolerance: ETOL,
-            ..Default::default()
-        },
+        &TweedieOptions::default()
+            .power(1.5)
+            .max_iterations(MAX_ITER)
+            .tolerance(ETOL),
     )
     .unwrap();
     assert_same(

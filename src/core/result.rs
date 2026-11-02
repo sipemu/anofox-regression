@@ -8,6 +8,7 @@ use faer::Col;
 /// Contains coefficients, fit statistics, and optionally inference statistics
 /// (standard errors, t-statistics, p-values, confidence intervals).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RegressionResult {
     // ========== Core Results ==========
     /// Estimated coefficients (excluding intercept).

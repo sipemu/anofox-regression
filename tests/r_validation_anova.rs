@@ -176,12 +176,11 @@ fn restricted_interaction_matches_rms() {
 #[test]
 fn f_tests_and_partial_ss_match_rms() {
     let n = BETA_M1.len();
-    let opts = AnovaOptions {
-        distribution: WaldDistribution::F {
+    let opts = AnovaOptions::default()
+        .distribution(WaldDistribution::F {
             df_residual: DFE_M1,
-        },
-        sigma2: Some(SIGMA2_M1),
-    };
+        })
+        .sigma2(Some(SIGMA2_M1));
     let table = anova(&col(&BETA_M1), &mat(&VCOV_M1, n), &terms_m1(), &opts).unwrap();
     for (k, r) in table.rows.iter().enumerate() {
         assert!(close(r.test.f.unwrap(), F_M1[k], 1e-9), "{}: F", r.label);

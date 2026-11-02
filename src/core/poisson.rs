@@ -39,6 +39,7 @@ use super::poisson_link::PoissonLink;
 ///
 /// with d(0, μ) = 2μ for y = 0.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct PoissonFamily {
     /// The link function to use.
     pub link: PoissonLink,

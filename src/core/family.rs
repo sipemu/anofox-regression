@@ -209,6 +209,7 @@ pub(crate) fn glm_null_deviance<F: GlmFamily + ?Sized>(
 ///
 /// Values of var_power between 0 and 1 are not allowed (no valid distribution).
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct TweedieFamily {
     /// Power of the variance function: V(μ) = μ^var_power
     pub var_power: f64,

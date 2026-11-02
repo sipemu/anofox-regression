@@ -15,6 +15,7 @@ use faer::{Col, Mat};
 
 /// How a variable enters [`areg`] (`xtype` / `ytype`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum AregType {
     /// Restricted cubic spline with `nk` default knots (`"s"`).
     #[default]
@@ -29,6 +30,7 @@ pub enum AregType {
 
 /// Options of [`areg`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AregOptions {
     /// Number of spline knots (`nk`, default 4); 0 makes every spline linear.
     pub nk: usize,
@@ -37,6 +39,12 @@ pub struct AregOptions {
     /// Type of the response.
     pub y_type: AregType,
 }
+
+setters!(AregOptions {
+    nk: usize,
+    x_types: Option<Vec<AregType>>,
+    y_type: AregType,
+});
 
 impl Default for AregOptions {
     fn default() -> Self {
@@ -122,6 +130,7 @@ pub struct Areg {
 
 /// Bootstrap optimism of an [`Areg`] fit ([`Areg::bootstrap`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct AregBootstrap {
     /// Mean optimism of R² (`r2opt`).
     pub r2_optimism: f64,

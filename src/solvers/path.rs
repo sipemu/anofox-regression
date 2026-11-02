@@ -65,6 +65,7 @@ use faer::{Col, Mat};
 
 /// Options of a regularisation path (see the [module docs](self)).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct PathOptions {
     /// Elastic-net mixing `α ∈ [0, 1]`: 0 is ridge, 1 is the lasso.
     pub alpha: f64,
@@ -80,6 +81,14 @@ pub struct PathOptions {
     /// Maximum coordinate-descent passes over the data per `λ`. Default 100 000.
     pub max_iter: usize,
 }
+
+setters!(PathOptions {
+    alpha: f64,
+    fit_intercept: bool,
+    standardize: bool,
+    tol: f64,
+    max_iter: usize,
+});
 
 impl Default for PathOptions {
     fn default() -> Self {
@@ -141,6 +150,7 @@ impl PathOptions {
 
 /// A coefficient path over a grid of penalties.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RegPath {
     /// Penalties of the path, in the order the path was computed (decreasing
     /// for [`fit_path`]; the LARS / LassoLars `alphas` for
@@ -189,6 +199,7 @@ impl RegPath {
 /// Cross-validation curve over a penalty grid (`cv.glmnet`), from
 /// [`cv_path`] or [`cv_path_splits`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CvPath {
     /// Penalties (same order as passed to [`cv_path`]).
     pub lambdas: Vec<f64>,

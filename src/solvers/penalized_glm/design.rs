@@ -17,6 +17,7 @@ use super::penalty::{Penalty, QuadraticPenalty};
 
 /// How the engine treats columns that are constant over the retained rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ConstantColumnPolicy {
     /// Drop them from the fit and report `NaN` for their coefficient. This is what
     /// Poisson has always done.
@@ -28,6 +29,7 @@ pub enum ConstantColumnPolicy {
 
 /// Everything the engine needs about the data, resolved once.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Design {
     /// Design matrix over retained rows and retained columns, intercept column
     /// prepended when `fit_intercept` is set.

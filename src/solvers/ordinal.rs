@@ -29,6 +29,7 @@ use std::f64::consts::PI;
 /// The link (cumulative distribution `F`) of a cumulative link model, named
 /// as the `family` of `rms::orm`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum OrdinalLink {
     /// `F(x) = 1 / (1 + e⁻ˣ)`: proportional odds (`lrm`, `polr`).
     #[default]
@@ -121,6 +122,7 @@ impl OrdinalLink {
 /// How [`FittedOrdinal::predict_quantile`] turns the predicted distribution
 /// into a quantile (`rms::Quantile.orm`'s `method`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum OrdinalQuantileMethod {
     /// Linear interpolation of the predicted CDF between the response values
     /// (rms default).
@@ -1233,6 +1235,7 @@ impl FittedOrdinal {
 /// Observed and model-expected means of a predictor within each response
 /// level ([`xmean_ordinaly`]).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct XmeanOrdinaly {
     /// The distinct response values.
     pub levels: Vec<f64>,

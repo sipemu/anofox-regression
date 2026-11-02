@@ -63,6 +63,7 @@ pub enum AidError {
 
 /// Outlier detection method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum OutlierMethod {
     /// Outliers beyond `mean ± 3 * sd`.
     #[default]
@@ -73,12 +74,18 @@ pub enum OutlierMethod {
 
 /// Options for [`compute_aid`] and [`compute_aid_anomalies`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AidOptions {
     /// Zero proportion at or above which demand is intermittent (default 0.3).
     pub intermittent_threshold: f64,
     /// Outlier detection method (default [`OutlierMethod::ZScore`]).
     pub outlier_method: OutlierMethod,
 }
+
+setters!(AidOptions {
+    intermittent_threshold: f64,
+    outlier_method: OutlierMethod,
+});
 
 impl Default for AidOptions {
     fn default() -> Self {
@@ -91,6 +98,7 @@ impl Default for AidOptions {
 
 /// Result of [`compute_aid`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AidResult {
     /// `"regular"` or `"intermittent"`.
     pub demand_type: String,
@@ -127,6 +135,7 @@ pub struct AidResult {
 
 /// Per-observation anomaly flags.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AidAnomalyFlags {
     /// Zero strictly between the first and last non-zero value.
     pub stockout: bool,

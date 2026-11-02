@@ -51,19 +51,14 @@ fn box_cox_profile_matches_mass() {
 #[test]
 fn box_cox_series_near_zero_and_without_intercept() {
     let (x, y) = data();
-    let opts = BoxCoxOptions {
-        lambdas: vec![-0.015, 0.0, 0.01],
-        ..Default::default()
-    };
+    let opts = BoxCoxOptions::default().lambdas(vec![-0.015, 0.0, 0.01]);
     let prof = box_cox(&x, &y, &opts).unwrap();
     all_close("small lambda", &prof.log_likelihood, &BC_SMALL, 1e-12);
 
     let x1 = Mat::from_fn(N, 3, |i, j| if j < 2 { x[(i, j)] } else { 1.0 });
-    let opts = BoxCoxOptions {
-        lambdas: vec![0.3, 0.5],
-        with_intercept: false,
-        ..Default::default()
-    };
+    let opts = BoxCoxOptions::default()
+        .lambdas(vec![0.3, 0.5])
+        .with_intercept(false);
     let prof = box_cox(&x1, &y, &opts).unwrap();
     all_close("no intercept", &prof.log_likelihood, &BC_NOINT_CHECK, 1e-12);
 }
@@ -71,10 +66,7 @@ fn box_cox_series_near_zero_and_without_intercept() {
 #[test]
 fn box_cox_interval_open_at_grid_end() {
     let (x, y) = data();
-    let opts = BoxCoxOptions {
-        lambdas: vec![0.45, 0.5, 0.55],
-        ..Default::default()
-    };
+    let opts = BoxCoxOptions::default().lambdas(vec![0.45, 0.5, 0.55]);
     let prof = box_cox(&x, &y, &opts).unwrap();
     assert!(prof.ci_lower.is_none() && prof.ci_upper.is_none());
     close(
@@ -135,15 +127,9 @@ fn transforms_round_trip_and_reject_bad_input() {
     let (x, mut y) = data();
     assert!(smearing_estimate(&[1.0], &[], f64::exp, Smearing::Mean).is_err());
     assert!(smearing_estimate(&[1.0], &[0.1], f64::exp, Smearing::Quantile(1.5)).is_err());
-    let empty = BoxCoxOptions {
-        lambdas: vec![],
-        ..Default::default()
-    };
+    let empty = BoxCoxOptions::default().lambdas(vec![]);
     assert!(box_cox(&x, &y, &empty).is_err());
-    let bad_level = BoxCoxOptions {
-        confidence_level: 1.0,
-        ..Default::default()
-    };
+    let bad_level = BoxCoxOptions::default().confidence_level(1.0);
     assert!(box_cox(&x, &y, &bad_level).is_err());
     let short = Col::from_fn(N - 1, |i| y[i]);
     assert!(box_cox(&x, &short, &BoxCoxOptions::default()).is_err());

@@ -20,6 +20,7 @@ use statrs::distribution::{ChiSquared, ContinuousCDF};
 
 /// Stopping rule of [`fastbw`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum StepRule {
     /// Delete while `χ² − k·d.f. ≤ threshold` (rms: `k = 2`, `aics = 0`).
     Aic {
@@ -37,6 +38,7 @@ pub enum StepRule {
 
 /// What the stopping rule is applied to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StepType {
     /// The pooled test of all deleted parameters (rms default).
     Residual,
@@ -46,6 +48,7 @@ pub enum StepType {
 
 /// One deletion of [`fastbw`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct StepDeletion {
     /// Deleted term.
     pub term: usize,
@@ -67,6 +70,7 @@ pub struct StepDeletion {
 
 /// Result of [`fastbw`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct StepDown {
     /// Deletions in order.
     pub deleted: Vec<StepDeletion>,

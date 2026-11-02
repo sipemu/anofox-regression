@@ -5,6 +5,7 @@
 
 /// Link function types for Poisson regression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PoissonLink {
     /// Log link (canonical): g(μ) = ln(μ)
     #[default]

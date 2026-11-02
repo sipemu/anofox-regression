@@ -78,6 +78,7 @@ use faer::{Col, Mat};
 
 /// Which residual [`Augment::residual`] holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ResidualType {
     /// Response residual `y − μ` (default for linear models).
     Response,
@@ -102,6 +103,7 @@ impl ResidualType {
 ///
 /// Every vector has one entry per row of the data passed to [`augment`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Augment {
     /// Fitted mean on the response scale (`μ̂`, or `ŷ` for linear models).
     pub fitted: Col<f64>,
@@ -136,6 +138,7 @@ pub struct Augment {
 
 /// Leave-one-out fit statistics returned by [`press`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Press {
     /// Prediction sum of squares `Σ wᵢ loo_residualᵢ²` (unit weights for OLS),
     /// `NaN` when a row has `hᵢ = 1`.

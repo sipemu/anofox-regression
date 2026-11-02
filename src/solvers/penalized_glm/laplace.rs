@@ -18,6 +18,7 @@ use super::normal_eq::invert_spd;
 
 /// Inference computed from the curvature at the mode.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct LaplaceInference {
     /// Standard errors, one per parameter (design order, intercept first if fitted).
     pub std_errors: Vec<f64>,

@@ -48,6 +48,7 @@ use faer::{Col, Mat};
 /// LARS variant: plain LARS (greedy forward stagewise approximation) or
 /// the Lasso modification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum LarsMethod {
     /// Plain LARS — variables only enter the active set.
     #[default]

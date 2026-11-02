@@ -16,6 +16,7 @@ use faer::{Col, Mat};
 
 /// Options for [`lowess`], with the defaults of R's `stats::lowess`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct LowessOptions {
     /// Smoother span: the fraction of points that influence each fitted
     /// value (R's `f`, default 2/3). Larger values give more smoothness.
@@ -28,6 +29,12 @@ pub struct LowessOptions {
     /// `0.01 · (max(x) − min(x))`.
     pub delta: Option<f64>,
 }
+
+setters!(LowessOptions {
+    frac: f64,
+    iterations: usize,
+    delta: Option<f64>,
+});
 
 impl Default for LowessOptions {
     fn default() -> Self {
@@ -42,6 +49,7 @@ impl Default for LowessOptions {
 /// Result of [`lowess`]: the smoothed curve at the sorted `x` values, as the
 /// `list(x, y)` R's `stats::lowess` returns.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LowessFit {
     /// The input `x` values in increasing order (ties keep their input order).
     pub x: Vec<f64>,

@@ -74,10 +74,7 @@ fn dl_matches_metafor_rma_and_blup() {
 
 #[test]
 fn none_method_matches_metafor_fixed_effect() {
-    let opts = EbShrinkOptions {
-        method: TauMethod::None,
-        ..Default::default()
-    };
+    let opts = EbShrinkOptions::default().method(TauMethod::None);
     let r = eb_shrink(&YI, &SEI, &opts).unwrap();
     close("mu", r.mu, 3.758587967356235e-01);
     close("mu_se", r.mu_se, 8.265842980736918e-02);
@@ -91,10 +88,7 @@ fn none_method_matches_metafor_fixed_effect() {
 
 #[test]
 fn fixed_tau_squared_matches_metafor() {
-    let opts = EbShrinkOptions {
-        tau_squared: Some(0.05),
-        ..Default::default()
-    };
+    let opts = EbShrinkOptions::default().tau_squared(Some(0.05));
     let r = eb_shrink(&YI, &SEI, &opts).unwrap();
     close("mu", r.mu, 4.385608856088561e-01);
     close("mu_se", r.mu_se, 1.524704314689400e-01);

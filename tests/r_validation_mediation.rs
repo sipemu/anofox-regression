@@ -33,13 +33,11 @@ fn run(
     boot_ci: BootCi,
     seed: u64,
 ) -> anofox_regression::solvers::mediation::MediationResult {
-    let o = MediationOptions {
-        method,
-        boot_ci,
-        n_sims: 2000,
-        seed,
-        ..Default::default()
-    };
+    let o = MediationOptions::default()
+        .method(method)
+        .boot_ci(boot_ci)
+        .n_sims(2000)
+        .seed(seed);
     mediate(&Y, &M, &X, &covs(), &o).unwrap()
 }
 
@@ -142,12 +140,10 @@ fn bootstrap_intervals_within_simulation_error() {
 
 #[test]
 fn continuous_treatment_contrast() {
-    let o = MediationOptions {
-        n_sims: 2000,
-        treat_value: 2.0,
-        control_value: 0.5,
-        ..Default::default()
-    };
+    let o = MediationOptions::default()
+        .n_sims(2000)
+        .treat_value(2.0)
+        .control_value(0.5);
     let r = mediate(&YC, &MC, &XC, &covs(), &o).unwrap();
     close("acme", r.acme.estimate, CONT_ACME, TOL);
     close("ade", r.ade.estimate, CONT_ADE, TOL);
@@ -176,10 +172,7 @@ fn quasi_bayesian_within_simulation_error() {
 
 #[test]
 fn sobel_matches_bda_and_ols_inference() {
-    let o = MediationOptions {
-        method: MediationMethod::Sobel,
-        ..Default::default()
-    };
+    let o = MediationOptions::default().method(MediationMethod::Sobel);
     // bda::mediation.test has no covariates
     let r = mediate(&Y, &M, &X, &[] as &[Vec<f64>], &o).unwrap();
     close("sobel z", r.acme.statistic, SOBEL_NOCOV_Z, 1e-8);

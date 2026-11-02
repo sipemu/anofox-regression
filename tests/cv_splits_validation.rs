@@ -70,17 +70,16 @@ fn stratified_group_kfold_matches_sklearn() {
 #[test]
 fn time_series_splits_match_sklearn() {
     for &(n, k, ts, gap, mts, bounds) in TSS_CASES {
-        let opts = TimeSeriesSplitOptions {
-            n_splits: k,
-            test_size: (ts > 0).then_some(ts),
-            gap,
-            window: if mts > 0 {
+        let opts = TimeSeriesSplitOptions::default()
+            .n_splits(k)
+            .test_size((ts > 0).then_some(ts))
+            .gap(gap)
+            .window(if mts > 0 {
                 TrainWindow::Sliding(mts)
             } else {
                 TrainWindow::Expanding
-            },
-            min_train_size: None,
-        };
+            })
+            .min_train_size(None);
         let splits = time_series_splits(n, &opts).unwrap();
         assert_eq!(splits.len(), bounds.len(), "case n = {n}");
         for (s, &(a, b, c, d)) in splits.iter().zip(bounds) {
@@ -208,11 +207,7 @@ fn group_time_series_keeps_time_points_together() {
         rows.swap(i, rng.next(i + 1));
     }
     let time: Vec<usize> = rows.iter().map(|r| r.0).collect();
-    let opts = TimeSeriesSplitOptions {
-        test_size: Some(2),
-        gap: 1,
-        ..TimeSeriesSplitOptions::new(3)
-    };
+    let opts = TimeSeriesSplitOptions::new(3).test_size(Some(2)).gap(1);
     let splits = group_time_series_splits(&time, &opts).unwrap();
     let by_date = time_series_splits(12, &opts).unwrap();
     for (s, d) in splits.iter().zip(&by_date) {
@@ -299,28 +294,13 @@ fn invalid_splits_are_rejected() {
     let (x, y) = data(20);
     let opts = PathOptions::ridge();
     let overlap = vec![
-        CvSplit {
-            train: (0..10).collect(),
-            test: (9..12).collect(),
-        },
-        CvSplit {
-            train: (0..12).collect(),
-            test: (12..15).collect(),
-        },
+        CvSplit::new((0..10).collect(), (9..12).collect()),
+        CvSplit::new((0..12).collect(), (12..15).collect()),
     ];
     assert!(cv_path_splits(&x, &y, &[0.1], &overlap, &opts, CvMetric::Mse).is_err());
-    let one = vec![CvSplit {
-        train: (0..10).collect(),
-        test: (10..15).collect(),
-    }];
+    let one = vec![CvSplit::new((0..10).collect(), (10..15).collect())];
     assert!(cv_path_splits(&x, &y, &[0.1], &one, &opts, CvMetric::Mse).is_err());
-    let out_of_range = vec![
-        CvSplit {
-            train: (0..10).collect(),
-            test: vec![25],
-        },
-        one[0].clone(),
-    ];
+    let out_of_range = vec![CvSplit::new((0..10).collect(), vec![25]), one[0].clone()];
     assert!(cv_path_splits(&x, &y, &[0.1], &out_of_range, &opts, CvMetric::Mse).is_err());
 }
 
@@ -430,11 +410,9 @@ fn nested_equals_hand_rolled_loop() {
     let outer = time_series_splits(n, &TimeSeriesSplitOptions::new(3)).unwrap();
     let opts = PathOptions::ridge();
     for rule in [LambdaRule::Min, LambdaRule::OneSe] {
-        let nested = NestedCvOptions {
-            rule,
-            n_lambda: 15,
-            ..NestedCvOptions::new(InnerFolds::Kfold { k: 5, seed: 4 })
-        };
+        let nested = NestedCvOptions::new(InnerFolds::Kfold { k: 5, seed: 4 })
+            .rule(rule)
+            .n_lambda(15);
         let res = nested_cv_path(&x, &y, None, &outer, &opts, &nested).unwrap();
         let mut num = 0.0;
         let mut den = 0.0;
@@ -446,6 +424,7 @@ fn nested_equals_hand_rolled_loop() {
             let lam = match rule {
                 LambdaRule::Min => cv.lambda_min,
                 LambdaRule::OneSe => cv.lambda_1se,
+                _ => unreachable!("only Min and OneSe are tested"),
             };
             assert_eq!(f.lambda, lam);
             let fit = fit_path(&xt, &yt, &[lam], &opts).unwrap();

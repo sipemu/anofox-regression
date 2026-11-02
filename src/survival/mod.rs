@@ -50,6 +50,7 @@ pub enum SurvivalError {
 
 /// Confidence interval of the survival curve (`conf.type` of `survfit`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ConfType {
     /// `S·exp(±z·se)`, upper limit capped at 1 (the default).
     #[default]
@@ -62,6 +63,7 @@ pub enum ConfType {
 
 /// Cumulative hazard estimator (`ctype` of `survfit`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum HazardType {
     /// Nelson–Aalen, `Σ d/n` (`ctype = 1`).
     #[default]
@@ -72,6 +74,7 @@ pub enum HazardType {
 
 /// Options of [`survfit`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct SurvfitOptions {
     /// Confidence level of the intervals (default 0.95).
     pub conf_level: f64,
@@ -88,6 +91,14 @@ pub struct SurvfitOptions {
     pub robust: Option<bool>,
 }
 
+setters!(SurvfitOptions {
+    conf_level: f64,
+    conf_type: ConfType,
+    hazard: HazardType,
+    timefix: bool,
+    robust: Option<bool>,
+});
+
 impl Default for SurvfitOptions {
     fn default() -> Self {
         Self {
@@ -103,6 +114,7 @@ impl Default for SurvfitOptions {
 /// Survival data: right-censored `(time, event)`, optionally left-truncated
 /// (`entry < time`; the row is at risk on `(entry, time]`) and weighted.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct SurvInput<'a> {
     /// Event or censoring time (the `stop` time).
     pub time: &'a [f64],
@@ -254,6 +266,7 @@ pub struct SurvCurve {
 
 /// A survival-time quantile with its confidence limits.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct SurvQuantile {
     /// Estimate (NaN if the curve does not reach the level).
     pub estimate: f64,
@@ -266,6 +279,7 @@ pub struct SurvQuantile {
 
 /// The `summary(survfit)$table` row of a curve.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct SurvSummary {
     /// Rows used.
     pub records: usize,
@@ -704,6 +718,7 @@ fn conf_limits(p: f64, se: f64, z: f64, kind: ConfType) -> (f64, f64) {
 
 /// Result of [`survdiff`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SurvDiff {
     /// Group codes, in increasing order.
     pub groups: Vec<usize>,

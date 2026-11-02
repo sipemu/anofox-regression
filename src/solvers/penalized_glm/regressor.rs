@@ -20,6 +20,7 @@ use crate::diagnostics::{Augment, ResidualType};
 
 /// Response family (and link) fitted by [`PenalizedGlmRegressor`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum PenalizedGlmFamily {
     /// Poisson counts; dispersion fixed at 1 (as R's `glm(family = poisson)`), or
     /// the Pearson estimate with [`PenalizedGlmRegressorBuilder::estimate_dispersion`].

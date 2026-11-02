@@ -10,6 +10,7 @@ use faer::{Col, Mat};
 
 /// Accumulated weighted normal equations `X'WX β = X'Wz`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NormalEquations {
     /// `X'WX`.
     pub xtwx: Mat<f64>,

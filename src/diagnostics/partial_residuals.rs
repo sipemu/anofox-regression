@@ -16,6 +16,7 @@ use faer::{Col, Mat};
 
 /// Component-plus-residual data of one term.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PartialResiduals {
     /// 0-based feature column.
     pub term: usize,
@@ -29,6 +30,7 @@ pub struct PartialResiduals {
 
 /// Added-variable (partial regression) data of one column.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AddedVariable {
     /// 0-based feature column.
     pub term: usize,

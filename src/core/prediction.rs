@@ -4,6 +4,7 @@ use faer::Col;
 
 /// Type of prediction scale for GLM models.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PredictionType {
     /// Predictions on the response scale (μ).
     /// For binomial: probabilities in (0, 1).
@@ -18,6 +19,7 @@ pub enum PredictionType {
 
 /// Type of interval to compute for predictions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum IntervalType {
     /// Confidence interval for the mean response E[Y|X=x₀].
     /// Narrower - only accounts for uncertainty in coefficient estimates.
@@ -31,6 +33,7 @@ pub enum IntervalType {
 
 /// Result of prediction with optional intervals.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PredictionResult {
     /// Point predictions (fitted values).
     pub fit: Col<f64>,

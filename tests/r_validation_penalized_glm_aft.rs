@@ -274,11 +274,9 @@ fn gaussian_priors_give_the_posterior_mode_and_all_three_vcovs() {
 #[test]
 fn column_major_entry_points_match_the_builder() {
     let x = vec![X1.to_vec(), X2.to_vec()];
-    let opts = PoissonOptions {
-        compute_inference: true,
-        tolerance: 1e-10,
-        ..Default::default()
-    };
+    let opts = PoissonOptions::default()
+        .compute_inference(true)
+        .tolerance(1e-10);
     let r = fit_poisson(&Y_POIS, &x, &opts).unwrap();
     let f = fit(PenalizedGlmFamily::poisson(), &Y_POIS);
     assert_eq!(r.core.coefficients[0], f.coefficients()[0]);
@@ -346,10 +344,7 @@ fn aft_check(
         &TIME,
         &[X1.to_vec(), X2.to_vec()],
         &EVENT,
-        &AftOptions {
-            dist,
-            ..Default::default()
-        },
+        &AftOptions::default().dist(dist),
     )
     .unwrap();
     assert_eq!(r.core.coefficients[0], f.coefficients()[0]);
@@ -449,12 +444,10 @@ fn poisson_estimate_dispersion_matches_quasipoisson() {
     let r = fit_poisson(
         &Y_NB,
         &x,
-        &PoissonOptions {
-            compute_inference: true,
-            tolerance: 1e-10,
-            estimate_dispersion: true,
-            ..Default::default()
-        },
+        &PoissonOptions::default()
+            .compute_inference(true)
+            .tolerance(1e-10)
+            .estimate_dispersion(true),
     )
     .unwrap();
     let inf = r.inference.unwrap();

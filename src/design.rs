@@ -62,6 +62,7 @@ pub enum DesignError {
 
 /// The two factors of a two-way interaction term.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Interaction {
     /// Term indices of the two main effects.
     pub factors: (usize, usize),
@@ -74,6 +75,7 @@ pub struct Interaction {
 
 /// One term of a design.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Term {
     /// Term name (`x1`, or `x1 * x2` for an interaction).
     pub name: String,

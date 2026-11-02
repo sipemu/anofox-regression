@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Public types are extensible (#177).** Breaking: adding a field, variant, family or link is no longer a semver-major change.
+  - 71 public enums (families, links, losses, methods, options) are `#[non_exhaustive]`: matching them needs a `_` arm. The hclust `Node` stays exhaustive.
+  - 151 public structs whose fields are all public are `#[non_exhaustive]`: results, options and specs. Their fields are still readable; outside the crate they can't be built with a struct literal.
+  - Options structs (30 types, e.g. `AregImputeOptions`, `CoxOptions`, `PoissonOptions`, `RegressionOptions`, `PathOptions`) gain one fluent setter per field: `AregImputeOptions::default().n_impute(3).seed(10)` replaces `AregImputeOptions { n_impute: 3, seed: 10, ..Default::default() }`. `PredictSeOptions` keeps its existing fluent API.
+  - Input types gain constructors: `GlmData::new(x, y)` with `.with_intercept()`, `.weights()`, `.offset()` and `.covariates()` (for a nested model), and `CvSplit::new(train, test)`.
 - **Errors are structured and unified (#178).** Breaking:
   - `RegressionError` gains `InvalidInput(String)` and `InvalidParameter { name, reason }`, with the constructors `RegressionError::invalid_input` / `invalid_parameter`. The 120 uses of `NumericalError(String)` are reclassified: 65 are bad data (`InvalidInput`), 35 are an option or argument out of range (`InvalidParameter`, naming it, e.g. `tau`, `alpha`, `level`, `lambdas`, `n_agq`), and 19 genuine numerical failures stay `NumericalError`.
   - All 19 error enums are `#[non_exhaustive]`.

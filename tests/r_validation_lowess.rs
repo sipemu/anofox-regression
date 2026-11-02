@@ -18,11 +18,10 @@ fn check(
     let fit = lowess(
         x,
         y,
-        &LowessOptions {
-            frac,
-            iterations,
-            delta,
-        },
+        &LowessOptions::default()
+            .frac(frac)
+            .iterations(iterations)
+            .delta(delta),
     )
     .unwrap();
     assert_eq!(fit.x.len(), ex.len());
@@ -123,14 +122,8 @@ fn lowess_single_point_and_errors() {
     assert!(lowess(&[], &[], &LowessOptions::default()).is_err());
     assert!(lowess(&[1.0, 2.0], &[1.0], &LowessOptions::default()).is_err());
     assert!(lowess(&[1.0, f64::NAN], &[1.0, 2.0], &LowessOptions::default()).is_err());
-    let bad_frac = LowessOptions {
-        frac: 0.0,
-        ..LowessOptions::default()
-    };
+    let bad_frac = LowessOptions::default().frac(0.0);
     assert!(lowess(&[1.0, 2.0], &[1.0, 2.0], &bad_frac).is_err());
-    let bad_delta = LowessOptions {
-        delta: Some(-1.0),
-        ..LowessOptions::default()
-    };
+    let bad_delta = LowessOptions::default().delta(Some(-1.0));
     assert!(lowess(&[1.0, 2.0], &[1.0, 2.0], &bad_delta).is_err());
 }

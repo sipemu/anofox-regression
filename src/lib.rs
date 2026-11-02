@@ -50,6 +50,9 @@
 /// release).
 pub use faer;
 
+#[macro_use]
+mod macros;
+
 pub mod core;
 pub mod design;
 pub mod diagnostics;

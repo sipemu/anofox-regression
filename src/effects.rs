@@ -28,6 +28,7 @@ use statrs::distribution::{ChiSquared, ContinuousCDF, FisherSnedecor, Normal, St
 
 /// `datadist` limits of a predictor.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Limits {
     /// Low value of the effect (`Low:effect`).
     pub low_effect: f64,
@@ -90,6 +91,7 @@ impl Limits {
 
 /// How a predictor enters the design.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum PredictorKind {
     /// One linear column.
     Linear,
@@ -104,6 +106,7 @@ pub enum PredictorKind {
 
 /// A predictor of a [`ModelSpec`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Predictor {
     /// Name.
     pub name: String,
@@ -141,6 +144,7 @@ impl Predictor {
 
 /// Critical-value distribution of effects and contrasts.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Critical {
     /// Standard normal (GLMs, Cox, AFT).
     Normal,
@@ -169,6 +173,7 @@ impl Critical {
 
 /// A contrast estimate.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct ContrastEstimate {
     /// Estimate `cᵀβ`.
     pub estimate: f64,
@@ -186,6 +191,7 @@ pub struct ContrastEstimate {
 
 /// One row of [`ModelSpec::summary`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct EffectRow {
     /// Label (`x1`, or `g - 3:2` for a level against the adjust-to level).
     pub label: String,
@@ -492,6 +498,7 @@ impl ModelSpec {
 
 /// One predictor's axis of a [`Nomogram`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct NomogramAxis {
     /// Predictor name.
     pub name: String,
@@ -506,6 +513,7 @@ pub struct NomogramAxis {
 
 /// A nomogram ([`ModelSpec::nomogram`], `rms::nomogram`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Nomogram {
     /// One axis per predictor.
     pub axes: Vec<NomogramAxis>,

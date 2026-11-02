@@ -70,6 +70,7 @@ fn regular_demand() {
     match result.demand_type {
         DemandType::Regular => println!("  -> Classified as REGULAR (few zeros)"),
         DemandType::Intermittent => println!("  -> Classified as INTERMITTENT (many zeros)"),
+        other => println!("  -> Classified as {other:?}"),
     }
     println!();
 }
@@ -121,6 +122,7 @@ fn intermittent_demand() {
     match result.demand_type {
         DemandType::Regular => println!("  -> Classified as REGULAR"),
         DemandType::Intermittent => println!("  -> Classified as INTERMITTENT (sporadic demand)"),
+        other => println!("  -> Classified as {other:?}"),
     }
 
     println!("\nNote: Intermittent demand requires different forecasting methods");

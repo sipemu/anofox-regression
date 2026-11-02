@@ -39,6 +39,7 @@ use super::link::BinomialLink;
 ///
 /// with appropriate handling for y = 0 or y = 1.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct BinomialFamily {
     /// The link function to use.
     pub link: BinomialLink,

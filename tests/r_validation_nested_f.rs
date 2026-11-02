@@ -156,10 +156,7 @@ fn intercept_only_reduced_is_the_overall_f_test() {
 
 #[test]
 fn without_intercept() {
-    let options = NestedFTestOptions {
-        with_intercept: false,
-        ..Default::default()
-    };
+    let options = NestedFTestOptions::default().with_intercept(false);
     let t = nested_f_test(
         &design(&["x1"]),
         &design(&["x1", "x2", "x3"]),

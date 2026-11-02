@@ -32,6 +32,7 @@ fn invalid(msg: &str) -> RegressionError {
 
 /// Result of [`spearman2`] (`Hmisc::spearman2`).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Spearman2 {
     /// Generalized Spearman ρ²: R² of `rank(y)` on the rank terms of `x`.
     pub rho2: f64,
@@ -149,6 +150,7 @@ pub fn spearman2_categorical(x: &[usize], y: &[f64]) -> Result<Spearman2, Regres
 
 /// Hoeffding's D matrix ([`hoeffding_d`], `Hmisc::hoeffd`).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HoeffdingD {
     /// `30 ×` Hoeffding's D for every pair of columns (1 on the diagonal),
     /// in `[−0.5, 1]`; large values mean dependence of any form.
@@ -252,6 +254,7 @@ pub fn hoeffding_d(x: &Mat<f64>) -> Result<HoeffdingD, RegressionError> {
 
 /// Agglomeration method of [`hclust`] (`method =`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Linkage {
     /// `"ward.D"` (Lance–Williams Ward on the dissimilarities as given).
     WardD,
@@ -283,6 +286,7 @@ pub enum Node {
 
 /// A hierarchical clustering ([`hclust`]).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Hclust {
     /// The two nodes joined at each of the `n − 1` steps, in R's order
     /// (`merge`).
@@ -495,6 +499,7 @@ fn hcass2(pairs: &[(usize, usize)]) -> (Vec<(Node, Node)>, Vec<usize>) {
 
 /// Similarity measure of [`varclus`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Similarity {
     /// Spearman rank correlation (default).
     #[default]
@@ -507,6 +512,7 @@ pub enum Similarity {
 
 /// Transformation of a correlation in [`varclus`] (`trans =`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum SimilarityTransform {
     /// `r²` (default).
     #[default]
@@ -519,6 +525,7 @@ pub enum SimilarityTransform {
 
 /// Result of [`varclus`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Varclus {
     /// The similarity matrix.
     pub sim: Mat<f64>,
@@ -590,6 +597,7 @@ pub fn varclus(
 
 /// How a variable enters [`redun`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum RedunVariable {
     /// Numeric: a restricted cubic spline (or ranks, see [`RedunOptions`]).
     #[default]
@@ -602,6 +610,7 @@ pub enum RedunVariable {
 
 /// Options of [`redun`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct RedunOptions {
     /// A variable is redundant when its R² from the others exceeds this.
     pub r2: f64,
@@ -622,6 +631,16 @@ pub struct RedunOptions {
     pub allcat: bool,
 }
 
+setters!(RedunOptions {
+    r2: f64,
+    adjusted: bool,
+    nk: usize,
+    tlinear: bool,
+    rank: bool,
+    qrank: bool,
+    allcat: bool,
+});
+
 impl Default for RedunOptions {
     fn default() -> Self {
         Self {
@@ -638,6 +657,7 @@ impl Default for RedunOptions {
 
 /// Result of [`redun`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Redun {
     /// Variables kept (column indices of `x`), in their original order.
     pub kept: Vec<usize>,
@@ -842,6 +862,7 @@ pub fn redun(
 /// Principal components of a data matrix ([`principal_components`],
 /// `stats::prcomp`).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PrincipalComponents {
     /// Column means subtracted.
     pub center: Vec<f64>,
@@ -972,6 +993,7 @@ pub fn cluster_scores(
 
 /// Options of [`transcan`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct TranscanOptions {
     /// Spline knots; `None` is Hmisc's default (3, 4 or 5 for `n < 30`,
     /// `< 100`, `≥ 100`).
@@ -984,6 +1006,13 @@ pub struct TranscanOptions {
     /// (`curtail`, default `true`).
     pub curtail: bool,
 }
+
+setters!(TranscanOptions {
+    nk: Option<usize>,
+    iter_max: usize,
+    eps: f64,
+    curtail: bool,
+});
 
 impl Default for TranscanOptions {
     fn default() -> Self {
@@ -998,6 +1027,7 @@ impl Default for TranscanOptions {
 
 /// Result of [`transcan`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Transcan {
     /// Transformed variables (`n × p`); missing entries hold the transformed
     /// value predicted from the other variables. The sign of each

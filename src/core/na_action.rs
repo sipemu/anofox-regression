@@ -27,6 +27,7 @@ use thiserror::Error;
 ///
 /// Mirrors R's `na.action` parameter in `lm()` and other regression functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum NaAction {
     /// Remove rows containing NA values. Output vectors (residuals, fitted)
     /// will be shorter than input.
@@ -82,6 +83,7 @@ pub enum NaError {
 ///
 /// Used by `NaAction::Exclude` to reconstruct original-length output.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NaInfo {
     /// Original number of observations before NA removal.
     pub n_original: usize,
@@ -151,6 +153,7 @@ impl NaInfo {
 
 /// Result of NA preprocessing.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NaResult {
     /// Cleaned feature matrix (rows with NA removed, unless `Pass`).
     pub x_clean: Mat<f64>,

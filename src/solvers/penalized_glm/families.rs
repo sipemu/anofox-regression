@@ -34,6 +34,7 @@ use statrs::function::gamma::ln_gamma;
 
 /// Combined GLM result with optional inference.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GlmResult {
     /// Coefficients, deviance, AIC, convergence (expanded to the caller's feature
     /// order; `NaN` for dropped columns).
@@ -534,6 +535,7 @@ fn with_gamma_ml_log_likelihood(mut fit: EngineFit) -> EngineFit {
 /// with the classification-specific diagnostics (accuracy on the training
 /// set and the classification threshold that was used).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct LogisticResult {
     /// The binomial GLM fit.
     pub fit: GlmResult,

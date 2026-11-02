@@ -43,6 +43,7 @@ use std::collections::HashMap;
 
 /// Within-group correlation structure `R_g` (nlme `corStruct`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum GlsCorrelation {
     /// Independent errors (`R_g = I`).
     #[default]
@@ -123,6 +124,7 @@ impl SpatialKind {
 /// Variance function: the standard deviation of observation `i` is
 /// `σ · s_i` (nlme `varFunc`).
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub enum GlsVariance {
     /// `s_i = 1`.
     #[default]
@@ -139,6 +141,7 @@ pub enum GlsVariance {
 
 /// Estimation method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum GlsMethod {
     /// Restricted maximum likelihood (nlme default).
     #[default]
@@ -150,6 +153,7 @@ pub enum GlsMethod {
 
 /// Residual scale (nlme `resid(type = )`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum GlsResidualType {
     /// `y − Xβ̂`.
     Response,
@@ -1112,6 +1116,7 @@ fn normalize(groups: &[Vec<usize>], factors: &[Mat<f64>], pearson: &Col<f64>) ->
 
 /// A point estimate with its confidence limits.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Interval {
     /// Lower limit.
     pub lower: f64,
@@ -1124,6 +1129,7 @@ pub struct Interval {
 /// Approximate intervals of the variance–covariance parameters
 /// (`intervals(fit, which = "var-cov")`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct VarCovIntervals {
     /// Correlation parameters, as [`FittedGls::correlation_params`].
     pub correlation: Vec<Interval>,
@@ -1135,6 +1141,7 @@ pub struct VarCovIntervals {
 
 /// One distance class of an empirical [`FittedGls::variogram`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct VariogramBin {
     /// Mean semivariogram `(r_i − r_j)² / 2` of the pairs.
     pub variog: f64,

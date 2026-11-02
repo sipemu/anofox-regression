@@ -43,6 +43,7 @@ use statrs::function::gamma::digamma;
 ///
 /// The canonical link is log, like Poisson.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct NegativeBinomialFamily {
     /// The dispersion parameter (also called "size" in R).
     /// Higher values mean less overdispersion (more Poisson-like).

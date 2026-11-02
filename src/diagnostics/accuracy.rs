@@ -112,6 +112,7 @@ fn check_weights(n: usize, w: Option<&[f64]>) -> Result<(), AccuracyError> {
 /// Pair counts of a prediction and an ordered response, weighted by
 /// `wᵢ·wⱼ` (`survival::concordancefit` counts).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Concordance {
     /// Pairs ordered the same way by `x` and `y`.
     pub concordant: f64,
@@ -228,6 +229,7 @@ pub fn concordance(
 
 /// `C` and `Dxy` of `Hmisc::somers2`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Somers2 {
     /// ROC area.
     pub c: f64,
@@ -263,6 +265,7 @@ pub fn somers2(p: &[f64], y: &[f64], weights: Option<&[f64]>) -> Result<Somers2,
 ///
 /// The pair counts are over ordered pairs, as `rcorr.cens` reports them.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct CensoredConcordance {
     /// Concordance probability.
     pub c: f64,
@@ -425,6 +428,7 @@ pub fn nagelkerke_r2(lr: f64, null_deviance: f64, n: f64) -> f64 {
 
 /// Explained-variation measures of `Hmisc::R2Measures` (RMS 2nd ed. §4.5).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct R2Measures {
     /// Maddala / Cox–Snell `R²(n) = 1 − exp(−LR/n)`.
     pub r2: f64,
@@ -466,6 +470,7 @@ pub fn effective_sample_size(n: f64, freqs: &[f64]) -> f64 {
 
 /// The `stats` vector of a binary `rms::lrm` fit.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct LrmStats {
     /// Observations.
     pub obs: usize,
@@ -588,6 +593,7 @@ fn chisq_sf(x: f64, df: f64) -> f64 {
 
 /// Output of [`val_prob`] (`rms::val.prob`).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct ValProb {
     /// Somers' `Dxy`.
     pub dxy: f64,

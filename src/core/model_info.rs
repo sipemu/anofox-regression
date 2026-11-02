@@ -20,6 +20,7 @@
 
 /// Static description of a fitted model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ModelInfo {
     /// Estimator name, e.g. `"ols"`, `"elastic_net"`, `"binomial"`.
     pub model_type: &'static str,

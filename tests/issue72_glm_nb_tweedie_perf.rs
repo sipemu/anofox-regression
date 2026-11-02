@@ -142,15 +142,7 @@ fn negbinomial_and_tweedie_cost_a_small_multiple_of_poisson() {
         fit_negbinomial(&y, &x, &NegBinomialOptions::default()).unwrap()
     });
     let tweedie = best_of(2, || {
-        fit_tweedie(
-            &pos,
-            &x,
-            &TweedieOptions {
-                power: 1.5,
-                ..Default::default()
-            },
-        )
-        .unwrap()
+        fit_tweedie(&pos, &x, &TweedieOptions::default().power(1.5)).unwrap()
     });
     let nb_ratio = negbin.as_secs_f64() / poisson.as_secs_f64();
     let tw_ratio = tweedie.as_secs_f64() / poisson.as_secs_f64();
