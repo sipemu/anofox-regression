@@ -24,6 +24,7 @@ mod logistic;
 pub mod lowess;
 pub mod mediation;
 mod moments;
+mod multinomial_logistic;
 mod negative_binomial;
 mod ols;
 pub mod ordinal;
@@ -80,6 +81,9 @@ pub use lm_dynamic::{
 };
 pub use logistic::{FittedLogistic, LogisticRegressor, LogisticRegressorBuilder, Penalty};
 pub use moments::MomentAccumulator;
+pub use multinomial_logistic::{
+    FittedMultinomialLogistic, MultinomialLogisticRegressor, MultinomialLogisticRegressorBuilder,
+};
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
 pub use ols::{FittedOls, OlsRegressor, OlsRegressorBuilder};
 pub use ordinal::{
