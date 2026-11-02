@@ -97,6 +97,7 @@ pub struct QuantileRegressor {
     with_intercept: bool,
     max_iterations: usize,
     tolerance: f64,
+    alpha: f64,
 }
 
 #[wasm_bindgen]
@@ -109,7 +110,15 @@ impl QuantileRegressor {
             with_intercept: true,
             max_iterations: 100,
             tolerance: 1e-6,
+            alpha: 0.0,
         }
+    }
+
+    /// L1 penalty on the slopes (default 0): minimises
+    /// `(1/n) Σ ρ_τ(rᵢ) + alpha ‖β‖₁`, sklearn's `QuantileRegressor(alpha)`.
+    #[wasm_bindgen(js_name = setAlpha)]
+    pub fn set_alpha(&mut self, alpha: f64) {
+        self.alpha = alpha;
     }
 
     /// Set the quantile to estimate (0 < tau < 1).
@@ -176,6 +185,7 @@ impl QuantileRegressor {
             .with_intercept(self.with_intercept)
             .max_iterations(self.max_iterations)
             .tolerance(self.tolerance)
+            .alpha(self.alpha)
             .build();
 
         let fitted = model
@@ -232,6 +242,12 @@ scalar_methods!(FittedQuantile {
 
 #[wasm_bindgen]
 impl FittedQuantile {
+    /// The L1 penalty of the fit (0: unpenalized).
+    #[wasm_bindgen]
+    pub fn alpha(&self) -> f64 {
+        self.fitted.alpha()
+    }
+
     /// Whether the model has an intercept.
     #[wasm_bindgen(js_name = hasIntercept)]
     pub fn has_intercept(&self) -> bool {
