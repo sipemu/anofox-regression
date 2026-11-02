@@ -105,6 +105,7 @@ fn check_k(k: usize, n: usize, what: &str) -> Result<(), RegressionError> {
 
 /// How [`group_kfold_ids`] assigns groups to folds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum GroupBalance {
     /// Balance the folds by row count: groups are taken from the largest to
     /// the smallest (ties: the larger key first) and each goes into the fold
@@ -363,11 +364,19 @@ pub fn stratified_group_kfold_ids<G: Ord, S: Ord>(
 /// An explicit cross-validation split: the rows to fit on and the rows to
 /// predict, as row indices.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CvSplit {
     /// Training rows (increasing).
     pub train: Vec<usize>,
     /// Test rows (increasing).
     pub test: Vec<usize>,
+}
+
+impl CvSplit {
+    /// A split with the given training and test rows.
+    pub fn new(train: Vec<usize>, test: Vec<usize>) -> Self {
+        Self { train, test }
+    }
 }
 
 /// One split per distinct fold id, in increasing id order: the fold's rows
@@ -389,6 +398,7 @@ pub fn splits_from_fold_ids(fold_ids: &[usize]) -> Vec<CvSplit> {
 
 /// The training window of [`time_series_splits`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TrainWindow {
     /// Every row before the gap (scikit-learn's default).
     #[default]
@@ -399,6 +409,7 @@ pub enum TrainWindow {
 
 /// Options of [`time_series_splits`] (scikit-learn's `TimeSeriesSplit`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TimeSeriesSplitOptions {
     /// Number of splits (test blocks), at least 2. Default 5.
     pub n_splits: usize,
@@ -413,6 +424,14 @@ pub struct TimeSeriesSplitOptions {
     /// split has fewer training rows. Default none.
     pub min_train_size: Option<usize>,
 }
+
+setters!(TimeSeriesSplitOptions {
+    n_splits: usize,
+    test_size: Option<usize>,
+    gap: usize,
+    window: TrainWindow,
+    min_train_size: Option<usize>,
+});
 
 impl Default for TimeSeriesSplitOptions {
     fn default() -> Self {
@@ -527,6 +546,7 @@ pub fn group_time_series_splits<T: Ord>(
 
 /// Prediction error measured on each test set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum CvMetric {
     /// Mean squared error (`cv.glmnet`'s `type.measure = "mse"`; for the
     /// Gaussian family also its `"deviance"`).
@@ -672,6 +692,7 @@ pub fn cv_path_splits(
 /// per row of the full data (for instance from [`group_codes`]); only the
 /// entries of the outer training rows are used.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum InnerFolds {
     /// Seeded random k-fold ([`kfold_ids`]) over the training rows in order.
     Kfold {
@@ -718,6 +739,7 @@ pub enum InnerFolds {
 
 /// Which `λ` of the inner CV curve [`nested_cv_path`] refits with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum LambdaRule {
     /// `lambda_min`.
     #[default]
@@ -728,6 +750,7 @@ pub enum LambdaRule {
 
 /// Options of [`nested_cv_path`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct NestedCvOptions {
     /// Inner folds, built from each outer training set only.
     pub inner: InnerFolds,
@@ -741,6 +764,14 @@ pub struct NestedCvOptions {
     /// `lambda_min_ratio` of that grid; `None` for glmnet's default.
     pub lambda_min_ratio: Option<f64>,
 }
+
+setters!(NestedCvOptions {
+    inner: InnerFolds,
+    rule: LambdaRule,
+    metric: CvMetric,
+    n_lambda: usize,
+    lambda_min_ratio: Option<f64>,
+});
 
 impl NestedCvOptions {
     /// Options with the given inner folds and the defaults otherwise.
@@ -757,6 +788,7 @@ impl NestedCvOptions {
 
 /// One outer split of a nested cross-validation.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NestedCvFold {
     /// Index of the outer split.
     pub split: usize,
@@ -776,6 +808,7 @@ pub struct NestedCvFold {
 
 /// Result of [`nested_cv_path`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NestedCv {
     /// One entry per outer split, in split order.
     pub folds: Vec<NestedCvFold>,

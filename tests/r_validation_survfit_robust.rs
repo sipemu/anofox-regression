@@ -118,10 +118,7 @@ fn robust_variance_matches_survfit() {
         &ID_LOWER,
         &ID_UPPER,
     );
-    let fh = SurvfitOptions {
-        hazard: HazardType::FlemingHarrington,
-        ..d
-    };
+    let fh = d.hazard(HazardType::FlemingHarrington);
     let c = curve(&base, fh);
     let lower: Vec<f64> = c
         .surv
@@ -176,10 +173,7 @@ fn robust_variance_matches_survfit() {
         &LT_LOWER,
         &LT_UPPER,
     );
-    let forced = SurvfitOptions {
-        robust: Some(true),
-        ..d
-    };
+    let forced = d.robust(Some(true));
     check(
         "UNW",
         &curve(&SurvInput::new(&TIME, &ev), forced),
@@ -191,10 +185,7 @@ fn robust_variance_matches_survfit() {
         &UNW_LOWER,
         &UNW_UPPER,
     );
-    let greenwood = SurvfitOptions {
-        robust: Some(false),
-        ..d
-    };
+    let greenwood = d.robust(Some(false));
     check(
         "GW",
         &curve(&base, greenwood),

@@ -1170,6 +1170,7 @@ impl HasModelInfo for FittedGlmm {
 /// Degrees-of-freedom method for the fixed-effect tests of a GLMM
 /// ([`FittedGlmm::inference`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GlmmDdf {
     /// Asymptotic z tests and Wald intervals (lme4 `summary(glmer)`,
     /// `confint(method = "Wald")`).
@@ -1182,6 +1183,7 @@ pub enum GlmmDdf {
 /// Fixed-effect inference from [`FittedGlmm::inference`], every vector in
 /// design order (intercept first when present).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GlmmInference {
     /// Standard errors `sqrt(diag(vcov))`.
     pub std_errors: Vec<f64>,
@@ -1200,6 +1202,7 @@ pub struct GlmmInference {
 /// Per-factor summary for a crossed / nested fit: one random intercept per
 /// factor, each with its own variance component.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct FactorSummary {
     /// Number of levels of this grouping factor.
     pub n_levels: usize,

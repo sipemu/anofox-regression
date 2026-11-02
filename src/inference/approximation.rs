@@ -56,6 +56,7 @@ pub fn shrink_slopes(beta: &Col<f64>, n_intercepts: usize, gamma: f64) -> Col<f6
 
 /// An approximation of a full model by a subset of its terms.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ModelApproximation {
     /// Terms of the approximating model, in [`TermMap`] order.
     pub kept_terms: Vec<usize>,
@@ -71,6 +72,7 @@ pub struct ModelApproximation {
 
 /// One deletion of [`approximation_path`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct ApproximationStep {
     /// Deleted term.
     pub term: usize,

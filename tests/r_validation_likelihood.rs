@@ -48,14 +48,11 @@ fn run(c: &Case) {
     let full_x = design(&[&X1, &X2, &X3]);
     let red_x = design(&[&X1]);
     let add_x = design(&[&X2, &X3]);
-    let full = GlmData {
-        x: &full_x,
-        with_intercept: true,
-        y: c.y,
-        weights: c.weights,
-        offset: c.offset,
-    };
-    let red = GlmData { x: &red_x, ..full };
+    let full = GlmData::new(&full_x, c.y)
+        .with_intercept(true)
+        .weights(c.weights)
+        .offset(c.offset);
+    let red = full.covariates(&red_x);
     let f = fit_glm(c.family, &full, c.dispersion).unwrap();
     let r = fit_glm(c.family, &red, c.dispersion).unwrap();
     let id = c.id;

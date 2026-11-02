@@ -21,6 +21,7 @@ use faer::Mat;
 
 /// How a variable enters [`areg_impute`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ImputeVariable {
     /// Numeric: a restricted cubic spline (linear with two distinct values).
     #[default]
@@ -33,6 +34,7 @@ pub enum ImputeVariable {
 
 /// Donor selection of [`areg_impute`] (`match =`).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum DonorMatch {
     /// Draw a donor with tricube weights on the distance in predicted
     /// values, scaled by `f` times the mean distance (`"weighted"`,
@@ -45,6 +47,7 @@ pub enum DonorMatch {
 
 /// Options of [`areg_impute`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AregImputeOptions {
     /// Number of imputations (`n.impute`, default 5).
     pub n_impute: usize,
@@ -62,6 +65,15 @@ pub struct AregImputeOptions {
     pub seed: i32,
 }
 
+setters!(AregImputeOptions {
+    n_impute: usize,
+    nk: usize,
+    tlinear: bool,
+    burnin: Option<usize>,
+    matching: DonorMatch,
+    seed: i32,
+});
+
 impl Default for AregImputeOptions {
     fn default() -> Self {
         Self {
@@ -77,6 +89,7 @@ impl Default for AregImputeOptions {
 
 /// Result of [`areg_impute`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AregImpute {
     /// Rows with missing values of each column (empty if complete).
     pub missing: Vec<Vec<usize>>,

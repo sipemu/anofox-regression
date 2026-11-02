@@ -85,6 +85,7 @@ pub enum EbShrinkError {
 
 /// How `tau^2` (the between-group variance) is estimated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TauMethod {
     /// DerSimonian–Laird moment estimator, `max(0, (Q - df) / C)` with
     /// `C = sum(w) - sum(w^2) / sum(w)`. What `metafor::rma(method = "DL")`
@@ -98,6 +99,7 @@ pub enum TauMethod {
 
 /// Options for [`eb_shrink`].
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct EbShrinkOptions {
     /// Estimator for `tau^2`.
     pub method: TauMethod,
@@ -106,8 +108,14 @@ pub struct EbShrinkOptions {
     pub tau_squared: Option<f64>,
 }
 
+setters!(EbShrinkOptions {
+    method: TauMethod,
+    tau_squared: Option<f64>,
+});
+
 /// One group's shrunken estimate.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct ShrunkenGroup {
     /// The estimate as supplied.
     pub estimate: f64,
@@ -124,6 +132,7 @@ pub struct ShrunkenGroup {
 
 /// Result of [`eb_shrink`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct EbShrinkResult {
     /// Precision-weighted (random-effects) pooled mean.
     pub mu: f64,

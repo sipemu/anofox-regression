@@ -6,6 +6,7 @@ use faer::Mat;
 
 /// Family of an explicit prior placed on a single coefficient.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PriorKind {
     /// No prior: the coefficient is estimated by unpenalized maximum likelihood.
     #[default]
@@ -25,6 +26,7 @@ pub enum PriorKind {
 /// `scale` is the prior standard deviation for [`PriorKind::Normal`] and the Laplace
 /// scale parameter `b` for [`PriorKind::Laplace`]. A flat prior ignores both fields.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct PriorSpec {
     /// Flat, Normal or Laplace.
     pub kind: PriorKind,
@@ -33,6 +35,12 @@ pub struct PriorSpec {
     /// Prior scale (see above).
     pub scale: f64,
 }
+
+setters!(PriorSpec {
+    kind: PriorKind,
+    loc: f64,
+    scale: f64,
+});
 
 impl Default for PriorSpec {
     fn default() -> Self {
@@ -92,6 +100,7 @@ impl PriorSpec {
 ///
 /// For an unpenalized fit all three coincide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum VcovType {
     /// `(X'WX + P)^-1` — the curvature of the log posterior at the mode (Laplace
     /// approximation). This is the correct observed information for a MAP estimate
@@ -113,6 +122,7 @@ pub enum VcovType {
 /// Kept as a separate struct rather than duplicated across the six family option
 /// structs. Kept flat so a C ABI front end can mirror the per-family structs.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct GlmPriorOptions {
     /// Per-coefficient priors, positionally aligned with the feature columns.
     /// When `fit_intercept` is set, an extra leading entry applies to the intercept.
@@ -121,6 +131,11 @@ pub struct GlmPriorOptions {
     /// How to compute the coefficient covariance matrix.
     pub vcov: VcovType,
 }
+
+setters!(GlmPriorOptions {
+    priors: Vec<PriorSpec>,
+    vcov: VcovType,
+});
 
 impl GlmPriorOptions {
     /// True when no explicit prior was supplied (or every supplied prior is flat).
@@ -138,6 +153,7 @@ impl GlmPriorOptions {
 
 /// Options for Poisson regression (GLM)
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PoissonOptions {
     /// Whether to fit an intercept term
     pub fit_intercept: bool,
@@ -165,6 +181,19 @@ pub struct PoissonOptions {
     pub estimate_dispersion: bool,
 }
 
+setters!(PoissonOptions {
+    fit_intercept: bool,
+    link: PoissonLink,
+    max_iterations: u32,
+    tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
+    lambda: f64,
+    prior_opts: GlmPriorOptions,
+    offset_column: Option<usize>,
+    estimate_dispersion: bool,
+});
+
 impl Default for PoissonOptions {
     fn default() -> Self {
         Self {
@@ -184,6 +213,7 @@ impl Default for PoissonOptions {
 
 /// Options for Binomial regression (GLM)
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct BinomialOptions {
     /// Whether to fit an intercept term
     pub fit_intercept: bool,
@@ -207,6 +237,18 @@ pub struct BinomialOptions {
     pub offset_column: Option<usize>,
 }
 
+setters!(BinomialOptions {
+    fit_intercept: bool,
+    link: BinomialLink,
+    max_iterations: u32,
+    tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
+    lambda: f64,
+    prior_opts: GlmPriorOptions,
+    offset_column: Option<usize>,
+});
+
 impl Default for BinomialOptions {
     fn default() -> Self {
         Self {
@@ -225,6 +267,7 @@ impl Default for BinomialOptions {
 
 /// Options for Negative Binomial regression (GLM)
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NegBinomialOptions {
     /// Whether to fit an intercept term
     pub fit_intercept: bool,
@@ -248,6 +291,18 @@ pub struct NegBinomialOptions {
     pub offset_column: Option<usize>,
 }
 
+setters!(NegBinomialOptions {
+    fit_intercept: bool,
+    alpha: Option<f64>,
+    max_iterations: u32,
+    tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
+    lambda: f64,
+    prior_opts: GlmPriorOptions,
+    offset_column: Option<usize>,
+});
+
 impl Default for NegBinomialOptions {
     fn default() -> Self {
         Self {
@@ -266,6 +321,7 @@ impl Default for NegBinomialOptions {
 
 /// Options for Tweedie regression (GLM)
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TweedieOptions {
     /// Whether to fit an intercept term
     pub fit_intercept: bool,
@@ -290,6 +346,18 @@ pub struct TweedieOptions {
     pub offset_column: Option<usize>,
 }
 
+setters!(TweedieOptions {
+    fit_intercept: bool,
+    power: f64,
+    max_iterations: u32,
+    tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
+    lambda: f64,
+    prior_opts: GlmPriorOptions,
+    offset_column: Option<usize>,
+});
+
 impl Default for TweedieOptions {
     fn default() -> Self {
         Self {
@@ -308,6 +376,7 @@ impl Default for TweedieOptions {
 
 /// Options for Gamma regression (GLM with var_power = 2.0 fixed).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GammaOptions {
     /// Whether to fit an intercept term.
     pub fit_intercept: bool,
@@ -329,6 +398,17 @@ pub struct GammaOptions {
     pub offset_column: Option<usize>,
 }
 
+setters!(GammaOptions {
+    fit_intercept: bool,
+    max_iterations: u32,
+    tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
+    lambda: f64,
+    prior_opts: GlmPriorOptions,
+    offset_column: Option<usize>,
+});
+
 impl Default for GammaOptions {
     fn default() -> Self {
         Self {
@@ -347,6 +427,7 @@ impl Default for GammaOptions {
 /// Options for binary Logistic regression (a thin wrapper around the
 /// binomial GLM with logit link; classifier-oriented API).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct LogisticOptions {
     /// Whether to fit an intercept term.
     pub fit_intercept: bool,
@@ -370,6 +451,18 @@ pub struct LogisticOptions {
     pub offset_column: Option<usize>,
 }
 
+setters!(LogisticOptions {
+    fit_intercept: bool,
+    lambda: f64,
+    threshold: f64,
+    max_iterations: u32,
+    tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
+    prior_opts: GlmPriorOptions,
+    offset_column: Option<usize>,
+});
+
 impl Default for LogisticOptions {
     fn default() -> Self {
         Self {
@@ -388,6 +481,7 @@ impl Default for LogisticOptions {
 
 /// Result from GLM fitting - uses deviance-based metrics instead of R²
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GlmFitResult {
     /// Regression coefficients (excluding intercept)
     pub coefficients: Vec<f64>,
@@ -415,6 +509,7 @@ pub struct GlmFitResult {
 
 /// GLM inference results
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GlmInferenceResult {
     /// Standard errors of coefficients
     pub std_errors: Vec<f64>,

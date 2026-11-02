@@ -33,6 +33,7 @@ use faer::{Col, Mat};
 
 /// L2 regularization penalty for logistic regression.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub enum Penalty {
     /// No regularization.
     #[default]

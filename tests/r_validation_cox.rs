@@ -41,12 +41,7 @@ fn events(v: &[f64]) -> Vec<bool> {
 }
 
 fn opts(ties: Ties) -> CoxOptions {
-    CoxOptions {
-        ties,
-        eps: 1e-12,
-        max_iter: 50,
-        ..Default::default()
-    }
+    CoxOptions::default().ties(ties).eps(1e-12).max_iter(50)
 }
 
 fn check_fit(
@@ -174,10 +169,7 @@ fn score_residuals_and_robust_variance_match_coxph() {
 fn ridge_matches_coxph() {
     let ev = events(&STATUS);
     let x = lung_x(&[&AGE, &SEX, &ECOG, &WTLOSS]);
-    let o = CoxOptions {
-        ridge: 2.0,
-        ..opts(Ties::Efron)
-    };
+    let o = opts(Ties::Efron).ridge(2.0);
     let f = coxph(&x, &CoxInput::new(&TIME, &ev), &o).unwrap();
     vclose("ridge coef", &f.coefficients, &RIDGE_COEF, 1e-8);
     mclose("ridge var", &f.var, &RIDGE_VAR, 1e-7);

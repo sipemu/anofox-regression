@@ -5,6 +5,7 @@ use thiserror::Error;
 
 /// Solver type for linear algebra operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum SolverType {
     /// QR decomposition with column pivoting (default, handles rank deficiency).
     #[default]
@@ -20,6 +21,7 @@ pub enum SolverType {
 /// Different software packages use different conventions for the regularization
 /// parameter lambda. This enum allows matching the behavior of various implementations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum LambdaScaling {
     /// Use lambda as-is (default).
     ///
@@ -39,6 +41,7 @@ pub enum LambdaScaling {
 
 /// Configuration options for regression models.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RegressionOptions {
     /// Whether to include an intercept term (default: true).
     pub with_intercept: bool,
@@ -75,6 +78,21 @@ pub struct RegressionOptions {
     /// - `Pass`: Pass through NA values (solver must handle them)
     pub na_action: NaAction,
 }
+
+setters!(RegressionOptions {
+    with_intercept: bool,
+    compute_inference: bool,
+    confidence_level: f64,
+    lambda: f64,
+    alpha: f64,
+    lambda_scaling: LambdaScaling,
+    forgetting_factor: f64,
+    solver: SolverType,
+    max_iterations: usize,
+    tolerance: f64,
+    rank_tolerance: f64,
+    na_action: NaAction,
+});
 
 impl Default for RegressionOptions {
     fn default() -> Self {

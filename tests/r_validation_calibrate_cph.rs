@@ -45,11 +45,7 @@ fn calibrate_cph_matches_rms() {
         .map(|r| (0..N).map(|i| BOOT_IDX[r * N + i] as usize).collect())
         .collect();
     let res = Resamples::bootstrap(N, samples).unwrap();
-    let cph = CoxOptions {
-        eps: 1e-4,
-        max_iter: 10,
-        ..CoxOptions::default()
-    };
+    let cph = CoxOptions::default().eps(1e-4).max_iter(10);
     let cal = calibrate_cph(&x, &TIME, &event, U_M[0], &res, U_M[1] as usize, None, &cph).unwrap();
     all_close("predicted", &cal.predicted, &PREDICTED, 1e-9);
     let g = cal.km.len();

@@ -27,6 +27,7 @@ use faer::{Col, Mat};
 
 /// Result of quasi-separation detection.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct SeparationCheck {
     /// True if separation was detected.
     pub has_separation: bool,
@@ -40,6 +41,7 @@ pub struct SeparationCheck {
 
 /// Type of separation detected for a predictor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SeparationType {
     /// No separation detected.
     None,
@@ -237,6 +239,7 @@ fn check_predictor_separation(x: &[f64], y: &[f64]) -> SeparationType {
 
 /// Result of [`detect_separation`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LinearSeparation {
     /// Whether the classes are (quasi-)separated by a linear combination of
     /// the columns, i.e. the logistic maximum-likelihood estimate does not

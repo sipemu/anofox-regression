@@ -66,15 +66,7 @@ fn glm_family_results_describe_the_model() {
     let gamma = fit_gamma(&positive, &x, &GammaOptions::default()).unwrap();
     assert_eq!(gamma.model_info(), info("glm", "gamma", "log"));
 
-    let tweedie = fit_tweedie(
-        &positive,
-        &x,
-        &TweedieOptions {
-            power: 1.5,
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let tweedie = fit_tweedie(&positive, &x, &TweedieOptions::default().power(1.5)).unwrap();
     assert_eq!(tweedie.model_info(), info("glm", "tweedie", "log"));
 }
 
@@ -100,10 +92,7 @@ fn aft_result_describes_the_model() {
         &time,
         &x_cols(),
         &event,
-        &AftOptions {
-            dist: AftDistribution::LogNormal,
-            ..Default::default()
-        },
+        &AftOptions::default().dist(AftDistribution::LogNormal),
     )
     .unwrap();
     assert_eq!(r.model_info(), info("aft", "lognormal", "log"));

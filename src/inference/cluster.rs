@@ -32,6 +32,7 @@ use thiserror::Error;
 
 /// Variant of the clustered meat (`type` of `sandwich::vcovCL`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ClusterType {
     /// No small-sample correction of the meat.
     HC0,
@@ -49,12 +50,18 @@ pub enum ClusterType {
 
 /// Small-sample corrections of a cluster-robust covariance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ClusterOptions {
     /// Meat variant.
     pub kind: ClusterType,
     /// Multiply each dimension's meat by `G/(G − 1)`.
     pub cadjust: bool,
 }
+
+setters!(ClusterOptions {
+    kind: ClusterType,
+    cadjust: bool,
+});
 
 impl Default for ClusterOptions {
     /// `vcovCL`'s default for linear models: HC1 with the cluster

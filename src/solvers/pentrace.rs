@@ -25,6 +25,7 @@ use faer::{Col, Mat};
 /// rms: nonlinear to simple, interaction to nonlinear, nonlinear interaction
 /// to interaction.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub struct PenaltySpec {
     /// Linear main-effect columns (and categorical dummies).
     pub simple: f64,
@@ -35,6 +36,13 @@ pub struct PenaltySpec {
     /// Nonlinear interaction columns.
     pub nonlinear_interaction: Option<f64>,
 }
+
+setters!(PenaltySpec {
+    simple: f64,
+    nonlinear: Option<f64>,
+    interaction: Option<f64>,
+    nonlinear_interaction: Option<f64>,
+});
 
 impl PenaltySpec {
     /// The same penalty for every column (`penalty = λ`).
@@ -189,6 +197,7 @@ pub fn penalty_grid(
 
 /// The criterion [`pentrace`] maximises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PentraceCriterion {
     /// `LR χ² − 2 df (1 + (df + 1)/(n − df − 1))` (rms default).
     #[default]
@@ -201,6 +210,7 @@ pub enum PentraceCriterion {
 
 /// One penalty of [`pentrace`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PentraceRow {
     /// The penalty.
     pub penalty: PenaltySpec,
@@ -218,6 +228,7 @@ pub struct PentraceRow {
 
 /// Result of [`pentrace`] / [`pentrace_ols`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Pentrace<F = FittedOrdinal> {
     /// One row per penalty, in the order given.
     pub rows: Vec<PentraceRow>,
@@ -308,6 +319,7 @@ pub fn pentrace(
 
 /// A penalized least-squares fit (`rms::ols(penalty = )`, `lm.pfit`).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PenalizedOls {
     /// Intercept followed by the slopes.
     pub coefficients: Col<f64>,

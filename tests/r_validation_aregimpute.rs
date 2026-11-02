@@ -63,21 +63,16 @@ fn check_kinds(
 
 #[test]
 fn weighted_matching_replays_aregimpute() {
-    let opts = AregImputeOptions {
-        seed: 7,
-        ..Default::default()
-    };
+    let opts = AregImputeOptions::default().seed(7);
     check("weighted", opts, &W_X1, &W_X2, &W_G, &W_RSQ);
 }
 
 #[test]
 fn closest_matching_replays_aregimpute() {
-    let opts = AregImputeOptions {
-        n_impute: 3,
-        matching: DonorMatch::Closest,
-        seed: 8,
-        ..Default::default()
-    };
+    let opts = AregImputeOptions::default()
+        .n_impute(3)
+        .matching(DonorMatch::Closest)
+        .seed(8);
     check("closest", opts, &C_X1, &C_X2, &C_G, &C_RSQ);
 }
 
@@ -86,25 +81,17 @@ fn closest_matching_replays_aregimpute() {
 fn linear_targets_and_burnin_replay_aregimpute() {
     let mut linear = kinds();
     linear[1] = ImputeVariable::Linear;
-    let opts = AregImputeOptions {
-        n_impute: 3,
-        seed: 9,
-        ..Default::default()
-    };
+    let opts = AregImputeOptions::default().n_impute(3).seed(9);
     check_kinds("I(x1)", &linear, opts, &L_X1, &L_X2, &L_G, &L_RSQ);
-    let opts = AregImputeOptions {
-        n_impute: 3,
-        tlinear: false,
-        seed: 10,
-        ..Default::default()
-    };
+    let opts = AregImputeOptions::default()
+        .n_impute(3)
+        .tlinear(false)
+        .seed(10);
     check("tlinear = FALSE", opts, &T_X1, &T_X2, &T_G, &T_RSQ);
-    let opts = AregImputeOptions {
-        n_impute: 2,
-        burnin: Some(1),
-        seed: 11,
-        ..Default::default()
-    };
+    let opts = AregImputeOptions::default()
+        .n_impute(2)
+        .burnin(Some(1))
+        .seed(11);
     check("burnin = 1", opts, &B_X1, &B_X2, &B_G, &B_RSQ);
 }
 

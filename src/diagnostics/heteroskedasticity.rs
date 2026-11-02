@@ -19,6 +19,7 @@ use statrs::distribution::{ChiSquared, ContinuousCDF};
 
 /// Result of a heteroskedasticity test.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct HeteroskedasticityTest {
     /// Test statistic (asymptotically `χ²(df)` under homoskedasticity).
     pub statistic: f64,

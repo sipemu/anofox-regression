@@ -290,6 +290,7 @@ impl Posterior<'_> {
 /// prior, so its posterior SD is `sqrt(1/(n·α) + x̄ᵀ Σ x̄)`: the noise
 /// uncertainty of `ȳ` plus the propagated slope uncertainty from centring.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct CredibleIntervals {
     /// Credible level of the intervals.
     pub level: f64,

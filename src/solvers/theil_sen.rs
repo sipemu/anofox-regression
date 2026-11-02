@@ -100,6 +100,7 @@ use statrs::distribution::{ContinuousCDF, Normal};
 ///   given `random_state`. No test statistic.
 /// - `Auto`: `Exact` where it applies, `Bootstrap` otherwise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TheilSenCiMethod {
     /// `Exact` for one feature with an intercept (the median-of-pairwise-
     /// slopes path), `Bootstrap` otherwise.

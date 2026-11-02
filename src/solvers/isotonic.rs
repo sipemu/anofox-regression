@@ -61,6 +61,7 @@ pub struct IsotonicRegressor {
 
 /// How to handle predictions outside the training range.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub enum OutOfBounds {
     /// Clip predictions to the range [min(fitted), max(fitted)]
     #[default]

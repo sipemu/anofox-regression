@@ -57,7 +57,7 @@
 //! let x = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
 //! let m = [0.1, 0.4, 0.2, 0.0, 1.1, 0.8, 1.3, 0.9];
 //! let y = [0.3, 0.7, 0.2, 0.1, 1.9, 1.4, 2.2, 1.5];
-//! let opts = MediationOptions { method: MediationMethod::Sobel, ..Default::default() };
+//! let opts = MediationOptions::default().method(MediationMethod::Sobel);
 //! let r = mediate(&y, &m, &x, &[] as &[Vec<f64>], &opts).unwrap();
 //! assert!((r.acme.estimate + r.ade.estimate - r.total.estimate).abs() < 1e-12);
 //! ```
@@ -113,6 +113,7 @@ pub enum MediationError {
 
 /// How the uncertainty of the effects is estimated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum MediationMethod {
     /// Nonparametric case-resampling bootstrap (`mediate(boot = TRUE)`).
     #[default]
@@ -126,6 +127,7 @@ pub enum MediationMethod {
 
 /// Interval type of the resampling methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum BootCi {
     /// Percentile interval, R's `quantile(draws, c(low, high))` (type 7).
     #[default]
@@ -138,6 +140,7 @@ pub enum BootCi {
 
 /// Options for [`mediate`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct MediationOptions {
     /// Inference method.
     pub method: MediationMethod,
@@ -155,6 +158,16 @@ pub struct MediationOptions {
     pub control_value: f64,
 }
 
+setters!(MediationOptions {
+    method: MediationMethod,
+    boot_ci: BootCi,
+    n_sims: usize,
+    seed: u64,
+    conf_level: f64,
+    treat_value: f64,
+    control_value: f64,
+});
+
 impl Default for MediationOptions {
     fn default() -> Self {
         Self {
@@ -171,6 +184,7 @@ impl Default for MediationOptions {
 
 /// One effect with its inference.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct MediationEffect {
     /// Point estimate.
     pub estimate: f64,
@@ -241,6 +255,7 @@ impl MediationEffect {
 
 /// Result of [`mediate`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct MediationResult {
     /// Average causal mediation effect (indirect effect).
     pub acme: MediationEffect,

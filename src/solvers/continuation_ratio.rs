@@ -21,6 +21,7 @@ use faer::{Col, Mat};
 
 /// The expanded data of `rms::cr.setup`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ContinuationRatioData {
     /// Binary response of each expanded record: 1 if the observation stops
     /// in this cohort.

@@ -25,6 +25,7 @@ use statrs::distribution::{ContinuousCDF, StudentsT};
 /// All variants use the sandwich estimator `(X'X)^-1 X' Ω X (X'X)^-1`
 /// with different diagonal weights in Ω.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum HcType {
     /// HC0: `ω_i = e_i²`
     ///
@@ -48,6 +49,7 @@ pub enum HcType {
 
 /// Result of HC standard error computation.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HcResult {
     /// HC standard errors for each coefficient.
     pub std_errors: Col<f64>,
@@ -57,6 +59,7 @@ pub struct HcResult {
 
 /// Full HC inference for coefficients: SE, t-statistics, p-values, confidence intervals.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HcInference {
     /// Which HC variant was used.
     pub hc_type: HcType,
@@ -78,6 +81,7 @@ pub struct HcInference {
 
 /// HC inference for the intercept term.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HcInterceptInference {
     /// HC standard error for the intercept.
     pub std_error: f64,

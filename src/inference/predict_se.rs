@@ -38,6 +38,7 @@ use thiserror::Error;
 ///
 /// The default is the response scale, a confidence interval and level 0.95.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct PredictSeOptions {
     /// `Link` (linear predictor η) or `Response` (mean μ). Identical for linear models.
     pub scale: PredictionType,
@@ -122,6 +123,7 @@ pub enum PredictSeError {
 
 /// Predictions with standard errors and intervals.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PredictionSe {
     /// Prediction on the requested scale (R `fit`).
     pub fit: Col<f64>,

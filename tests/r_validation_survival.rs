@@ -93,11 +93,9 @@ fn kaplan_meier_matches_survfit() {
 fn confidence_types_and_fleming_harrington() {
     let ev = events();
     let input = SurvInput::new(&TIME, &ev);
-    let ll = SurvfitOptions {
-        conf_level: 0.9,
-        conf_type: ConfType::LogLog,
-        ..Default::default()
-    };
+    let ll = SurvfitOptions::default()
+        .conf_level(0.9)
+        .conf_type(ConfType::LogLog);
     let c = &survfit(&input, None, &ll).unwrap()[0];
     check_curve(
         "LOGLOG",
@@ -113,10 +111,7 @@ fn confidence_types_and_fleming_harrington() {
         &KM_LOGLOG_CUMHAZ,
         &KM_LOGLOG_SECHAZ,
     );
-    let pl = SurvfitOptions {
-        conf_type: ConfType::Plain,
-        ..Default::default()
-    };
+    let pl = SurvfitOptions::default().conf_type(ConfType::Plain);
     let c = &survfit(&input, None, &pl).unwrap()[0];
     check_curve(
         "PLAIN",
@@ -132,10 +127,7 @@ fn confidence_types_and_fleming_harrington() {
         &KM_PLAIN_CUMHAZ,
         &KM_PLAIN_SECHAZ,
     );
-    let fh = SurvfitOptions {
-        hazard: HazardType::FlemingHarrington,
-        ..Default::default()
-    };
+    let fh = SurvfitOptions::default().hazard(HazardType::FlemingHarrington);
     let c = &survfit(&input, None, &fh).unwrap()[0];
     vclose("FH cumhaz", &c.cumhaz, &FH_CUMHAZ, 1e-12);
     vclose("FH std.chaz", &c.std_chaz, &FH_SECHAZ, 1e-12);
@@ -207,10 +199,7 @@ fn case_weights_match_survfit() {
     let ev = events();
     // the reference is survfit(robust = FALSE); robust is the default for
     // non-integer weights (see r_validation_survfit_robust.rs)
-    let greenwood = SurvfitOptions {
-        robust: Some(false),
-        ..Default::default()
-    };
+    let greenwood = SurvfitOptions::default().robust(Some(false));
     let c = &survfit(&SurvInput::new(&TIME, &ev).weights(&W), None, &greenwood).unwrap()[0];
     check_curve(
         "W",

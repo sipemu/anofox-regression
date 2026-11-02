@@ -10,6 +10,7 @@ use statrs::function::gamma::ln_gamma;
 
 /// Which likelihood to evaluate, with any nuisance parameters attached.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum LogLikKind {
     /// Poisson with mean `mu`.
     Poisson,

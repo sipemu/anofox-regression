@@ -59,6 +59,7 @@ pub enum ValidationError {
 
 /// Resampling scheme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ResampleMethod {
     /// Optimism bootstrap.
     Bootstrap,
@@ -70,6 +71,7 @@ pub enum ResampleMethod {
 
 /// Training / test splits of a resampling validation.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Resamples {
     /// The scheme.
     pub method: ResampleMethod,
@@ -240,6 +242,7 @@ fn check_samples(n: usize, samples: &[Vec<usize>]) -> Result<(), ValidationError
 
 /// Result of [`predab_resample`]: one entry per index.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ValidationTable {
     /// Index names.
     pub names: Vec<String>,
@@ -548,6 +551,7 @@ pub fn validate_ols(
 /// Overfitting-corrected calibration curve ([`calibrate_lrm`],
 /// [`calibrate_ols`]).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Calibration {
     /// Grid of predicted values.
     pub predy: Vec<f64>,
@@ -725,6 +729,7 @@ pub fn calibrate_ols(
 /// Survival calibration at a horizon ([`calibrate_cph`]), one row per
 /// group of predicted survival.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SurvivalCalibration {
     /// Predicted survival at `u` of every subject from the original fit.
     pub predicted: Vec<f64>,
@@ -937,6 +942,7 @@ pub fn calibrate_cph(
 
 /// Bootstrap replicates of a fit's coefficients (`rms::bootcov`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct BootCov {
     /// Coefficients of each successful replicate (`replicates × k`).
     pub replicates: Mat<f64>,

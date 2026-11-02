@@ -31,6 +31,7 @@
 //! match result.demand_type {
 //!     DemandType::Regular => println!("Regular demand pattern"),
 //!     DemandType::Intermittent => println!("Intermittent demand pattern"),
+//!     other => println!("{other:?}"),
 //! }
 //! ```
 //!
@@ -78,6 +79,7 @@ fn fast_ln_gamma_p1(v: f64) -> f64 {
 
 /// Demand pattern type classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DemandType {
     /// Regular demand - low proportion of zeros, consistent demand pattern
     Regular,
@@ -87,6 +89,7 @@ pub enum DemandType {
 
 /// Candidate distributions for demand modeling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DemandDistribution {
     // For regular count data
     /// Poisson distribution - for equi-dispersed count data
@@ -126,6 +129,7 @@ impl DemandDistribution {
 
 /// Anomaly types that can be detected in demand patterns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum AnomalyType {
     /// No anomaly detected
     None,
@@ -143,6 +147,7 @@ pub enum AnomalyType {
 
 /// Distribution parameters after fitting.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct DistributionParameters {
     /// Estimated mean
     pub mean: f64,
@@ -158,6 +163,7 @@ pub struct DistributionParameters {
 
 /// Result of demand classification.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct DemandClassification {
     /// Primary demand type (Regular or Intermittent)
     pub demand_type: DemandType,

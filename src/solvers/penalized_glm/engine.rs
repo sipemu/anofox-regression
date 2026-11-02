@@ -35,6 +35,7 @@ use super::loglik::LogLikKind;
 
 /// Everything the engine needs for one fit, independent of family.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EngineOptions {
     /// Prepend an intercept column (default `true`).
     pub fit_intercept: bool,
@@ -59,6 +60,19 @@ pub struct EngineOptions {
     /// Whether constant feature columns are dropped or kept.
     pub constant_policy: ConstantColumnPolicy,
 }
+
+setters!(EngineOptions {
+    fit_intercept: bool,
+    max_iterations: u32,
+    tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
+    lambda: f64,
+    priors: Vec<PriorSpec>,
+    vcov: VcovType,
+    offset_column: Option<usize>,
+    constant_policy: ConstantColumnPolicy,
+});
 
 impl Default for EngineOptions {
     fn default() -> Self {
@@ -86,6 +100,7 @@ impl Default for EngineOptions {
 /// multiplying the covariance by it again would inflate every standard error by
 /// `sqrt(theta)`. [`DispersionRule::covariance_scale`] keeps the two separate.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum DispersionRule {
     /// Fixed at 1.0 (Poisson, Binomial).
     Fixed,
@@ -114,6 +129,7 @@ impl DispersionRule {
 
 /// A completed engine fit, ready to be mapped onto the crate's result types.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EngineFit {
     /// The assembled design (retained rows and columns).
     pub design: Design,

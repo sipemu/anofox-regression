@@ -35,6 +35,7 @@ use statrs::distribution::{Continuous, ContinuousCDF, Normal, StudentsT};
 
 /// Standard-error type for quantile regression (`quantreg::summary.rq`'s `se`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum QuantileSe {
     /// Errors iid: sparsity from the ordered residuals (`se = "iid"`).
     Iid,
@@ -54,6 +55,7 @@ pub enum QuantileSe {
 /// Coefficient table of a quantile regression fit. Coefficient vectors start
 /// with the intercept when the model has one.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct QuantileInference {
     /// Quantile `τ`.
     pub tau: f64,

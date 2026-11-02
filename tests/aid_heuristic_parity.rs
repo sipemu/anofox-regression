@@ -310,10 +310,9 @@ fn heuristic_aid_matches_the_extension_bit_for_bit() {
         let y = series(&mut rng, case);
         for &threshold in &[0.0, 0.3, 0.5, 1.0] {
             for &(m, em) in &methods {
-                let ours_opts = AidOptions {
-                    intermittent_threshold: threshold,
-                    outlier_method: m,
-                };
+                let ours_opts = AidOptions::default()
+                    .intermittent_threshold(threshold)
+                    .outlier_method(m);
                 let ext_opts = ext::AidOptions {
                     intermittent_threshold: threshold,
                     outlier_method: em,

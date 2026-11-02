@@ -21,6 +21,7 @@ use faer::Mat;
 
 /// Condition number severity classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ConditionSeverity {
     /// κ < 30: Well-conditioned
     WellConditioned,
@@ -54,6 +55,7 @@ impl ConditionSeverity {
 /// intercept) scaled to unit length, as `olsrr::ols_eigen_cindex` and
 /// `perturb::colldiag`, so they do not depend on units.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ConditionDiagnostic {
     /// Condition number of the (unscaled) design matrix X, `kappa(X, exact = TRUE)`.
     pub condition_number: f64,

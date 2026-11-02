@@ -35,6 +35,7 @@ fn invalid(msg: &str) -> RegressionError {
 
 /// Fits combined by [`pool_rubin`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PooledFit {
     /// Number of imputations `m`.
     pub m: usize,
@@ -142,6 +143,7 @@ pub fn pool_rubin(
 
 /// The D1 pooled Wald test ([`pooled_wald_d1`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct PooledWald {
     /// F statistic.
     pub f: f64,

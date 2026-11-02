@@ -34,12 +34,7 @@ fn mclose(name: &str, m: &Mat<f64>, want: &[f64], tol: f64) {
 }
 
 fn opts(ties: Ties) -> CoxOptions {
-    CoxOptions {
-        ties,
-        eps: 1e-12,
-        max_iter: 50,
-        ..Default::default()
-    }
+    CoxOptions::default().ties(ties).eps(1e-12).max_iter(50)
 }
 
 fn lung(cols: &[&[f64]], ties: Ties, weights: bool, strata: bool) -> CoxFit {

@@ -53,6 +53,7 @@ pub fn box_cox_inverse(z: f64, lambda: f64) -> f64 {
 
 /// Options of [`box_cox`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct BoxCoxOptions {
     /// Grid of `λ` at which the profile is reported (MASS default
     /// `seq(-2, 2, 1/10)`). `λ̂` and the interval are searched within its
@@ -65,6 +66,13 @@ pub struct BoxCoxOptions {
     /// Level of the likelihood-ratio interval of `λ`.
     pub confidence_level: f64,
 }
+
+setters!(BoxCoxOptions {
+    lambdas: Vec<f64>,
+    eps: f64,
+    with_intercept: bool,
+    confidence_level: f64,
+});
 
 impl Default for BoxCoxOptions {
     fn default() -> Self {
@@ -79,6 +87,7 @@ impl Default for BoxCoxOptions {
 
 /// Result of [`box_cox`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct BoxCoxProfile {
     /// The grid of `λ`.
     pub lambdas: Vec<f64>,
@@ -262,6 +271,7 @@ fn bisect(g: &dyn Fn(f64) -> f64, mut a: f64, mut b: f64) -> f64 {
 
 /// The statistic of [`smearing_estimate`] (`smearingEst(statistic = )`).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Smearing {
     /// `mean_i g⁻¹(lp + r_i)`: Duan's smearing estimate of `E[Y | x]`.
     Mean,

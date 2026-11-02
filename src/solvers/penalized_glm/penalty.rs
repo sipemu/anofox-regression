@@ -119,6 +119,7 @@ impl QuadraticPenalty for DiagonalPenalty {
 
 /// The full penalty attached to a fit: a quadratic part plus an optional L1 part.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Penalty {
     /// Gaussian precisions and locations.
     pub quadratic: DiagonalPenalty,

@@ -65,6 +65,7 @@ pub const DEFAULT_LAMBDA_SMALL: f64 = 0.1;
 /// uses `lambda_small` when `κ ≤ cond_threshold`, the configured λ
 /// otherwise. The λ actually used is reported by [`FittedRidge::lambda`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct ConditioningLambda {
     /// λ used on a well-conditioned design.
     pub lambda_small: f64,
@@ -751,6 +752,7 @@ const LOO_HAT_MAX: f64 = 1.0 - 10.0 * f64::EPSILON;
 
 /// Exact leave-one-out diagnostics of a ridge fit, from [`FittedRidge::loo`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RidgeLoo {
     /// Diagonal `hᵢ` of the ridge hat matrix `H = X̃(X̃'X̃ + λP)⁻¹X̃'`, `X̃` the
     /// design with the intercept column and `P` the identity with a zero for

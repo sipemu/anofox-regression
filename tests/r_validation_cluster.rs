@@ -36,7 +36,7 @@ fn assert_mat(name: &str, got: &Mat<f64>, want: &[f64], tol: f64) {
 }
 
 fn opts(kind: ClusterType, cadjust: bool) -> ClusterOptions {
-    ClusterOptions { kind, cadjust }
+    ClusterOptions::default().kind(kind).cadjust(cadjust)
 }
 
 const TYPES: [ClusterType; 4] = [

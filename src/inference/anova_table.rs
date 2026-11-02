@@ -43,10 +43,7 @@
 //! let x = Mat::from_fn(12, 2, |i, j| if j == 0 { x1[i] } else { x2[i] });
 //! let y = Col::from_fn(12, |i| y[i]);
 //!
-//! let options = AnovaTableOptions {
-//!     anova_type: AnovaType::II,
-//!     ..Default::default()
-//! };
+//! let options = AnovaTableOptions::default().anova_type(AnovaType::II);
 //! // One term per column: anova(lm(y ~ x1 + x2)) in type II.
 //! let table = anova_table(&x, &y, None, &options).unwrap();
 //! assert_eq!(table.terms.len(), 2);
@@ -62,6 +59,7 @@ use thiserror::Error;
 
 /// Which sums of squares an ANOVA table reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum AnovaType {
     /// Sequential sums of squares, each term adjusted for the terms before
     /// it (R's `anova(lm(...))`).
@@ -95,6 +93,7 @@ pub enum AnovaTableError {
 
 /// Options for [`anova_table`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AnovaTableOptions {
     /// Sequential (type I, default) or partial (type II) sums of squares.
     pub anova_type: AnovaType,
@@ -104,6 +103,12 @@ pub struct AnovaTableOptions {
     /// [`OlsRegressor`](crate::solvers::OlsRegressor)).
     pub rank_tolerance: f64,
 }
+
+setters!(AnovaTableOptions {
+    anova_type: AnovaType,
+    with_intercept: bool,
+    rank_tolerance: f64,
+});
 
 impl Default for AnovaTableOptions {
     fn default() -> Self {
@@ -117,6 +122,7 @@ impl Default for AnovaTableOptions {
 
 /// One term (row) of an ANOVA table.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AnovaTerm {
     /// Position of the term in the term list (0-based).
     pub term: usize,
@@ -136,6 +142,7 @@ pub struct AnovaTerm {
 
 /// A per-term ANOVA table of an OLS fit.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AnovaTable {
     /// The type of the sums of squares.
     pub anova_type: AnovaType,

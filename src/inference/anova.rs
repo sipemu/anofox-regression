@@ -29,6 +29,7 @@ use thiserror::Error;
 
 /// Reference distribution of a Wald test.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum WaldDistribution {
     /// `W ~ χ²(q)` (fixed dispersion, or large samples).
     ChiSquare,
@@ -59,6 +60,7 @@ pub enum WaldError {
 
 /// Result of a Wald test.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct WaldTest {
     /// Wald χ² statistic `W`.
     pub chi_square: f64,
@@ -199,6 +201,7 @@ pub fn drop_intercept(beta: &Col<f64>, vcov: &Mat<f64>) -> (Col<f64>, Mat<f64>) 
 
 /// What an ANOVA row tests (`vinfo` type of `anova.rms`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AnovaRowKind {
     /// A predictor without interactions.
     MainEffect,
@@ -230,6 +233,7 @@ pub enum AnovaRowKind {
 
 /// One row of an [`WaldAnovaTable`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AnovaRow {
     /// Label as printed by `anova.rms` (sub-rows start with a space).
     pub label: String,
@@ -247,6 +251,7 @@ pub struct AnovaRow {
 
 /// `anova.rms`-style table of Wald tests.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct WaldAnovaTable {
     /// Rows in `anova.rms` order, ending with `TOTAL`.
     pub rows: Vec<AnovaRow>,
@@ -264,6 +269,7 @@ impl WaldAnovaTable {
 
 /// Options of [`anova`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct AnovaOptions {
     /// Reference distribution of every row.
     pub distribution: WaldDistribution,
@@ -271,6 +277,11 @@ pub struct AnovaOptions {
     /// `ERROR` row, as `anova.rms(ss = TRUE)`.
     pub sigma2: Option<f64>,
 }
+
+setters!(AnovaOptions {
+    distribution: WaldDistribution,
+    sigma2: Option<f64>,
+});
 
 impl Default for AnovaOptions {
     fn default() -> Self {

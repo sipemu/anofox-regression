@@ -39,12 +39,11 @@ fn design() -> (TermMap, Vec<usize>, Mat<f64>, Col<f64>) {
 }
 
 fn full_penalty() -> PenaltySpec {
-    PenaltySpec {
-        simple: 1.0,
-        nonlinear: Some(4.0),
-        interaction: Some(2.0),
-        nonlinear_interaction: Some(8.0),
-    }
+    PenaltySpec::default()
+        .simple(1.0)
+        .nonlinear(Some(4.0))
+        .interaction(Some(2.0))
+        .nonlinear_interaction(Some(8.0))
 }
 
 #[test]
@@ -64,11 +63,7 @@ fn penalty_matrix_and_multipliers_match_rms() {
     let mult = penalty_multipliers(&t, &full_penalty());
     assert_eq!(mult, MULTIPLIERS.to_vec());
     // fallbacks: interaction ← nonlinear ← simple
-    let spec = PenaltySpec {
-        simple: 2.0,
-        nonlinear: Some(5.0),
-        ..Default::default()
-    };
+    let spec = PenaltySpec::default().simple(2.0).nonlinear(Some(5.0));
     assert_eq!(spec.resolved(), [2.0, 5.0, 5.0, 5.0]);
     assert_eq!(PenaltySpec::uniform(3.0).resolved(), [3.0; 4]);
 }

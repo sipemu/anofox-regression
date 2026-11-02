@@ -67,6 +67,7 @@ use statrs::distribution::{ContinuousCDF, StudentsT};
 
 /// Information criterion type for model weighting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum InformationCriterion {
     /// Akaike Information Criterion
     AIC,
@@ -105,6 +106,7 @@ impl InformationCriterion {
 
 /// Specification for a candidate model.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ModelSpec {
     /// Which variables are included (indices into original X)
     pub included_vars: Vec<usize>,

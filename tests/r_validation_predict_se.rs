@@ -202,13 +202,11 @@ fn link_resp(
 fn engine_poisson_with_offset_matches_predict_glm() {
     let mut x = x_cols();
     x.push(OFFSET.to_vec());
-    let opts = PoissonOptions {
-        offset_column: Some(3),
-        compute_inference: true,
-        tolerance: ETOL,
-        max_iterations: 200,
-        ..Default::default()
-    };
+    let opts = PoissonOptions::default()
+        .offset_column(Some(3))
+        .compute_inference(true)
+        .tolerance(ETOL)
+        .max_iterations(200);
     let fit = fit_poisson(&Y_POIS, &x, &opts).unwrap();
     let mut nx = new_cols();
     nx.push(NEW_OFFSET.to_vec());
@@ -244,15 +242,7 @@ fn engine_poisson_with_offset_matches_predict_glm() {
         PredictSeError::PredictionIntervalUnsupported
     );
     // Without inference there is no covariance.
-    let no_inf = fit_poisson(
-        &Y_POIS,
-        &x,
-        &PoissonOptions {
-            compute_inference: false,
-            ..opts
-        },
-    )
-    .unwrap();
+    let no_inf = fit_poisson(&Y_POIS, &x, &opts.clone().compute_inference(false)).unwrap();
     assert!(matches!(
         no_inf.predict_se(&nx, &PredictSeOptions::new()),
         Err(PredictSeError::MissingCovariance(_))
@@ -261,12 +251,10 @@ fn engine_poisson_with_offset_matches_predict_glm() {
 
 #[test]
 fn engine_binomial_matches_predict_glm() {
-    let opts = BinomialOptions {
-        compute_inference: true,
-        tolerance: ETOL,
-        max_iterations: 200,
-        ..Default::default()
-    };
+    let opts = BinomialOptions::default()
+        .compute_inference(true)
+        .tolerance(ETOL)
+        .max_iterations(200);
     let fit = fit_binomial(&Y_BIN, &x_cols(), &opts).unwrap();
     let (l, r) = link_resp(|o| fit.predict_se(&new_cols(), o));
     check_glm(
@@ -287,12 +275,10 @@ fn engine_binomial_matches_predict_glm() {
 
 #[test]
 fn engine_gamma_matches_predict_glm() {
-    let opts = GammaOptions {
-        compute_inference: true,
-        tolerance: ETOL,
-        max_iterations: 200,
-        ..Default::default()
-    };
+    let opts = GammaOptions::default()
+        .compute_inference(true)
+        .tolerance(ETOL)
+        .max_iterations(200);
     let fit = fit_gamma(&Y_GAMMA, &x_cols(), &opts).unwrap();
     let (l, r) = link_resp(|o| fit.predict_se(&new_cols(), o));
     check_glm(
@@ -315,12 +301,10 @@ fn engine_gamma_matches_predict_glm() {
 
 #[test]
 fn engine_negative_binomial_matches_glm_nb() {
-    let opts = NegBinomialOptions {
-        compute_inference: true,
-        tolerance: ETOL,
-        max_iterations: 200,
-        ..Default::default()
-    };
+    let opts = NegBinomialOptions::default()
+        .compute_inference(true)
+        .tolerance(ETOL)
+        .max_iterations(200);
     let fit = fit_negbinomial(&Y_NB, &x_cols(), &opts).unwrap();
     let (l, r) = link_resp(|o| fit.predict_se(&new_cols(), o));
     // theta is estimated by an alternation that stops at MASS's tolerance.
@@ -502,12 +486,10 @@ fn partial_residuals_match_r() {
 
     let mut x = x_cols();
     x.push(OFFSET.to_vec());
-    let opts = PoissonOptions {
-        offset_column: Some(3),
-        tolerance: ETOL,
-        max_iterations: 200,
-        ..Default::default()
-    };
+    let opts = PoissonOptions::default()
+        .offset_column(Some(3))
+        .tolerance(ETOL)
+        .max_iterations(200);
     let fit = fit_poisson(&Y_POIS, &x, &opts).unwrap();
     let p = partial_residuals_glm(&fit, &Y_POIS, &x).unwrap();
     cmp(
@@ -576,12 +558,10 @@ fn aft_survival_curves_match_psurvreg() {
         cmp(&format!("{label} quantiles"), &col(&q), quant, 1e-6);
 
         // The family-function result gives the same curve.
-        let opts = AftOptions {
-            dist,
-            tolerance: 1e-12,
-            max_iterations: 500,
-            ..Default::default()
-        };
+        let opts = AftOptions::default()
+            .dist(dist)
+            .tolerance(1e-12)
+            .max_iterations(500);
         let r = fit_aft(&TIME, &x_cols(), &EVENT, &opts).unwrap();
         assert_eq!(r.distribution(), Some(dist));
         let s2 = r.survival_curve(&SURV_X0, &SURV_TIMES);
@@ -599,31 +579,23 @@ fn partial_residuals_of_binomial_gamma_and_nb_match_r() {
     let bin = fit_binomial(
         &Y_BIN,
         &x,
-        &BinomialOptions {
-            tolerance: ETOL,
-            max_iterations: 200,
-            ..Default::default()
-        },
+        &BinomialOptions::default()
+            .tolerance(ETOL)
+            .max_iterations(200),
     )
     .unwrap();
     let gam = fit_gamma(
         &Y_GAMMA,
         &x,
-        &GammaOptions {
-            tolerance: ETOL,
-            max_iterations: 200,
-            ..Default::default()
-        },
+        &GammaOptions::default().tolerance(ETOL).max_iterations(200),
     )
     .unwrap();
     let nb = fit_negbinomial(
         &Y_NB,
         &x,
-        &NegBinomialOptions {
-            tolerance: ETOL,
-            max_iterations: 200,
-            ..Default::default()
-        },
+        &NegBinomialOptions::default()
+            .tolerance(ETOL)
+            .max_iterations(200),
     )
     .unwrap();
     // Gamma's IRLS stops ~1e-7 short of glm (see the predict_se tests above),

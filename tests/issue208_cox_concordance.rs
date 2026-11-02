@@ -19,12 +19,10 @@ const CONC_HEART_W: f64 = 0.6299659250350772;
 const CONC_TIES: f64 = 0.57967647058823535;
 
 fn opts() -> CoxOptions {
-    CoxOptions {
-        ties: Ties::Efron,
-        eps: 1e-12,
-        max_iter: 50,
-        ..Default::default()
-    }
+    CoxOptions::default()
+        .ties(Ties::Efron)
+        .eps(1e-12)
+        .max_iter(50)
 }
 
 fn events(v: &[f64]) -> Vec<bool> {

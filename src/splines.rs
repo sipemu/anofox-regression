@@ -76,6 +76,7 @@ pub enum SplineError {
 
 /// Columns of a basis with their names and nonlinearity flags.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Basis {
     /// `n × m` basis matrix.
     pub columns: Mat<f64>,
@@ -130,6 +131,7 @@ impl Basis {
 
 /// Normalisation of the nonlinear terms (`norm` of `Hmisc::rcspline.eval`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum RcsNorm {
     /// No normalisation (`norm = 0`).
     None,
@@ -444,6 +446,7 @@ impl Rcs {
 /// A fitted restricted cubic spline in unrestricted truncated-power form
 /// (see [`Rcs::restate`]).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RcsRestated {
     /// Constant term.
     pub intercept: f64,

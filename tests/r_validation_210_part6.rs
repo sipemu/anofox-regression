@@ -804,11 +804,9 @@ fn rls_intervals_match_predict_lm() {
 
 #[test]
 fn sobel_ade_and_total_use_lm_t_inference() {
-    let o = MediationOptions {
-        method: MediationMethod::Sobel,
-        conf_level: 0.9,
-        ..Default::default()
-    };
+    let o = MediationOptions::default()
+        .method(MediationMethod::Sobel)
+        .conf_level(0.9);
     let r = mediate(&Y_MED, &M_MED, &X_MED, &[C_MED.to_vec()], &o).unwrap();
     for (e, want, what) in [(r.ade, &SOBEL_ADE, "ade"), (r.total, &SOBEL_TOTAL, "total")] {
         let got = [

@@ -31,6 +31,7 @@ use faer::{Col, Mat};
 
 /// Options for an AFT fit.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AftOptions {
     /// Survival-time distribution (`survreg(dist = )`; default Weibull).
     pub dist: AftDistribution,
@@ -52,6 +53,17 @@ pub struct AftOptions {
     pub vcov: VcovType,
 }
 
+setters!(AftOptions {
+    dist: AftDistribution,
+    fit_intercept: bool,
+    max_iterations: u32,
+    tolerance: f64,
+    compute_inference: bool,
+    confidence_level: f64,
+    priors: Vec<PriorSpec>,
+    vcov: VcovType,
+});
+
 impl Default for AftOptions {
     fn default() -> Self {
         Self {
@@ -69,6 +81,7 @@ impl Default for AftOptions {
 
 /// Core results of an AFT fit.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AftFitResult {
     /// Coefficients on the log-time scale, excluding the intercept.
     pub coefficients: Vec<f64>,
@@ -101,6 +114,7 @@ pub struct AftFitResult {
 
 /// An AFT fit plus optional inference.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AftResult {
     /// Estimates and fit statistics.
     pub core: AftFitResult,
@@ -124,6 +138,7 @@ pub(crate) fn aft_model_info(dist: AftDistribution) -> ModelInfo {
 
 /// Curvature-based inference for an AFT fit.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AftInference {
     /// Per-coefficient values, excluding the intercept.
     pub std_errors: Vec<f64>,

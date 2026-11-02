@@ -66,7 +66,7 @@ fn redun_matches_hmisc() {
     let cases = [
         (
             "DEF",
-            RedunOptions { r2: 0.8, ..d },
+            d.r2(0.8),
             false,
             &DEF_OUT[..],
             &DEF_IN[..],
@@ -76,12 +76,7 @@ fn redun_matches_hmisc() {
         ),
         (
             "ADJ",
-            RedunOptions {
-                r2: 0.8,
-                adjusted: true,
-                nk: 4,
-                ..d
-            },
+            d.r2(0.8).adjusted(true).nk(4),
             false,
             &ADJ_OUT,
             &ADJ_IN,
@@ -91,11 +86,7 @@ fn redun_matches_hmisc() {
         ),
         (
             "NOTL",
-            RedunOptions {
-                r2: 0.7,
-                tlinear: false,
-                ..d
-            },
+            d.r2(0.7).tlinear(false),
             false,
             &NOTL_OUT,
             &NOTL_IN,
@@ -105,11 +96,7 @@ fn redun_matches_hmisc() {
         ),
         (
             "ALLCAT",
-            RedunOptions {
-                r2: 0.5,
-                allcat: true,
-                ..d
-            },
+            d.r2(0.5).allcat(true),
             false,
             &ALLCAT_OUT,
             &ALLCAT_IN,
@@ -119,11 +106,7 @@ fn redun_matches_hmisc() {
         ),
         (
             "RANK",
-            RedunOptions {
-                r2: 0.7,
-                rank: true,
-                ..d
-            },
+            d.r2(0.7).rank(true),
             false,
             &RANK_OUT,
             &RANK_IN,
@@ -133,11 +116,7 @@ fn redun_matches_hmisc() {
         ),
         (
             "QRANK",
-            RedunOptions {
-                r2: 0.7,
-                qrank: true,
-                ..d
-            },
+            d.r2(0.7).qrank(true),
             false,
             &QRANK_OUT,
             &QRANK_IN,
@@ -147,7 +126,7 @@ fn redun_matches_hmisc() {
         ),
         (
             "LIN",
-            RedunOptions { r2: 0.8, ..d },
+            d.r2(0.8),
             true,
             &LIN_OUT,
             &LIN_IN,
@@ -166,27 +145,11 @@ fn constant_columns_are_set_aside_and_input_checked() {
     let x = Mat::from_fn(N, P + 1, |i, j| if j < P { X[i * P + j] } else { 2.0 });
     let mut k = kinds(false);
     k.push(RedunVariable::Numeric);
-    let r = redun(
-        &x,
-        &k,
-        &RedunOptions {
-            r2: 0.8,
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let r = redun(&x, &k, &RedunOptions::default().r2(0.8)).unwrap();
     assert_eq!(r.too_few, vec![P]);
     assert_eq!(r.removed, vec![0, 2, 4]);
     assert!(redun(&x, &k[..2], &RedunOptions::default()).is_err());
     // nothing above the cutoff: all kept
-    let r = redun(
-        &x,
-        &k,
-        &RedunOptions {
-            r2: 0.999,
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let r = redun(&x, &k, &RedunOptions::default().r2(0.999)).unwrap();
     assert!(r.removed.is_empty() && r.kept.len() == P);
 }
