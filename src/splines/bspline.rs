@@ -249,12 +249,8 @@ impl BSpline {
     /// folded onto the last.
     fn periodic_row(&self, eval: &Evaluator, x: f64) -> Vec<f64> {
         let (lo, hi) = eval.domain();
-        let period = hi - lo;
-        let xw = if period > 0.0 {
-            lo + (x - lo).rem_euclid(period)
-        } else {
-            0.0
-        };
+        // The base knots are strictly increasing, so the period is positive.
+        let xw = lo + (x - lo).rem_euclid(hi - lo);
         let full = eval.values(xw, 0);
         let ns = self.n_splines();
         let mut row = full[..ns].to_vec();
