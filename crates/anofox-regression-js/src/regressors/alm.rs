@@ -212,3 +212,5 @@ impl Default for AlmRegressor {
 partial_residuals_method!(FittedAlm);
 
 vcov_method!(FittedAlm);
+
+iterative_fit!(FittedAlm);

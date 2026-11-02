@@ -175,3 +175,5 @@ impl Default for TheilSenRegressor {
     }
 }
 partial_residuals_method!(FittedTheilSen);
+
+iterative_fit!(FittedTheilSen);

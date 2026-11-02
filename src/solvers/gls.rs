@@ -860,30 +860,41 @@ impl Gradient for Objective<'_> {
 /// from `x0` and the better result is kept: their likelihood can have a
 /// nearly flat range → ∞ plateau that L-BFGS steps onto from nlme's start,
 /// e.g. `corGaus` with a nugget (#210).
+///
+/// Returns the minimiser with the status of the L-BFGS run that produced it.
 fn minimise(
     f: &dyn Fn(&[f64]) -> f64,
     x0: Vec<f64>,
     max_iter: usize,
     simplex_too: bool,
-) -> Vec<f64> {
-    let (x, failed) = lbfgs(f, x0.clone(), max_iter);
+) -> (Vec<f64>, OptStatus) {
+    let (x, failed, st) = lbfgs(f, x0.clone(), max_iter);
     if !failed && !simplex_too {
-        return x;
+        return (x, st);
     }
     let state = SimplexProgress::new(if failed { x.clone() } else { x0 });
     let Ok(res) = Executor::new(Objective { f }, NelderMead::adaptive(), state)
         .max_iter(200 * max_iter as u64)
         .run();
-    let y = lbfgs(f, res.best_param().clone(), max_iter).0;
+    let (y, _, st_y) = lbfgs(f, res.best_param().clone(), max_iter);
     if failed || f(&y) < f(&x) {
-        y
+        (y, st_y)
     } else {
-        x
+        (x, st)
     }
 }
 
-/// One L-BFGS run: the best point and whether the solver failed.
-fn lbfgs(f: &dyn Fn(&[f64]) -> f64, x0: Vec<f64>, max_iter: usize) -> (Vec<f64>, bool) {
+/// Termination of an optimiser run: whether it met its convergence rule
+/// (not its iteration budget) and how many iterations it used.
+#[derive(Debug, Clone, Copy)]
+struct OptStatus {
+    converged: bool,
+    iterations: usize,
+}
+
+/// One L-BFGS run: the best point, whether the solver failed, and its
+/// status.
+fn lbfgs(f: &dyn Fn(&[f64]) -> f64, x0: Vec<f64>, max_iter: usize) -> (Vec<f64>, bool, OptStatus) {
     let solver =
         Lbfgs::with_line_search(MoreThuente::new().with_sufficient_decrease_coefficient(1e-4))
             .unbounded()
@@ -895,7 +906,14 @@ fn lbfgs(f: &dyn Fn(&[f64]) -> f64, x0: Vec<f64>, max_iter: usize) -> (Vec<f64>,
         .max_iter(max_iter as u64)
         .run();
     let failed = matches!(res.report.termination, Termination::Failed(_));
-    (res.best_param().clone(), failed)
+    let status = OptStatus {
+        converged: matches!(
+            res.report.termination,
+            Termination::Converged(_) | Termination::Target { .. }
+        ),
+        iterations: res.report.iteration as usize,
+    };
+    (res.best_param().clone(), failed, status)
 }
 
 /// Central-difference Hessian of `f` at `x`.
@@ -952,12 +970,15 @@ impl GlsRegressor {
         }
         let problem = Problem::new(self, x, y, group, time)?;
         self.check_structure(&problem)?;
-        let theta = self.optimise(&problem)?;
+        let (theta, status) = self.optimise(&problem)?;
         let profile = problem
             .profile(&theta, Scale::Optimisation)
             .ok_or(RegressionError::SingularMatrix)?;
         let natural = problem.to_natural(&theta);
-        Ok(self.assemble(&problem, &natural, profile))
+        let mut fitted = self.assemble(&problem, &natural, profile);
+        fitted.converged = status.converged;
+        fitted.iterations = status.iterations;
+        Ok(fitted)
     }
 
     fn check_structure(&self, problem: &Problem<'_>) -> Result<(), RegressionError> {
@@ -974,10 +995,15 @@ impl GlsRegressor {
         Ok(())
     }
 
-    fn optimise(&self, problem: &Problem<'_>) -> Result<Vec<f64>, RegressionError> {
+    fn optimise(&self, problem: &Problem<'_>) -> Result<(Vec<f64>, OptStatus), RegressionError> {
         let x0 = problem.start();
         if x0.is_empty() {
-            return Ok(x0);
+            // no variance–covariance parameters: the GLS fit is closed-form
+            let done = OptStatus {
+                converged: true,
+                iterations: 0,
+            };
+            return Ok((x0, done));
         }
         let f = |t: &[f64]| {
             problem
@@ -985,11 +1011,11 @@ impl GlsRegressor {
                 .map_or(1e20, |v| -v)
         };
         let spatial = self.correlation.spatial().is_some();
-        let theta = minimise(&f, x0, self.max_iterations, spatial);
+        let (theta, status) = minimise(&f, x0, self.max_iterations, spatial);
         if theta.iter().all(|v| v.is_finite())
             && problem.whiten(&theta, Scale::Optimisation).is_some()
         {
-            Ok(theta)
+            Ok((theta, status))
         } else {
             Err(invalid("GLS variance–covariance optimisation failed"))
         }
@@ -1034,6 +1060,8 @@ impl GlsRegressor {
             confidence_level: self.confidence_level,
             with_intercept: self.with_intercept,
             n_params,
+            converged: true,
+            iterations: 0,
         }
     }
 
@@ -1173,6 +1201,21 @@ pub struct FittedGls {
     confidence_level: f64,
     with_intercept: bool,
     n_params: usize,
+    converged: bool,
+    iterations: usize,
+}
+
+/// `converged`: the L-BFGS run that produced the variance–covariance
+/// parameters met its convergence rule; `iterations`: its iterations (0
+/// for a structure without parameters, which is closed-form).
+impl crate::solvers::IterativeFit for FittedGls {
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    fn iterations(&self) -> usize {
+        self.iterations
+    }
 }
 
 impl FittedGls {
