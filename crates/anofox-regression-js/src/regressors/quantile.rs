@@ -197,3 +197,4 @@ impl Default for QuantileRegressor {
 }
 
 iterative_fit!(FittedQuantile);
+partial_residuals_method!(FittedQuantile);

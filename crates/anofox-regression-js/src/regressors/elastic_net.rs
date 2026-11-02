@@ -186,3 +186,4 @@ impl Default for ElasticNetRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedElasticNet);

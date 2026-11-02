@@ -194,3 +194,6 @@ impl Default for WlsRegressor {
         Self::new()
     }
 }
+
+augment_methods!(FittedWls);
+partial_residuals_method!(FittedWls);

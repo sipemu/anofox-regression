@@ -193,3 +193,4 @@ impl Default for PassiveAggressiveRegressor {
 }
 
 iterative_fit!(FittedPassiveAggressive);
+partial_residuals_method!(FittedPassiveAggressive);

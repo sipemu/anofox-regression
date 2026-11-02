@@ -304,3 +304,6 @@ impl Default for OlsRegressor {
         Self::new()
     }
 }
+
+augment_methods!(FittedOls);
+partial_residuals_method!(FittedOls);

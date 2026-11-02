@@ -211,3 +211,4 @@ impl Default for LmDynamicRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedLmDynamic);

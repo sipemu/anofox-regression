@@ -353,3 +353,4 @@ impl Default for ArdRegression {
 }
 
 iterative_fit!(FittedArd, FittedBayesianRidge);
+partial_residuals_method!(FittedArd, FittedBayesianRidge);

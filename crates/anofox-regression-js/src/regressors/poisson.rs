@@ -296,3 +296,6 @@ impl Default for PoissonRegressor {
 }
 
 iterative_fit!(FittedPoisson);
+
+augment_methods!(FittedPoisson);
+partial_residuals_method!(FittedPoisson);

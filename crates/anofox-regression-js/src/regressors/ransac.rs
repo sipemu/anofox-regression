@@ -205,3 +205,4 @@ impl Default for RansacRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedRansac);

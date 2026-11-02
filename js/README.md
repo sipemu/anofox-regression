@@ -381,6 +381,33 @@ Every iteratively fitted model (`FittedPoisson`, `FittedBinomial`, `FittedNegati
 `getConverged(): boolean` and `getIterations(): number`. The IRLS GLMs throw when they don't
 converge; `setErrorOnNonConvergence(false)` returns the last iterate instead.
 
+### Diagnostics
+
+Model-based diagnostics are methods on the fitted classes; the rest are free functions on arrays
+(matrices are row-major `Float64Array`s with their dimensions).
+
+```typescript
+// FittedOls, FittedWls, FittedPoisson, FittedBinomial, FittedLogistic, FittedNegativeBinomial,
+// FittedTweedie, FittedGamma (and FittedPenalizedGlm.augment):
+fitted.augment(x, nRows, y, residType?: 'response' | 'pearson' | 'deviance', weights?)
+//   -> { fitted, residual, stdResidual, studResidual, leverage, cooksD, dffits, looResidual, ... }
+fitted.press(x, nRows, y, weights?)    // { press, pressRmse, looRSquared, n }
+fitted.partialResiduals(x, nRows, y)   // most fitted classes; [{ term, x, component, partialResidual }]
+fittedRidge.loo(x, nRows, y)           // exact ridge leave-one-out
+
+// free functions
+concordance(x, y, w?); somers2(p, y, w?); rcorrCens(x, time, event); brierScore(y, p, w?);
+lrmStats(y, lp, w?, df); valProb(p, y); giniMd(x); r2Measures(lr, p, n, ess?); nagelkerkeR2(...);
+effectiveSampleSize(n, freqs);
+varianceInflationFactor(x, nRows, nCols); generalizedVif(x, nRows, nCols, groupSizes);
+conditionNumber / conditionDiagnostic / varianceDecompositionProportions(x, nRows, nCols, withIntercept);
+computeLeverage(x, nRows, nCols, withIntercept); cooksDistance(res, lev, mse, p); dffits(...);
+standardizedResiduals / studentizedResiduals / externallyStudentizedResiduals(...);
+pearsonResiduals / devianceResiduals / workingResiduals(y, mu, family, link?, param?);
+breuschPagan(res, z, nCols, studentize); whiteTest(res, x, nCols);
+addedVariable(x, nRows, nCols, y, w?, withIntercept); checkBinarySeparation / detectSeparation(...)
+```
+
 ### Missing values, offsets and prior weights
 
 ```typescript
