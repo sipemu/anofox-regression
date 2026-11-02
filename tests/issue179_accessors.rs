@@ -61,7 +61,7 @@ fn other_accessors() {
     assert!(lars.alphas().nrows() >= 2);
     let mut s = SufficientStats::new(2);
     for i in 0..N {
-        s.push(&[x[(i, 0)], x[(i, 1)]], y[i]);
+        s.push(&[x[(i, 0)], x[(i, 1)]], y[i]).unwrap();
     }
     assert_eq!(s.mean_x().nrows(), 2);
     assert_eq!(s.centered_xy().nrows(), 2);
