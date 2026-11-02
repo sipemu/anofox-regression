@@ -9,10 +9,13 @@ mod convert;
 pub mod design;
 pub mod diagnostics;
 pub mod effects;
+pub mod imputation;
 pub mod inference;
+pub mod reduction;
 pub mod regressors;
 pub mod splines;
 pub mod survival;
+pub mod transform;
 pub mod validation;
 
 /// Initialize the WASM module.

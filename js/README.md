@@ -495,6 +495,25 @@ b.getVcov(); b.percentileCi(0.95); b.linearCombinationCi(c, 0.95)
 rankIntervals(original, replicates, 0.9)
 ```
 
+### Data reduction, transformations and imputation
+
+```typescript
+spearman2(x, y, 2); spearman2Categorical(codes, y); hoeffdingD(x, nRows, nCols)
+const vc = varclus(x, nRows, nCols, { similarity: 'spearman', transform: 'square', linkage: 'complete' });
+vc.sim(); vc.hclust().getResult(); hclust(diss, n, 'average').cutHeight(h)
+redun(x, nRows, nCols, ['numeric', 'linear', 'categorical', ...], { r2: 0.8 })
+principalComponents(x, nRows, nCols, true).transform(newX, nNew, k); clusterScores(x, nRows, nCols, [[0, 1], [2]], 1)
+transcan(x, nRows, nCols, categoricalFlags)                 // NaN = missing
+
+boxCox(x, nRows, nCols, y, { lambdas? }); boxCoxTransform(y, λ); boxCoxInverse(z, λ)
+smearingEstimate(lp, residuals, Math.exp, 'mean' | 'median' | 'fitted' | q)
+const a = areg(x, nRows, nCols, y, { nk: 4, xTypes: ['spline', 'linear', 'categorical'], yType: 'spline' });
+a.inverseY(lp); a.bootstrap(indices)
+
+const imp = aregImpute(x, nRows, nCols, kinds, { nImpute: 5, seed: 1 });   // NaN = missing
+imp.complete(x, nRows, m)                                    // m-th completed data set, row-major
+```
+
 ### Missing values, offsets and prior weights
 
 ```typescript
