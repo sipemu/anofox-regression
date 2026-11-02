@@ -535,6 +535,25 @@ new OrdinalRegressor().setPenaltyMatrix(pm); penalizedOls(x, nRows, nCols, y, pm
 pentrace(x, nRows, nCols, y, termMap, categoricalTerms, penaltyGrid([0, 2], [0, 4, 16], [], [])).bestFit()
 ```
 
+### Mediation, shrinkage, quantile inference and streaming fits
+
+```typescript
+mediate(y, m, x, { method: 'bootstrap' | 'sobel' | 'quasi-bayesian', covariates: [c1, c2], nSims: 1000, seed: 42 })
+ebShrink(estimates, standardErrors, { method: 'dl' | 'none', tauSquared? })
+
+const inf = new QuantileRegressor().fit(x, nRows, nCols, y).inference(x, nRows, y, 'nid', 0.95);
+inf.getResult(); inf.predictInterval(newX, nNew, 0.9)
+quantileInference(x, nRows, nCols, y, 0.5, true, { type: 'boot', seed: 1, r: 500 }, 0.95)
+quantileProcess(x, nRows, nCols, y, [0.1, 0.5, 0.9], true, 'nid', 0.9)
+
+// streaming / distributed fits: accumulate chunks, merge, serialise, fit
+const s = SufficientStats.fromData(x1, n1, p, y1).merged(SufficientStats.fromData(x2, n2, p, y2));
+new OlsRegressor().fitFromState(SufficientStats.fromBytes(s.toBytes()))
+const acc = new MomentAccumulator(p); acc.pushRows(x, nRows, y); new RidgeRegressor().fitFromAccumulator(acc)
+new RidgeRegressor().path(x, nRows, nCols, y, lambdas); new ElasticNetRegressor().cvPath(..., foldIds)
+new LarsRegressor().fit(x, nRows, nCols, y).path()
+```
+
 ### Missing values, offsets and prior weights
 
 ```typescript

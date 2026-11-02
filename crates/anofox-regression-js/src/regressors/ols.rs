@@ -280,13 +280,7 @@ impl OlsRegressor {
         let y_col = Col::from_fn(n_rows, |i| y[i]);
 
         // Build and fit the model
-        let model = RustOlsRegressor::builder()
-            .na_action(self.na_action)
-            .with_intercept(self.with_intercept)
-            .compute_inference(self.compute_inference)
-            .confidence_level(self.confidence_level)
-            .rank_tolerance(self.rank_tolerance)
-            .build();
+        let model = self.rust();
 
         let fitted = model
             .fit(&x_mat, &y_col)
@@ -393,5 +387,83 @@ impl FittedOls {
             .hc_inference(&x_mat, crate::inference::parse_hc_type(hc_type)?)
             .map_err(super::fit_error)?;
         Ok(crate::convert::ToJs::to_js(&r))
+    }
+}
+
+impl OlsRegressor {
+    fn rust(&self) -> RustOlsRegressor {
+        RustOlsRegressor::builder()
+            .na_action(self.na_action)
+            .with_intercept(self.with_intercept)
+            .compute_inference(self.compute_inference)
+            .confidence_level(self.confidence_level)
+            .rank_tolerance(self.rank_tolerance)
+            .build()
+    }
+}
+
+#[wasm_bindgen]
+impl OlsRegressor {
+    /// Fit from a `SufficientStats` state: the same fit as on the rows it
+    /// was built from (weighted states give WLS); residuals and fitted
+    /// values are empty.
+    #[wasm_bindgen(js_name = fitFromState)]
+    pub fn fit_from_state(
+        &self,
+        state: &crate::streaming::SufficientStats,
+    ) -> Result<FittedOls, JsError> {
+        let fitted = self
+            .rust()
+            .fit_from_state(&state.inner)
+            .map_err(super::fit_error)?;
+        Ok(FittedOls {
+            fitted,
+            n_features: state.inner.n_features(),
+        })
+    }
+
+    /// Fit from a `MomentAccumulator` (coefficients and their inference;
+    /// row-level statistics are NaN).
+    #[wasm_bindgen(js_name = fitFromAccumulator)]
+    pub fn fit_from_accumulator(
+        &self,
+        acc: &crate::streaming::MomentAccumulator,
+    ) -> Result<FittedOls, JsError> {
+        let fitted = self
+            .rust()
+            .fit_from_accumulator(&acc.inner)
+            .map_err(super::fit_error)?;
+        Ok(FittedOls {
+            fitted,
+            n_features: acc.inner.n_features(),
+        })
+    }
+
+    /// Fit from raw moments: `xtx` (row-major p × p), `xty`, `sumX`, `sumY`
+    /// and `n`.
+    #[wasm_bindgen(js_name = fitFromMoments)]
+    pub fn fit_from_moments(
+        &self,
+        xtx: &[f64],
+        xty: &[f64],
+        sum_x: &[f64],
+        sum_y: f64,
+        n: usize,
+    ) -> Result<FittedOls, JsError> {
+        let p = xty.len();
+        let fitted = self
+            .rust()
+            .fit_from_moments(
+                &crate::inference::square(xtx, p, "xtx")?,
+                &super::to_col(xty, p, "xty")?,
+                &super::to_col(sum_x, p, "sumX")?,
+                sum_y,
+                n,
+            )
+            .map_err(super::fit_error)?;
+        Ok(FittedOls {
+            fitted,
+            n_features: p,
+        })
     }
 }

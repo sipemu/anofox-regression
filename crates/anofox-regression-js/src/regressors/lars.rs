@@ -169,3 +169,14 @@ impl Default for LarsRegressor {
     }
 }
 partial_residuals_method!(FittedLars);
+
+#[wasm_bindgen]
+impl FittedLars {
+    /// The LARS / lasso path as a `RegPath` (one penalty per step).
+    #[wasm_bindgen]
+    pub fn path(&self) -> crate::path::RegPath {
+        crate::path::RegPath {
+            inner: self.fitted.path(),
+        }
+    }
+}
