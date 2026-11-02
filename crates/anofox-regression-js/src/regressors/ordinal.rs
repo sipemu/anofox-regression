@@ -75,7 +75,7 @@ pub struct XmeanOrdinalyResult {
     pub expected_cr: Option<Vec<f64>>,
 }
 
-fn parse_link(link: &str) -> Result<OrdinalLink, JsError> {
+pub(crate) fn parse_link(link: &str) -> Result<OrdinalLink, JsError> {
     match link {
         "logistic" => Ok(OrdinalLink::Logistic),
         "probit" => Ok(OrdinalLink::Probit),
@@ -118,6 +118,11 @@ pub struct FittedOrdinal {
 }
 
 impl FittedOrdinal {
+    /// Wrap a core fit (e.g. the best fit of `pentrace`).
+    pub(crate) fn from_rust(fitted: RustFittedOrdinal, n_features: usize) -> Self {
+        Self { fitted, n_features }
+    }
+
     fn mat(&self, x: &[f64], n_rows: usize) -> Result<Mat<f64>, JsError> {
         to_mat(x, n_rows, self.n_features)
     }

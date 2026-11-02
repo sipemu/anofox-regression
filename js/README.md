@@ -514,6 +514,27 @@ const imp = aregImpute(x, nRows, nCols, kinds, { nImpute: 5, seed: 1 });   // Na
 imp.complete(x, nRows, m)                                    // m-th completed data set, row-major
 ```
 
+### Regularisation paths, cross-validation and pentrace
+
+```typescript
+// path options { alpha? (1 lasso … 0 ridge), standardize?, withIntercept?, tol?, maxIter? }
+const lambdas = lambdaGrid(x, nRows, nCols, y, { alpha: 0.5 }, 100);
+fitPath(x, nRows, nCols, y, lambdas, { alpha: 0.5 }).predict(newX, nNew)
+const cv = cvPath(x, nRows, nCols, y, lambdas, foldIds, { alpha: 0.5 }).getResult();  // lambdaMin, lambda1se
+cvPathSplits(x, nRows, nCols, y, lambdas, splits, options, 'mae')
+
+// folds and splits (keys: numbers or strings)
+kfoldIds(n, k, seed); groupKfoldIds(groups, k); logoIds(groups); stratifiedKfoldIds(strata, k, seed?)
+stratifiedGroupKfoldIds(groups, strata, k); quantileStrata(y, bins); splitsFromFoldIds(foldIds)
+timeSeriesSplits(n, { nSplits, testSize?, gap?, maxTrainSize? }); groupTimeSeriesSplits(timeKeys, opts)
+nestedCvPath(x, nRows, nCols, y, null, outerSplits, { alpha: 1 }, { inner: { type: 'kfold', k: 5, seed: 1 }, rule: '1se' })
+
+// rms penalties: a number or { simple, nonlinear?, interaction?, nonlinearInteraction? }
+const pm = penaltyMatrix(x, nRows, nCols, termMap, categoricalTerms, { simple: 1, nonlinear: 4 });
+new OrdinalRegressor().setPenaltyMatrix(pm); penalizedOls(x, nRows, nCols, y, pm)
+pentrace(x, nRows, nCols, y, termMap, categoricalTerms, penaltyGrid([0, 2], [0, 4, 16], [], [])).bestFit()
+```
+
 ### Missing values, offsets and prior weights
 
 ```typescript
