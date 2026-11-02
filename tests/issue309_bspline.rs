@@ -115,3 +115,19 @@ fn errors() {
         Err(SplineError::OutsideKnots(2.5))
     );
 }
+
+#[test]
+fn accessors() {
+    let s = BSpline::new(&[0.0, 1.0, 2.0, 4.0], 2)
+        .unwrap()
+        .with_extrapolation(SplineExtrapolation::Linear)
+        .with_bias(false);
+    assert_eq!(s.base_knots(), &[0.0, 1.0, 2.0, 4.0]);
+    assert_eq!(s.degree(), 2);
+    assert_eq!(s.extrapolation(), SplineExtrapolation::Linear);
+    assert!(!s.include_bias());
+    assert_eq!(
+        BSpline::from_data(&[1.0, 2.0, 3.0], 1, 3, KnotPlacement::Quantile),
+        Err(SplineError::TooFewBaseKnots(1))
+    );
+}
