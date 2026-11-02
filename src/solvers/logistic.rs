@@ -83,7 +83,7 @@ impl LogisticRegression {
         for i in 0..y.nrows() {
             let val = y[i];
             if val != 0.0 && val != 1.0 {
-                return Err(RegressionError::NumericalError(format!(
+                return Err(RegressionError::InvalidInput(format!(
                     "y must be binary (0.0 or 1.0), found {} at index {}",
                     val, i
                 )));

@@ -693,7 +693,8 @@ impl Regressor for TweedieRegressor {
 
         // Validate family
         if !self.family.is_valid() {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::invalid_parameter(
+                "var_power",
                 "var_power in (0, 1) is not allowed".to_string(),
             ));
         }
@@ -712,7 +713,7 @@ impl Regressor for TweedieRegressor {
         // Check for valid y values based on family
         for i in 0..n_samples {
             if self.family.var_power > 0.0 && y[i] < 0.0 {
-                return Err(RegressionError::NumericalError(format!(
+                return Err(RegressionError::InvalidInput(format!(
                     "y values must be non-negative for var_power > 0, got y[{}] = {}",
                     i, y[i]
                 )));
@@ -1309,7 +1310,8 @@ impl TweedieRegressorBuilder {
     /// Build the regressor.
     pub fn build(self) -> TweedieRegressor {
         let link_power = self.link_power.unwrap_or(1.0 - self.var_power);
-        let family = TweedieFamily::new(self.var_power, link_power);
+        // checked by `fit` (InvalidParameter), not here
+        let family = TweedieFamily::unchecked(self.var_power, link_power);
 
         TweedieRegressor {
             options: self.options_builder.build_unchecked(),
@@ -1521,7 +1523,7 @@ mod tests {
 
         let result = TweedieRegressor::gamma().build().fit(&x, &y);
 
-        assert!(matches!(result, Err(RegressionError::NumericalError(_))));
+        assert!(matches!(result, Err(RegressionError::InvalidInput(_))));
     }
 
     #[test]

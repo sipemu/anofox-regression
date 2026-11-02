@@ -69,7 +69,7 @@
 //! these fields (their exact values are `loo_fitted` / `loo_residual`).
 
 use crate::core::{GlmFamily, RegressionResult};
-use crate::solvers::penalized_glm::{DispersionRule, GlmEngineError, GlmEngineResult, GlmResult};
+use crate::solvers::penalized_glm::{DispersionRule, GlmEngineError, GlmResult};
 use crate::solvers::{
     FittedBinomial, FittedGamma, FittedLogistic, FittedNegativeBinomial, FittedOls, FittedPoisson,
     FittedRegressor, FittedTweedie, FittedWls, RegressionError,
@@ -602,13 +602,17 @@ impl Augmentable for FittedGamma {
 ///
 /// # Errors
 ///
-/// [`GlmEngineError::InvalidInput`] for a penalized fit ([`GlmResult::penalized`]:
+/// [`RegressionError::InvalidInput`](crate::solvers::RegressionError::InvalidInput) for a penalized fit ([`GlmResult::penalized`]:
 /// `lambda > 0` or a non-flat prior). The hat matrix of a posterior mode is
 /// `W½X(X'WX + P)⁻¹X'W½`, for which R's `rstandard` / `rstudent` / Cook's
 /// distance have no counterpart, so it is rejected rather than reported with
-/// the unpenalized formulas. [`GlmEngineError::DimensionMismatch`] when `y` /
+/// the unpenalized formulas. [`RegressionError::DimensionMismatch`](crate::solvers::RegressionError::DimensionMismatch) when `y` /
 /// `x` do not match the fit.
-pub fn augment_glm(fit: &GlmResult, y: &[f64], x: &[Vec<f64>]) -> GlmEngineResult<Augment> {
+pub fn augment_glm(
+    fit: &GlmResult,
+    y: &[f64],
+    x: &[Vec<f64>],
+) -> Result<Augment, crate::solvers::RegressionError> {
     augment_glm_with(fit, y, x, ResidualType::Deviance)
 }
 
@@ -618,14 +622,15 @@ pub fn augment_glm_with(
     y: &[f64],
     x: &[Vec<f64>],
     resid_type: ResidualType,
-) -> GlmEngineResult<Augment> {
+) -> Result<Augment, crate::solvers::RegressionError> {
     let n = y.len();
     for col in x {
         if col.len() != n {
             return Err(GlmEngineError::DimensionMismatch {
                 y_len: n,
                 x_rows: col.len(),
-            });
+            }
+            .into());
         }
     }
     let offset_idx = fit.offset_column.and_then(|c| c.checked_sub(1));
@@ -655,34 +660,38 @@ pub(crate) fn augment_glm_impl(
     n_features: usize,
     feature: &dyn Fn(usize, usize) -> f64,
     resid_type: ResidualType,
-) -> GlmEngineResult<Augment> {
+) -> Result<Augment, crate::solvers::RegressionError> {
     if fit.penalized {
         return Err(GlmEngineError::InvalidInput(
             "augment is not defined for a penalized GLM fit (lambda > 0 or a non-flat prior): \
              the standardised residuals, leverage and Cook's distance assume the \
              maximum-likelihood fit"
                 .to_string(),
-        ));
+        )
+        .into());
     }
     if y.len() != n_rows {
         return Err(GlmEngineError::DimensionMismatch {
             y_len: y.len(),
             x_rows: n_rows,
-        });
+        }
+        .into());
     }
     let coefs = &fit.core.coefficients;
     if n_features != coefs.len() {
         return Err(GlmEngineError::InvalidInput(format!(
             "augment: x has {n_features} feature columns (offset excluded) but the fit has {}",
             coefs.len()
-        )));
+        ))
+        .into());
     }
     let rows = &fit.valid_rows;
     if rows.len() != fit.fitted_values.len() || rows.iter().any(|&r| r >= n_rows) {
         return Err(GlmEngineError::DimensionMismatch {
             y_len: n_rows,
             x_rows: rows.iter().max().map_or(0, |&r| r + 1),
-        });
+        }
+        .into());
     }
 
     let with_intercept = fit.core.intercept.is_some();

@@ -90,6 +90,7 @@ impl ClusterOptions {
 
 /// Errors of the cluster-robust covariance.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum ClusterError {
     /// Inconsistent dimensions.
     #[error("dimension mismatch: {0}")]

@@ -716,7 +716,7 @@ impl Regressor for NegativeBinomialRegressor {
         // Validate y values are non-negative
         for i in 0..n_samples {
             if y[i] < 0.0 {
-                return Err(RegressionError::NumericalError(format!(
+                return Err(RegressionError::InvalidInput(format!(
                     "y values must be non-negative for Negative Binomial, got y[{}] = {}",
                     i, y[i]
                 )));
@@ -1473,7 +1473,7 @@ mod tests {
 
         let result = NegativeBinomialRegressor::builder().build().fit(&x, &y);
 
-        assert!(matches!(result, Err(RegressionError::NumericalError(_))));
+        assert!(matches!(result, Err(RegressionError::InvalidInput(_))));
     }
 
     #[test]

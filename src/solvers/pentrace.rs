@@ -85,7 +85,7 @@ pub fn base_penalty_matrix(
 ) -> Result<Mat<f64>, RegressionError> {
     let (n, p) = (x.nrows(), x.ncols());
     if terms.n_columns() != p {
-        return Err(RegressionError::NumericalError(format!(
+        return Err(RegressionError::InvalidInput(format!(
             "the term map has {} columns, x has {p}",
             terms.n_columns()
         )));
@@ -100,7 +100,10 @@ pub fn base_penalty_matrix(
     }
     for &t in categorical {
         let term = terms.terms().get(t).ok_or_else(|| {
-            RegressionError::NumericalError(format!("categorical term {t} is out of range"))
+            RegressionError::invalid_parameter(
+                "categorical",
+                format!("categorical term {t} is out of range"),
+            )
         })?;
         let l = term.columns.len();
         for &a in &term.columns {
@@ -235,7 +238,8 @@ fn trace<F>(
     fit: impl Fn(Mat<f64>) -> Result<(F, f64, f64), RegressionError>,
 ) -> Result<Pentrace<F>, RegressionError> {
     if penalties.is_empty() {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "penalties",
             "no penalties to trace".to_string(),
         ));
     }
@@ -342,11 +346,14 @@ pub fn penalized_ols(
         });
     }
     if penalty.nrows() != p || penalty.ncols() != p {
-        return Err(RegressionError::NumericalError(format!(
-            "the penalty matrix is {}×{}, expected {p}×{p}",
-            penalty.nrows(),
-            penalty.ncols()
-        )));
+        return Err(RegressionError::invalid_parameter(
+            "penalty",
+            format!(
+                "the penalty matrix is {}×{}, expected {p}×{p}",
+                penalty.nrows(),
+                penalty.ncols()
+            ),
+        ));
     }
     if n < 2 {
         return Err(RegressionError::InsufficientObservations { needed: 2, got: n });

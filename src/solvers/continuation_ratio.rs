@@ -40,7 +40,7 @@ pub struct ContinuationRatioData {
 /// response `1` in cohort `c` (none for the top level).
 pub fn cr_setup(y: &Col<f64>) -> Result<ContinuationRatioData, RegressionError> {
     if y.iter().any(|v| !v.is_finite()) {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "non-finite response".to_string(),
         ));
     }
@@ -49,7 +49,7 @@ pub fn cr_setup(y: &Col<f64>) -> Result<ContinuationRatioData, RegressionError> 
     levels.dedup();
     let k = levels.len();
     if k < 3 {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "a continuation-ratio model needs at least three response values".to_string(),
         ));
     }
@@ -147,9 +147,10 @@ impl ContinuationRatioRegressor {
     ) -> Result<FittedContinuationRatio, RegressionError> {
         crate::core::validate_xy(x, y)?;
         if let Some(&j) = self.cohort_specific.iter().find(|&&j| j >= x.ncols()) {
-            return Err(RegressionError::NumericalError(format!(
-                "cohort-specific column {j} is out of range"
-            )));
+            return Err(RegressionError::invalid_parameter(
+                "cohort_specific",
+                format!("cohort-specific column {j} is out of range"),
+            ));
         }
         let data = cr_setup(y)?;
         let design = expanded_design(

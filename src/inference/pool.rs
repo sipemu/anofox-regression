@@ -30,7 +30,7 @@ use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 
 fn invalid(msg: &str) -> RegressionError {
-    RegressionError::NumericalError(msg.to_string())
+    RegressionError::InvalidInput(msg.to_string())
 }
 
 /// Fits combined by [`pool_rubin`].

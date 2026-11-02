@@ -288,7 +288,7 @@ fn compact(ids: &[usize]) -> (Vec<usize>, usize) {
 }
 
 fn invalid(msg: impl Into<String>) -> RegressionError {
-    RegressionError::NumericalError(msg.into())
+    RegressionError::InvalidInput(msg.into())
 }
 
 impl<'a> Problem<'a> {

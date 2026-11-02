@@ -104,16 +104,17 @@ impl QuantileInference {
         let off = usize::from(self.has_intercept);
         let k = self.estimate.len();
         if x.ncols() + off != k {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "x has {} columns, the model {}",
                 x.ncols(),
                 k - off
             )));
         }
         if !(level > 0.0 && level < 1.0) {
-            return Err(RegressionError::NumericalError(format!(
-                "level must lie in (0, 1), got {level}"
-            )));
+            return Err(RegressionError::invalid_parameter(
+                "level",
+                format!("level must lie in (0, 1), got {level}"),
+            ));
         }
         let t = StudentsT::new(0.0, 1.0, self.df_residual)
             .map_err(|e| RegressionError::NumericalError(format!("t distribution: {e}")))?;
@@ -175,7 +176,8 @@ pub fn quantile_process(
     level: f64,
 ) -> Result<Vec<QuantileInference>, RegressionError> {
     if taus.is_empty() {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "taus",
             "taus must not be empty".to_string(),
         ));
     }
@@ -282,9 +284,10 @@ pub(crate) fn inference_for_fit(
         });
     }
     if !(level > 0.0 && level < 1.0) {
-        return Err(RegressionError::NumericalError(format!(
-            "level must be in (0, 1), got {level}"
-        )));
+        return Err(RegressionError::invalid_parameter(
+            "level",
+            format!("level must be in (0, 1), got {level}"),
+        ));
     }
     let n = x.nrows();
     let xa = design(x, with_intercept);
@@ -336,7 +339,8 @@ pub(crate) fn inference_for_fit(
         }
         QuantileSe::Boot { seed, r } => {
             if r < 2 {
-                return Err(RegressionError::NumericalError(
+                return Err(RegressionError::invalid_parameter(
+                    "r",
                     "bootstrap needs r >= 2 replications".to_string(),
                 ));
             }

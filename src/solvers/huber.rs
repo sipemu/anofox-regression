@@ -508,10 +508,10 @@ impl Regressor for HuberRegressor {
 
         // Validate epsilon
         if self.epsilon <= 1.0 {
-            return Err(RegressionError::NumericalError(format!(
-                "epsilon must be greater than 1.0, got {}",
-                self.epsilon
-            )));
+            return Err(RegressionError::invalid_parameter(
+                "epsilon",
+                format!("epsilon must be greater than 1.0, got {}", self.epsilon),
+            ));
         }
 
         // Fit using IRLS

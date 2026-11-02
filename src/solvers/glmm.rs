@@ -194,7 +194,8 @@ impl GlmmRegressor {
             None => &self.random_slopes,
             Some(per) if per.len() == 1 && self.random_slopes.is_empty() => &per[0],
             Some(_) => {
-                return Err(RegressionError::NumericalError(
+                return Err(RegressionError::invalid_parameter(
+                    "random_slopes_per_factor",
                     "random_slopes_per_factor must have one entry per grouping factor \
                      (and is exclusive with random_slopes)"
                         .to_string(),
@@ -228,13 +229,14 @@ impl GlmmRegressor {
 
         let q = usize::from(self.random_intercept) + slopes.len();
         if q == 0 {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "GLMM needs a random intercept or at least one random slope".to_string(),
             ));
         }
         check_slope_columns(slopes, x.ncols())?;
         if self.n_agq > 1 && (q != 1 || !self.random_intercept) {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::invalid_parameter(
+                "n_agq",
                 "adaptive Gauss–Hermite quadrature (n_agq > 1) needs a single scalar \
                  random intercept"
                     .to_string(),
@@ -244,7 +246,7 @@ impl GlmmRegressor {
         // Compact arbitrary group ids into 0..J and record membership.
         let (group_idx, n_groups) = compact_groups(group);
         if n_groups < 2 {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "GLMM needs at least two distinct groups".to_string(),
             ));
         }
@@ -313,12 +315,13 @@ impl GlmmRegressor {
     ) -> Result<FittedGlmm, RegressionError> {
         crate::core::validate_xy(x, y)?;
         if groups.is_empty() {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "fit_crossed needs at least one grouping factor".to_string(),
             ));
         }
         if groups.len() > 1 && self.n_agq > 0 && !matches!(self.kind, ResponseKind::Gaussian) {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::invalid_parameter(
+                "n_agq",
                 "n_agq > 0 is only available for a single grouping factor".to_string(),
             ));
         }
@@ -326,17 +329,21 @@ impl GlmmRegressor {
         let slopes: Vec<Vec<usize>> = match &self.random_slopes_per_factor {
             Some(per) => {
                 if per.len() != n_factors || !self.random_slopes.is_empty() {
-                    return Err(RegressionError::NumericalError(format!(
-                        "random_slopes_per_factor has {} entries for {n_factors} grouping \
+                    return Err(RegressionError::invalid_parameter(
+                        "random_slopes_per_factor",
+                        format!(
+                            "random_slopes_per_factor has {} entries for {n_factors} grouping \
                          factors (it must match, and is exclusive with random_slopes)",
-                        per.len()
-                    )));
+                            per.len()
+                        ),
+                    ));
                 }
                 per.clone()
             }
             None if n_factors == 1 => vec![self.random_slopes.clone()],
             None if !self.random_slopes.is_empty() => {
-                return Err(RegressionError::NumericalError(
+                return Err(RegressionError::invalid_parameter(
+                    "random_slopes_per_factor",
                     "random_slopes applies to a single grouping factor; use \
                      random_slopes_per_factor with multiple grouping factors"
                         .to_string(),
@@ -376,14 +383,14 @@ impl GlmmRegressor {
         for (g, sl) in groups.iter().zip(&slopes) {
             let (idx, jf) = compact_groups(g);
             if jf < 2 {
-                return Err(RegressionError::NumericalError(
+                return Err(RegressionError::InvalidInput(
                     "each grouping factor needs at least two distinct levels".to_string(),
                 ));
             }
             check_slope_columns(sl, x.ncols())?;
             let qf = usize::from(self.random_intercept) + sl.len();
             if qf == 0 {
-                return Err(RegressionError::NumericalError(
+                return Err(RegressionError::InvalidInput(
                     "each grouping factor needs a random intercept or a random slope".to_string(),
                 ));
             }
@@ -500,7 +507,7 @@ impl GlmmRegressor {
                 if o.iter().all(|v| v.is_finite()) {
                     Ok(o.iter().copied().collect())
                 } else {
-                    Err(RegressionError::NumericalError(
+                    Err(RegressionError::InvalidInput(
                         "offset must be finite".to_string(),
                     ))
                 }
@@ -515,7 +522,7 @@ impl GlmmRegressor {
     /// Family-specific checks on the response and family parameters for the
     /// negative-binomial, Gamma and Tweedie GLMMs.
     fn validate_response(&self, y: &Col<f64>) -> Result<(), RegressionError> {
-        let bad = |msg: &str| Err(RegressionError::NumericalError(msg.to_string()));
+        let bad = |msg: &str| Err(RegressionError::InvalidInput(msg.to_string()));
         match self.kind {
             ResponseKind::NegativeBinomial => {
                 if let Some(th) = self.nb_theta {
@@ -1073,9 +1080,10 @@ fn group_conditional_se(t: &[Vec<f64>], ztz: &[Vec<Vec<f64>>], scale: f64) -> Ve
 fn check_slope_columns(slopes: &[usize], ncols: usize) -> Result<(), RegressionError> {
     for &c in slopes {
         if c >= ncols {
-            return Err(RegressionError::NumericalError(format!(
-                "random-slope column {c} is out of range for x with {ncols} columns"
-            )));
+            return Err(RegressionError::invalid_parameter(
+                "random_slopes",
+                format!("random-slope column {c} is out of range for x with {ncols} columns"),
+            ));
         }
     }
     Ok(())
@@ -1417,7 +1425,7 @@ impl FittedGlmm {
             }
             GlmmDdf::Satterthwaite => {
                 let df = self.satterthwaite_df.clone().ok_or_else(|| {
-                    RegressionError::NumericalError(
+                    RegressionError::InvalidInput(
                         "Satterthwaite degrees of freedom need a Gaussian GLMM built with \
                          satterthwaite(true)"
                             .to_string(),

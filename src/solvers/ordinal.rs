@@ -538,7 +538,7 @@ impl OrdinalRegressor {
             .iter()
             .any(|&w| w.is_nan() || w < 0.0 || !w.is_finite())
         {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "weights must be finite and non-negative".to_string(),
             ));
         }
@@ -552,7 +552,7 @@ impl OrdinalRegressor {
         levels.dedup();
         let k = levels.len();
         if k < 2 {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "an ordinal response needs at least two distinct values".to_string(),
             ));
         }
@@ -566,7 +566,7 @@ impl OrdinalRegressor {
         }
         let total: f64 = counts.iter().sum();
         if counts.iter().any(|&c| c <= 0.0) {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "every response value needs positive total weight".to_string(),
             ));
         }
@@ -575,11 +575,14 @@ impl OrdinalRegressor {
             None => None,
             Some(OrdinalPenalty::Matrix(pm)) => {
                 if pm.nrows() != p || pm.ncols() != p {
-                    return Err(RegressionError::NumericalError(format!(
-                        "the penalty matrix is {}×{}, expected {p}×{p}",
-                        pm.nrows(),
-                        pm.ncols()
-                    )));
+                    return Err(RegressionError::invalid_parameter(
+                        "penalty",
+                        format!(
+                            "the penalty matrix is {}×{}, expected {p}×{p}",
+                            pm.nrows(),
+                            pm.ncols()
+                        ),
+                    ));
                 }
                 Some(pm.clone())
             }
@@ -1029,7 +1032,8 @@ impl FittedOrdinal {
             columns.to_vec()
         };
         if tested.iter().any(|&c| c >= p) {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::invalid_parameter(
+                "column",
                 "tested column out of range".to_string(),
             ));
         }
@@ -1060,7 +1064,7 @@ impl FittedOrdinal {
         for i in 0..n {
             let c = self.levels.partition_point(|l| *l < y[i]);
             if c >= self.levels.len() || self.levels[c] != y[i] {
-                return Err(RegressionError::NumericalError(
+                return Err(RegressionError::InvalidInput(
                     "y has a value that is not a level of the fit".to_string(),
                 ));
             }

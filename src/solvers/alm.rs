@@ -2969,7 +2969,7 @@ impl Regressor for AlmRegressor {
         if self.distribution.requires_positive() {
             for i in 0..n_samples {
                 if y[i] <= 0.0 {
-                    return Err(RegressionError::NumericalError(format!(
+                    return Err(RegressionError::InvalidInput(format!(
                         "Distribution {:?} requires positive response values",
                         self.distribution
                     )));
@@ -2978,7 +2978,7 @@ impl Regressor for AlmRegressor {
         }
 
         if self.distribution.requires_non_negative() && (0..n_samples).any(|i| y[i] < 0.0) {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "Distribution {:?} requires non-negative response values",
                 self.distribution
             )));
@@ -2987,7 +2987,7 @@ impl Regressor for AlmRegressor {
         if self.distribution.requires_unit_interval() {
             for i in 0..n_samples {
                 if y[i] <= 0.0 || y[i] >= 1.0 {
-                    return Err(RegressionError::NumericalError(format!(
+                    return Err(RegressionError::InvalidInput(format!(
                         "Distribution {:?} requires response values in (0, 1)",
                         self.distribution
                     )));

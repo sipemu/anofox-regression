@@ -1,5 +1,7 @@
 //! Coefficient inference calculations.
 
+use crate::solvers::RegressionError;
+
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 
@@ -14,7 +16,7 @@ impl CoefficientInference {
         x: &Mat<f64>,
         mse: f64,
         aliased: &[bool],
-    ) -> Result<Col<f64>, &'static str> {
+    ) -> Result<Col<f64>, RegressionError> {
         let n_features = x.ncols();
         let mut se = Col::zeros(n_features);
 
@@ -131,7 +133,7 @@ impl CoefficientInference {
         x: &Mat<f64>,
         mse: f64,
         aliased: &[bool],
-    ) -> Result<(Col<f64>, f64), &'static str> {
+    ) -> Result<(Col<f64>, f64), RegressionError> {
         // (X_aug'X_aug)^-1 over the intercept and the non-aliased columns only:
         // aliased columns are not part of the estimated model (R's lm reports
         // the standard errors of the reduced fit).
@@ -150,7 +152,7 @@ impl CoefficientInference {
         weights: &Col<f64>,
         mse: f64,
         aliased: &[bool],
-    ) -> Result<(Col<f64>, f64), &'static str> {
+    ) -> Result<(Col<f64>, f64), RegressionError> {
         let inv = super::prediction::compute_xtwx_inverse_augmented_reduced(x, weights, aliased)?;
         Ok(Self::expand_augmented_se(&inv, mse, aliased))
     }
@@ -185,7 +187,7 @@ impl CoefficientInference {
     }
 
     /// Compute (X'X)^(-1) for non-aliased columns.
-    fn compute_xtx_inverse(x: &Mat<f64>, aliased: &[bool]) -> Result<Mat<f64>, &'static str> {
+    fn compute_xtx_inverse(x: &Mat<f64>, aliased: &[bool]) -> Result<Mat<f64>, RegressionError> {
         let n_features = x.ncols();
         let inv_active = super::prediction::compute_xtx_inverse_reduced(x, aliased)?;
         let active: Vec<usize> = (0..n_features).filter(|&j| !aliased[j]).collect();

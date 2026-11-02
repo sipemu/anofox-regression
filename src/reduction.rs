@@ -25,7 +25,7 @@ use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 
 fn invalid(msg: &str) -> RegressionError {
-    RegressionError::NumericalError(msg.to_string())
+    RegressionError::InvalidInput(msg.to_string())
 }
 
 // ================================================================ spearman2 ==
@@ -903,7 +903,9 @@ pub fn principal_components(
     let z = Mat::from_fn(n, p, |i, j| {
         (x[(i, j)] - center[j]) / if scale { sd[j] } else { 1.0 }
     });
-    let svd = z.thin_svd().map_err(|_| invalid("SVD failed"))?;
+    let svd = z
+        .thin_svd()
+        .map_err(|_| RegressionError::NumericalError("SVD failed".into()))?;
     let (s, v) = (svd.S().column_vector(), svd.V());
     let k = s.nrows();
     let mut order: Vec<usize> = (0..k).collect();

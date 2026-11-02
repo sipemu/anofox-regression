@@ -1,5 +1,7 @@
 //! Prediction interval calculations.
 
+use crate::solvers::RegressionError;
+
 use crate::core::{IntervalType, PredictionResult};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, StudentsT};
@@ -191,7 +193,7 @@ fn compute_leverage_single(x0: &Col<f64>, xtx_inv: &Mat<f64>) -> f64 {
 /// # Ok(())
 /// # }
 /// ```
-pub fn compute_xtx_inverse_augmented(x: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
+pub fn compute_xtx_inverse_augmented(x: &Mat<f64>) -> Result<Mat<f64>, RegressionError> {
     design_gram_inverse(x, None, None, true)
 }
 
@@ -225,7 +227,7 @@ pub fn compute_xtx_inverse_augmented(x: &Mat<f64>) -> Result<Mat<f64>, &'static 
 pub fn compute_xtwx_inverse_augmented(
     x: &Mat<f64>,
     weights: &Col<f64>,
-) -> Result<Mat<f64>, &'static str> {
+) -> Result<Mat<f64>, RegressionError> {
     design_gram_inverse(x, Some(weights), None, true)
 }
 
@@ -254,7 +256,7 @@ pub fn compute_xtwx_inverse_augmented(
 /// # Ok(())
 /// # }
 /// ```
-pub fn compute_xtx_inverse(x: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
+pub fn compute_xtx_inverse(x: &Mat<f64>) -> Result<Mat<f64>, RegressionError> {
     design_gram_inverse(x, None, None, false)
 }
 
@@ -274,7 +276,7 @@ pub fn compute_xtx_inverse(x: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
 pub fn compute_xtx_inverse_augmented_reduced(
     x: &Mat<f64>,
     aliased: &[bool],
-) -> Result<Mat<f64>, &'static str> {
+) -> Result<Mat<f64>, RegressionError> {
     design_gram_inverse(x, None, Some(aliased), true)
 }
 
@@ -290,9 +292,9 @@ pub fn compute_xtx_inverse_augmented_reduced(
 pub fn compute_xtx_inverse_reduced(
     x: &Mat<f64>,
     aliased: &[bool],
-) -> Result<Mat<f64>, &'static str> {
+) -> Result<Mat<f64>, RegressionError> {
     if aliased.iter().all(|&a| a) {
-        return Err("All columns are aliased");
+        return Err(RegressionError::invalid_input("all columns are aliased"));
     }
     design_gram_inverse(x, None, Some(aliased), false)
 }
@@ -315,7 +317,7 @@ pub fn compute_xtwx_inverse_augmented_reduced(
     x: &Mat<f64>,
     weights: &Col<f64>,
     aliased: &[bool],
-) -> Result<Mat<f64>, &'static str> {
+) -> Result<Mat<f64>, RegressionError> {
     design_gram_inverse(x, Some(weights), Some(aliased), true)
 }
 
@@ -333,9 +335,9 @@ pub fn compute_xtwx_inverse_reduced(
     x: &Mat<f64>,
     weights: &Col<f64>,
     aliased: &[bool],
-) -> Result<Mat<f64>, &'static str> {
+) -> Result<Mat<f64>, RegressionError> {
     if aliased.iter().all(|&a| a) {
-        return Err("All columns are aliased");
+        return Err(RegressionError::invalid_input("all columns are aliased"));
     }
     design_gram_inverse(x, Some(weights), Some(aliased), false)
 }
@@ -354,7 +356,7 @@ fn design_gram_inverse(
     weights: Option<&Col<f64>>,
     aliased: Option<&[bool]>,
     intercept: bool,
-) -> Result<Mat<f64>, &'static str> {
+) -> Result<Mat<f64>, RegressionError> {
     let kept: Vec<usize> = (0..x.ncols())
         .filter(|&j| aliased.is_none_or(|a| !a[j]))
         .collect();
@@ -374,7 +376,7 @@ fn design_gram_inverse(
         return Ok(Mat::zeros(0, 0));
     }
     if n < k {
-        return Err("Matrix is singular");
+        return Err(RegressionError::SingularMatrix);
     }
     let sw: Vec<f64> = (0..n).map(|i| w(i).sqrt()).collect();
     let mut d = vec![0.0; k];
@@ -384,14 +386,14 @@ fn design_gram_inverse(
             .sum::<f64>()
             .sqrt();
         if !(norm.is_finite() && norm > 0.0) {
-            return Err("Matrix is singular");
+            return Err(RegressionError::SingularMatrix);
         }
         *dj = 1.0 / norm;
     }
     let scaled = Mat::from_fn(n, k, |i, j| sw[i] * z[(i, j)] * d[j]);
     let r = scaled.qr().thin_R().to_owned();
     if (0..k).any(|i| r[(i, i)].abs().is_nan() || r[(i, i)].abs() <= 1e-6) {
-        return Err("Matrix is singular");
+        return Err(RegressionError::SingularMatrix);
     }
     // R⁻¹ by back substitution, then (Z'Z)⁻¹ = D R⁻¹ R⁻ᵀ D
     let mut rinv = Mat::<f64>::zeros(k, k);
@@ -413,7 +415,7 @@ fn design_gram_inverse(
 /// (e.g. `x · 1e-12`, giving `a_jj ~ 1e-24`) is not mistaken for a singular
 /// direction, and exact collinearity among large columns is still detected.
 /// `A⁻¹ = D S⁻¹ D`.
-pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'static str> {
+pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, RegressionError> {
     let n = matrix.nrows();
     if n == 0 {
         return Ok(Mat::zeros(0, 0));
@@ -422,7 +424,7 @@ pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'st
     for (j, dj) in d.iter_mut().enumerate() {
         let a = matrix[(j, j)];
         if !(a.is_finite() && a > 0.0) {
-            return Err("Matrix is singular");
+            return Err(RegressionError::SingularMatrix);
         }
         *dj = 1.0 / a.sqrt();
     }
@@ -435,7 +437,7 @@ pub(crate) fn compute_matrix_inverse(matrix: &Mat<f64>) -> Result<Mat<f64>, &'st
     // S has a unit diagonal, so |R_ii| is a scale-free conditioning measure.
     for i in 0..n {
         if r[(i, i)].abs().is_nan() || r[(i, i)].abs() <= 1e-12 {
-            return Err("Matrix is singular");
+            return Err(RegressionError::SingularMatrix);
         }
     }
 

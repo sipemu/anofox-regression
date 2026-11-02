@@ -86,7 +86,12 @@ impl From<GlmEngineError> for crate::solvers::RegressionError {
                     got: rows,
                 }
             }
-            other => RegressionError::NumericalError(other.to_string()),
+            GlmEngineError::InvalidValue { field, message } => RegressionError::InvalidParameter {
+                name: field,
+                reason: message,
+            },
+            GlmEngineError::NumericalFailure(msg) => RegressionError::NumericalError(msg),
+            other => RegressionError::InvalidInput(other.to_string()),
         }
     }
 }

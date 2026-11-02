@@ -22,6 +22,8 @@
 //! coefficients (e.g. a serialized model or a database aggregate state)
 //! compute leverage-aware intervals without refitting.
 
+use crate::solvers::RegressionError;
+
 use crate::core::{IntervalType, PredictionResult};
 use faer::{Col, Mat};
 
@@ -46,22 +48,34 @@ pub fn compute_variance_factor(
     with_intercept: bool,
     excluded: &[bool],
     ridge_lambda: f64,
-) -> Result<Mat<f64>, &'static str> {
+) -> Result<Mat<f64>, RegressionError> {
     let n = x.nrows();
     let p = x.ncols();
     if excluded.len() != p {
-        return Err("excluded must have one entry per column of x");
+        return Err(RegressionError::invalid_parameter(
+            "excluded",
+            "must have one entry per column of x",
+        ));
     }
     if let Some(w) = weights {
         if w.nrows() != n {
-            return Err("weights must have one entry per row of x");
+            return Err(RegressionError::invalid_parameter(
+                "weights",
+                "must have one entry per row of x",
+            ));
         }
         if w.iter().any(|&wi| !(wi.is_finite() && wi >= 0.0)) {
-            return Err("weights must be finite and non-negative");
+            return Err(RegressionError::invalid_parameter(
+                "weights",
+                "must be finite and non-negative",
+            ));
         }
     }
     if !(ridge_lambda.is_finite() && ridge_lambda >= 0.0) {
-        return Err("ridge_lambda must be finite and non-negative");
+        return Err(RegressionError::invalid_parameter(
+            "ridge_lambda",
+            "must be finite and non-negative",
+        ));
     }
 
     let off = usize::from(with_intercept);
@@ -71,7 +85,10 @@ pub fn compute_variance_factor(
         .collect();
     let q = retained.len();
     if q == 0 {
-        return Err("all columns are excluded");
+        return Err(RegressionError::invalid_parameter(
+            "excluded",
+            "excludes every column",
+        ));
     }
     let value = |i: usize, j: usize| if j < off { 1.0 } else { x[(i, j - off)] };
 
@@ -147,7 +164,7 @@ pub fn compute_ridge_variance_factor(
     lambda: f64,
     with_intercept: bool,
     aliased: &[bool],
-) -> Result<Mat<f64>, &'static str> {
+) -> Result<Mat<f64>, RegressionError> {
     compute_variance_factor(x, weights, with_intercept, aliased, lambda)
 }
 

@@ -63,7 +63,7 @@ use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
 
 fn invalid(msg: impl Into<String>) -> RegressionError {
-    RegressionError::NumericalError(msg.into())
+    RegressionError::InvalidInput(msg.into())
 }
 
 /// Dense codes `0..m` of the distinct keys in sorted key order (`numpy.unique`'s

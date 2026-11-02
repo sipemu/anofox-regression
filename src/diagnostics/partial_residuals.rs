@@ -10,7 +10,7 @@
 //!   `car::avPlots` (`lsfit(..., wt = weights)`); the slope through the origin of
 //!   `y_residual` on `x_residual` is the coefficient `b_j` (Frisch-Waugh-Lovell).
 
-use crate::solvers::penalized_glm::{GlmEngineError, GlmEngineResult, GlmResult};
+use crate::solvers::penalized_glm::{GlmEngineError, GlmResult};
 use crate::solvers::{FittedRegressor, RegressionError};
 use faer::{Col, Mat};
 
@@ -104,19 +104,20 @@ pub fn partial_residuals<F: FittedRegressor + ?Sized>(
 ///
 /// # Errors
 ///
-/// [`GlmEngineError::DimensionMismatch`] / [`GlmEngineError::InvalidInput`] when
+/// [`RegressionError::DimensionMismatch`](crate::solvers::RegressionError::DimensionMismatch) / [`RegressionError::InvalidInput`](crate::solvers::RegressionError::InvalidInput) when
 /// the data do not match the fit.
 pub fn partial_residuals_glm(
     fit: &GlmResult,
     y: &[f64],
     x: &[Vec<f64>],
-) -> GlmEngineResult<Vec<PartialResiduals>> {
+) -> Result<Vec<PartialResiduals>, crate::solvers::RegressionError> {
     let n = y.len();
     if let Some(c) = x.iter().find(|c| c.len() != n) {
         return Err(GlmEngineError::DimensionMismatch {
             y_len: n,
             x_rows: c.len(),
-        });
+        }
+        .into());
     }
     let offset_idx = fit.offset_column.and_then(|c| c.checked_sub(1));
     let features: Vec<&Vec<f64>> = x
@@ -131,14 +132,16 @@ pub fn partial_residuals_glm(
             "partial_residuals_glm: x has {} feature columns (offset excluded) but the fit has {}",
             features.len(),
             coefs.len()
-        )));
+        ))
+        .into());
     }
     let rows = &fit.valid_rows;
     if rows.len() != fit.fitted_values.len() || rows.iter().any(|&r| r >= n) {
         return Err(GlmEngineError::DimensionMismatch {
             y_len: n,
             x_rows: rows.iter().max().map_or(0, |&r| r + 1),
-        });
+        }
+        .into());
     }
     let theta = match fit.dispersion_rule {
         crate::solvers::penalized_glm::DispersionRule::Given(t) => Some(t),

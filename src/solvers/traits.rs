@@ -6,6 +6,7 @@ use thiserror::Error;
 
 /// Errors that can occur during regression fitting.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum RegressionError {
     /// `x` and `y` (or a row-aligned extra) have different lengths.
     #[error("dimension mismatch: X has {x_rows} rows but y has {y_len} elements")]
@@ -48,9 +49,40 @@ pub enum RegressionError {
     #[error("invalid weights: all weights must be non-negative")]
     InvalidWeights,
 
-    /// Invalid input or a numerical failure, with a description.
+    /// The data cannot be fitted as given: non-finite values, a constant or
+    /// out-of-range column, a response outside the family's support, too
+    /// few levels or groups, …
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+
+    /// An option or argument is out of its allowed range.
+    #[error("invalid parameter `{name}`: {reason}")]
+    InvalidParameter {
+        /// The parameter (builder option or argument) at fault.
+        name: &'static str,
+        /// What is wrong with its value.
+        reason: String,
+    },
+
+    /// The computation failed numerically (non-finite iterates, a matrix
+    /// that is not positive definite, a failed decomposition, …).
     #[error("numerical error: {0}")]
     NumericalError(String),
+}
+
+impl RegressionError {
+    /// [`RegressionError::InvalidInput`] with a description.
+    pub fn invalid_input(reason: impl Into<String>) -> Self {
+        Self::InvalidInput(reason.into())
+    }
+
+    /// [`RegressionError::InvalidParameter`] for parameter `name`.
+    pub fn invalid_parameter(name: &'static str, reason: impl Into<String>) -> Self {
+        Self::InvalidParameter {
+            name,
+            reason: reason.into(),
+        }
+    }
 }
 
 /// A regression estimator that can be fit to data.

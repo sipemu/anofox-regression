@@ -55,6 +55,7 @@ pub mod design;
 pub mod diagnostics;
 pub mod distributions;
 pub mod effects;
+pub mod error;
 pub mod imputation;
 pub mod inference;
 pub mod reduction;
@@ -64,6 +65,8 @@ pub mod survival;
 pub mod transform;
 pub mod utils;
 pub mod validation;
+
+pub use error::{Error, Result};
 
 /// Prelude module for convenient imports.
 pub mod prelude {

@@ -111,15 +111,19 @@ impl Regressor for RlsRegressor {
 
         let forgetting_ok = forgetting_factor > 0.0 && forgetting_factor <= 1.0;
         if !forgetting_ok {
-            return Err(RegressionError::NumericalError(format!(
-                "forgetting_factor must be in (0, 1], got {forgetting_factor}"
-            )));
+            return Err(RegressionError::invalid_parameter(
+                "forgetting_factor",
+                format!("forgetting_factor must be in (0, 1], got {forgetting_factor}"),
+            ));
         }
         if !(self.initial_p_diagonal.is_finite() && self.initial_p_diagonal > 0.0) {
-            return Err(RegressionError::NumericalError(format!(
-                "initial_p_diagonal must be finite and > 0, got {}",
-                self.initial_p_diagonal
-            )));
+            return Err(RegressionError::invalid_parameter(
+                "initial_p_diagonal",
+                format!(
+                    "initial_p_diagonal must be finite and > 0, got {}",
+                    self.initial_p_diagonal
+                ),
+            ));
         }
 
         // Initialize P matrix (inverse covariance) as δ·I

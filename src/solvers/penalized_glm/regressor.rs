@@ -3,7 +3,7 @@
 use crate::core::{HasModelInfo, ModelInfo};
 use faer::{Col, Mat};
 
-use super::error::{GlmEngineError, GlmEngineResult};
+use super::error::GlmEngineError;
 use super::families::{
     fit_binomial, fit_gamma, fit_logistic, fit_negbinomial, fit_poisson, fit_tweedie, GlmResult,
 };
@@ -161,13 +161,18 @@ impl PenalizedGlmRegressor {
 
     /// Fit the model. `x` is `n x p` (no intercept column), `y` has length `n`.
     /// Rows with a non-finite value in `y`, `x` or the offset are dropped.
-    pub fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> GlmEngineResult<FittedPenalizedGlm> {
+    pub fn fit(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+    ) -> Result<FittedPenalizedGlm, crate::solvers::RegressionError> {
         let n = x.nrows();
         if y.nrows() != n {
             return Err(GlmEngineError::DimensionMismatch {
                 y_len: y.nrows(),
                 x_rows: n,
-            });
+            }
+            .into());
         }
         let p = x.ncols();
         let mut cols: Vec<Vec<f64>> = (0..p)
@@ -179,7 +184,8 @@ impl PenalizedGlmRegressor {
                     return Err(GlmEngineError::DimensionMismatch {
                         y_len: off.nrows(),
                         x_rows: n,
-                    });
+                    }
+                    .into());
                 }
                 cols.push((0..n).map(|i| off[i]).collect());
                 Some(p + 1)
@@ -531,7 +537,11 @@ impl FittedPenalizedGlm {
     /// Rows the fit dropped (non-finite values) are `NaN` in every field. A
     /// penalized fit (`lambda > 0` or a non-flat prior) is rejected; see
     /// [`crate::diagnostics::augment_glm`].
-    pub fn augment(&self, x: &Mat<f64>, y: &Col<f64>) -> GlmEngineResult<Augment> {
+    pub fn augment(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+    ) -> Result<Augment, crate::solvers::RegressionError> {
         self.augment_with(x, y, ResidualType::Deviance)
     }
 
@@ -541,7 +551,7 @@ impl FittedPenalizedGlm {
         x: &Mat<f64>,
         y: &Col<f64>,
         resid_type: ResidualType,
-    ) -> GlmEngineResult<Augment> {
+    ) -> Result<Augment, crate::solvers::RegressionError> {
         let yv: Vec<f64> = (0..y.nrows()).map(|i| y[i]).collect();
         crate::diagnostics::augment::augment_glm_impl(
             &self.result,

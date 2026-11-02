@@ -38,6 +38,7 @@ use thiserror::Error;
 
 /// Errors from building a design or term map.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum DesignError {
     /// A block has a different number of rows than the design.
     #[error("block has {got} rows, the design has {expected}")]

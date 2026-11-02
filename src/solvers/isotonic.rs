@@ -322,7 +322,7 @@ impl Regressor for IsotonicRegressor {
         crate::core::validate_xy(x, y)?;
         // For matrix input, use only the first column
         if x.ncols() != 1 {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "Isotonic regression requires exactly one feature. Use fit_1d() for 1D data."
                     .to_string(),
             ));

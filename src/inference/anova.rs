@@ -41,6 +41,7 @@ pub enum WaldDistribution {
 
 /// Errors of a Wald test.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum WaldError {
     /// Inconsistent dimensions of `β̂`, `V̂`, `C` or `r`.
     #[error("dimension mismatch: {0}")]
