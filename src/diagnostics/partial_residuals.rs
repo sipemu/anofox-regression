@@ -104,7 +104,7 @@ pub fn partial_residuals<F: FittedRegressor + ?Sized>(
 ///
 /// # Errors
 ///
-/// [`GlmEngineError::DimensionMismatch`] / [`GlmEngineError::InvalidInput`] when
+/// [`RegressionError::DimensionMismatch`](crate::solvers::RegressionError::DimensionMismatch) / [`RegressionError::InvalidInput`](crate::solvers::RegressionError::InvalidInput) when
 /// the data do not match the fit.
 pub fn partial_residuals_glm(
     fit: &GlmResult,

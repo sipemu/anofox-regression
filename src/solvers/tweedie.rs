@@ -1310,7 +1310,8 @@ impl TweedieRegressorBuilder {
     /// Build the regressor.
     pub fn build(self) -> TweedieRegressor {
         let link_power = self.link_power.unwrap_or(1.0 - self.var_power);
-        let family = TweedieFamily::new(self.var_power, link_power);
+        // checked by `fit` (InvalidParameter), not here
+        let family = TweedieFamily::unchecked(self.var_power, link_power);
 
         TweedieRegressor {
             options: self.options_builder.build_unchecked(),

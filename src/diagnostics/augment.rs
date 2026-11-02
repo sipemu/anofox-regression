@@ -602,11 +602,11 @@ impl Augmentable for FittedGamma {
 ///
 /// # Errors
 ///
-/// [`GlmEngineError::InvalidInput`] for a penalized fit ([`GlmResult::penalized`]:
+/// [`RegressionError::InvalidInput`](crate::solvers::RegressionError::InvalidInput) for a penalized fit ([`GlmResult::penalized`]:
 /// `lambda > 0` or a non-flat prior). The hat matrix of a posterior mode is
 /// `W½X(X'WX + P)⁻¹X'W½`, for which R's `rstandard` / `rstudent` / Cook's
 /// distance have no counterpart, so it is rejected rather than reported with
-/// the unpenalized formulas. [`GlmEngineError::DimensionMismatch`] when `y` /
+/// the unpenalized formulas. [`RegressionError::DimensionMismatch`](crate::solvers::RegressionError::DimensionMismatch) when `y` /
 /// `x` do not match the fit.
 pub fn augment_glm(
     fit: &GlmResult,

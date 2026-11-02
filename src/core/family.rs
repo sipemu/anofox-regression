@@ -247,10 +247,18 @@ impl TweedieFamily {
     ///
     /// Panics if var_power is in (0, 1), which has no valid distribution.
     pub fn new(var_power: f64, link_power: f64) -> Self {
+        let family = Self::unchecked(var_power, link_power);
         assert!(
-            !(var_power > 0.0 && var_power < 1.0),
+            family.is_valid(),
             "var_power in (0, 1) is not allowed (no valid distribution)"
         );
+        family
+    }
+
+    /// The family without the validity check of [`TweedieFamily::new`]; a
+    /// builder uses it and reports an invalid power from `fit` as
+    /// `RegressionError::InvalidParameter` instead of panicking.
+    pub(crate) fn unchecked(var_power: f64, link_power: f64) -> Self {
         Self {
             var_power,
             link_power,

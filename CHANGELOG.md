@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All 19 error enums are `#[non_exhaustive]`.
   - New crate-level `anofox_regression::Error` and `Result`: `Error` has a `From` conversion from every module error, so an application can use `?` across the whole crate.
   - The 14 public functions that returned `Result<_, &'static str>` return `RegressionError` (singular → `SingularMatrix`): `compute_xtx_inverse*`, `compute_xtwx_inverse*`, `compute_hc_standard_errors` / `compute_hc_inference`, `FittedOls::hc_standard_errors` / `hc_inference`, the variance-factor helpers and `CoefficientInference`.
+  - `TweedieRegressor::builder().var_power(p)` with `p ∈ (0, 1)` panicked inside `TweedieFamily::new`. The builder now leaves the check to `fit`, which returns `InvalidParameter { name: "var_power" }`. Every error branch touched here is tested in `tests/issue178_errors.rs`.
   - `PenalizedGlmRegressor::fit` / `augment`, `AftRegressor::fit`, `diagnostics::augment_glm*` and the partial-residual functions return `RegressionError` like the other estimators. `GlmEngineError` converts structurally: `InvalidValue` becomes `InvalidParameter`, and `NumericalFailure` becomes `NumericalError`.
 
 ## [0.8.0] - 2026-11-01
