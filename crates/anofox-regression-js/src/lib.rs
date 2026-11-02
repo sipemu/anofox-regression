@@ -8,8 +8,10 @@ use wasm_bindgen::prelude::*;
 mod convert;
 pub mod design;
 pub mod diagnostics;
+pub mod effects;
 pub mod inference;
 pub mod regressors;
+pub mod splines;
 pub mod survival;
 
 /// Initialize the WASM module.
