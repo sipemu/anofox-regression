@@ -716,7 +716,7 @@ impl Regressor for BinomialRegressor {
         // Validate y values are in [0, 1]
         for i in 0..n_samples {
             if !(0.0..=1.0).contains(&y[i]) {
-                return Err(RegressionError::NumericalError(format!(
+                return Err(RegressionError::InvalidInput(format!(
                     "y values must be in [0, 1] for binomial, got y[{}] = {}",
                     i, y[i]
                 )));
@@ -1426,7 +1426,7 @@ mod tests {
 
         let result = BinomialRegressor::logistic().build().fit(&x, &y);
 
-        assert!(matches!(result, Err(RegressionError::NumericalError(_))));
+        assert!(matches!(result, Err(RegressionError::InvalidInput(_))));
     }
 
     #[test]

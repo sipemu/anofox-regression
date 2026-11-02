@@ -18,6 +18,7 @@ use faer::{Col, Mat, Side};
 
 /// Errors of the approximation functions.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ApproximationError {
     /// Inputs have inconsistent sizes.
     #[error("dimension mismatch: {0}")]

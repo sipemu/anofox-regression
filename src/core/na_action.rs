@@ -55,6 +55,7 @@ pub enum NaAction {
 
 /// Error when NA values are encountered with `NaAction::Fail`.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum NaError {
     /// NA values found in input data when using `NaAction::Fail`.
     #[error("NA values found in data (na.fail): {n_na} rows contain missing values")]
@@ -458,14 +459,14 @@ pub(crate) fn apply_na_action(
         return Ok(None);
     }
     if has_row_extras && action != NaAction::Fail {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "x or y contain NaN and the fit has row-aligned weights or an offset: \
              drop the incomplete rows from all inputs first"
                 .to_string(),
         ));
     }
     let r = NaHandler::process(x, y, action)
-        .map_err(|e| RegressionError::NumericalError(e.to_string()))?;
+        .map_err(|e| RegressionError::InvalidInput(e.to_string()))?;
     Ok(Some((r.x_clean, r.y_clean, r.na_info)))
 }
 

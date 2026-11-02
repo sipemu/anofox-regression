@@ -186,7 +186,7 @@ impl LmDynamicRegressor {
     /// whole predictors) or more than 30 predictors.
     fn generate_model_specs(&self, p: usize) -> Result<Vec<ModelSpec>, RegressionError> {
         if p > MAX_PREDICTORS {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "lmDynamic enumerates all 2^p subsets of the predictors; p = {p} exceeds {MAX_PREDICTORS}"
             )));
         }
@@ -195,7 +195,7 @@ impl LmDynamicRegressor {
         let total_models = (1usize << p) - 1;
         let n_models = total_models + 1 - first;
         if n_models > max {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "lmDynamic needs all {n_models} candidate models for p = {p} predictors, \
                  more than max_models = {max}; raise max_models or reduce the predictors"
             )));

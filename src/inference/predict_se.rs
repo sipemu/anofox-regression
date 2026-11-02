@@ -99,6 +99,7 @@ impl PredictSeOptions {
 
 /// Why [`PredictWithSe::predict_se`] could not produce a result.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum PredictSeError {
     /// The level is not in `(0, 1)`.
     #[error("level must be in (0, 1), got {0}")]

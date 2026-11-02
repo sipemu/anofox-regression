@@ -162,7 +162,7 @@ pub fn areg_impute(
 ) -> Result<AregImpute, RegressionError> {
     let (n, p) = (x.nrows(), x.ncols());
     if kinds.len() != p || p < 2 {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "need two or more columns and one kind per column".into(),
         ));
     }
@@ -175,7 +175,7 @@ pub fn areg_impute(
         let observed: Vec<f64> = (0..n).map(|i| x[(i, j)]).filter(|v| !v.is_nan()).collect();
         let levels = distinct(observed.iter().copied());
         if levels.len() < 2 {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "column {j} is constant or empty"
             )));
         }
@@ -218,7 +218,7 @@ pub fn areg_impute(
             let boot: Vec<usize> = rng.sample(npr, npr, true).iter().map(|&k| obs[k]).collect();
             for c in (0..p).filter(|&c| vtype[c] == AregType::Categorical) {
                 if distinct(boot.iter().map(|&r| xf[(r, c)])).len() < n_levels[c] {
-                    return Err(RegressionError::NumericalError(format!(
+                    return Err(RegressionError::InvalidInput(format!(
                         "a bootstrap resample had too few unique values of column {c}"
                     )));
                 }

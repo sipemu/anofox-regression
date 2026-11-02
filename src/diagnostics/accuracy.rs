@@ -30,6 +30,7 @@ use thiserror::Error;
 
 /// Errors of the accuracy indexes.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum AccuracyError {
     /// Inputs of different lengths.
     #[error("inputs have lengths {0} and {1}")]

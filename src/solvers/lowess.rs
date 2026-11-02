@@ -72,12 +72,13 @@ pub fn lowess(x: &[f64], y: &[f64], options: &LowessOptions) -> Result<LowessFit
         return Err(RegressionError::InsufficientObservations { needed: 1, got: 0 });
     }
     if x.iter().chain(y).any(|v| !v.is_finite()) {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "lowess: x and y must be finite".to_string(),
         ));
     }
     if !(options.frac.is_finite() && options.frac > 0.0) {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "frac",
             "lowess: frac must be finite and > 0".to_string(),
         ));
     }
@@ -89,7 +90,8 @@ pub fn lowess(x: &[f64], y: &[f64], options: &LowessOptions) -> Result<LowessFit
 
     let delta = options.delta.unwrap_or_else(|| 0.01 * (xs[n - 1] - xs[0]));
     if !(delta.is_finite() && delta >= 0.0) {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "delta",
             "lowess: delta must be finite and >= 0".to_string(),
         ));
     }

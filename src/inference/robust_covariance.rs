@@ -16,6 +16,7 @@
 
 use crate::diagnostics::compute_leverage_with_aliased;
 use crate::inference::coefficient::CoefficientInference;
+use crate::solvers::RegressionError;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 
@@ -107,20 +108,27 @@ pub fn compute_hc_standard_errors(
     aliased: &[bool],
     with_intercept: bool,
     hc_type: HcType,
-) -> Result<HcResult, &'static str> {
+) -> Result<HcResult, RegressionError> {
     let n = x.nrows();
     let n_features = x.ncols();
     let p = aliased.iter().filter(|&&a| !a).count() + if with_intercept { 1 } else { 0 };
 
     if residuals.nrows() != n {
         // E.g. a fit from sufficient statistics, which keeps no residuals.
-        return Err("HC standard errors need one residual per row of x");
+        return Err(RegressionError::invalid_input(
+            "HC standard errors need one residual per row of x",
+        ));
     }
     if aliased.len() != n_features {
-        return Err("aliased needs one entry per column of x");
+        return Err(RegressionError::invalid_parameter(
+            "aliased",
+            "needs one entry per column of x",
+        ));
     }
     if n <= p {
-        return Err("Not enough observations for HC standard errors");
+        return Err(RegressionError::invalid_input(
+            "not enough observations for HC standard errors",
+        ));
     }
 
     // Compute omega weights based on HC type
@@ -230,7 +238,7 @@ pub fn compute_hc_inference(
     with_intercept: bool,
     hc_type: HcType,
     confidence_level: f64,
-) -> Result<HcInference, &'static str> {
+) -> Result<HcInference, RegressionError> {
     let hc_result = compute_hc_standard_errors(x, residuals, aliased, with_intercept, hc_type)?;
 
     let n = x.nrows();
@@ -299,7 +307,7 @@ fn compute_omega_weights(
     hc_type: HcType,
     n: usize,
     p: usize,
-) -> Result<Vec<f64>, &'static str> {
+) -> Result<Vec<f64>, RegressionError> {
     match hc_type {
         HcType::HC0 => Ok((0..n).map(|i| residuals[i] * residuals[i]).collect()),
         HcType::HC1 => {

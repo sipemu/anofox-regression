@@ -546,10 +546,10 @@ impl Regressor for QuantileRegressor {
 
         // Validate tau
         if self.tau <= 0.0 || self.tau >= 1.0 {
-            return Err(RegressionError::NumericalError(format!(
-                "tau must be between 0 and 1, got {}",
-                self.tau
-            )));
+            return Err(RegressionError::invalid_parameter(
+                "tau",
+                format!("tau must be between 0 and 1, got {}", self.tau),
+            ));
         }
 
         // Validate weights if provided
@@ -715,7 +715,7 @@ impl FittedQuantile {
         level: f64,
     ) -> Result<crate::solvers::quantile_inference::QuantileInference, RegressionError> {
         if self.weighted {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "quantile inference is not available for weighted fits".to_string(),
             ));
         }

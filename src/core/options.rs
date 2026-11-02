@@ -97,6 +97,7 @@ impl Default for RegressionOptions {
 
 /// Errors that can occur when validating regression options.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum OptionsError {
     /// `lambda` is negative.
     #[error("lambda must be non-negative, got {0}")]

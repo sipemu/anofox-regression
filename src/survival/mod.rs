@@ -35,6 +35,7 @@ use thiserror::Error;
 
 /// Errors of the survival estimators.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum SurvivalError {
     /// Inputs of different lengths.
     #[error("inputs have lengths {0} and {1}")]

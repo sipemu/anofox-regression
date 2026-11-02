@@ -441,7 +441,7 @@ impl SufficientStats {
     /// an unknown version, a length that does not match the feature count,
     /// and inconsistent contents.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RegressionError> {
-        let bad = |msg: &str| RegressionError::NumericalError(format!("invalid state: {msg}"));
+        let bad = |msg: &str| RegressionError::InvalidInput(format!("invalid state: {msg}"));
         if bytes.len() < HEADER_LEN || &bytes[..4] != MAGIC {
             return Err(bad("not a SufficientStats encoding"));
         }
@@ -549,13 +549,13 @@ fn check_row(x: impl Iterator<Item = f64>, y: f64, w: f64) -> Result<(), Regress
         return Err(RegressionError::InvalidWeights);
     }
     if !y.is_finite() {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "y contains a non-finite value".into(),
         ));
     }
     for (j, v) in x.enumerate() {
         if !v.is_finite() {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "X contains a non-finite value in column {j}"
             )));
         }

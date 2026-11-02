@@ -124,13 +124,14 @@ impl PathOptions {
 
     pub(crate) fn validate(&self) -> Result<(), RegressionError> {
         if !(0.0..=1.0).contains(&self.alpha) {
-            return Err(RegressionError::NumericalError(format!(
-                "alpha must be in [0, 1], got {}",
-                self.alpha
-            )));
+            return Err(RegressionError::invalid_parameter(
+                "alpha",
+                format!("alpha must be in [0, 1], got {}", self.alpha),
+            ));
         }
         if self.tol.is_nan() || self.tol <= 0.0 || self.max_iter == 0 {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::invalid_parameter(
+                "tolerance",
                 "tol must be > 0 and max_iter >= 1".to_string(),
             ));
         }
@@ -246,7 +247,7 @@ pub(crate) fn validate_xy(x: &Mat<f64>, y: &Col<f64>) -> Result<(), RegressionEr
         });
     }
     if x.ncols() == 0 {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "x must have at least one column".to_string(),
         ));
     }
@@ -323,15 +324,17 @@ pub fn lambda_grid(
     validate_xy(x, y)?;
     opts.validate()?;
     if n_lambda == 0 {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "n_lambda",
             "n_lambda must be >= 1".to_string(),
         ));
     }
     let ratio = lambda_min_ratio.unwrap_or(if x.nrows() > x.ncols() { 1e-4 } else { 1e-2 });
     if !(ratio > 0.0 && ratio < 1.0) {
-        return Err(RegressionError::NumericalError(format!(
-            "lambda_min_ratio must be in (0, 1), got {ratio}"
-        )));
+        return Err(RegressionError::invalid_parameter(
+            "lambda_min_ratio",
+            format!("lambda_min_ratio must be in (0, 1), got {ratio}"),
+        ));
     }
     let prep = prepare(x, y, opts);
     let n = x.nrows() as f64;
@@ -345,7 +348,7 @@ pub fn lambda_grid(
     }
     let lambda_max = gmax * prep.y_scale / (n * opts.alpha.max(1e-3));
     if lambda_max.is_nan() || lambda_max <= 0.0 {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "lambda_max is zero: y is constant or uncorrelated with every column".to_string(),
         ));
     }
@@ -361,12 +364,14 @@ pub fn lambda_grid(
 
 pub(crate) fn validate_lambdas(lambdas: &[f64]) -> Result<(), RegressionError> {
     if lambdas.is_empty() {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "lambdas",
             "lambdas must not be empty".to_string(),
         ));
     }
     if lambdas.iter().any(|l| !(l.is_finite() && *l >= 0.0)) {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "lambdas",
             "lambdas must be finite and >= 0".to_string(),
         ));
     }
@@ -653,9 +658,10 @@ pub fn cv_path(
     let splits = splits_from_fold_ids(fold_ids);
     let k = splits.len();
     if k < 3 {
-        return Err(RegressionError::NumericalError(format!(
-            "cross-validation needs at least 3 folds, got {k}"
-        )));
+        return Err(RegressionError::invalid_parameter(
+            "k",
+            format!("cross-validation needs at least 3 folds, got {k}"),
+        ));
     }
     cv_path_splits(x, y, lambdas, &splits, opts, CvMetric::Mse)
 }

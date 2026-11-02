@@ -25,13 +25,13 @@ pub(crate) fn validate_xy(x: &Mat<f64>, y: &Col<f64>) -> Result<(), RegressionEr
 pub(crate) fn validate_finite(x: &Mat<f64>, y: &Col<f64>) -> Result<(), RegressionError> {
     for j in 0..x.ncols() {
         if let Some(i) = (0..x.nrows()).find(|&i| !x[(i, j)].is_finite()) {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "X contains a non-finite value at row {i}, column {j}"
             )));
         }
     }
     match y.iter().position(|v| !v.is_finite()) {
-        Some(i) => Err(RegressionError::NumericalError(format!(
+        Some(i) => Err(RegressionError::InvalidInput(format!(
             "y contains a non-finite value at row {i}"
         ))),
         None => Ok(()),
@@ -41,7 +41,7 @@ pub(crate) fn validate_finite(x: &Mat<f64>, y: &Col<f64>) -> Result<(), Regressi
 /// Every value of a row-aligned extra (weights, an offset) is finite.
 pub(crate) fn validate_finite_extra(name: &str, v: &Col<f64>) -> Result<(), RegressionError> {
     match v.iter().position(|v| !v.is_finite()) {
-        Some(i) => Err(RegressionError::NumericalError(format!(
+        Some(i) => Err(RegressionError::InvalidInput(format!(
             "{name} contains a non-finite value at row {i}"
         ))),
         None => Ok(()),

@@ -17,7 +17,7 @@ use anofox_regression::diagnostics::{
 use anofox_regression::prelude::*;
 use anofox_regression::solvers::penalized_glm::{
     fit_binomial, fit_gamma, fit_logistic, fit_negbinomial, fit_poisson, fit_tweedie,
-    BinomialOptions, GammaOptions, GlmEngineError, GlmResult, LogisticOptions, NegBinomialOptions,
+    BinomialOptions, GammaOptions, GlmResult, LogisticOptions, NegBinomialOptions,
     PenalizedGlmFamily, PenalizedGlmRegressor, PoissonOptions, PriorSpec, TweedieOptions,
 };
 use faer::{Col, Mat};
@@ -333,7 +333,7 @@ fn a_penalized_fit_is_rejected() {
     assert!(fit.penalized);
     assert!(matches!(
         augment_glm(&fit, &Y_POIS, &x_cols()),
-        Err(GlmEngineError::InvalidInput(_))
+        Err(anofox_regression::solvers::RegressionError::InvalidInput(_))
     ));
 
     let b = PenalizedGlmRegressor::builder()

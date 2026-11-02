@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Errors are structured and unified (#178).** Breaking:
+  - `RegressionError` gains `InvalidInput(String)` and `InvalidParameter { name, reason }`, with the constructors `RegressionError::invalid_input` / `invalid_parameter`. The 120 uses of `NumericalError(String)` are reclassified: 65 are bad data (`InvalidInput`), 35 are an option or argument out of range (`InvalidParameter`, naming it, e.g. `tau`, `alpha`, `level`, `lambdas`, `n_agq`), and 19 genuine numerical failures stay `NumericalError`.
+  - All 19 error enums are `#[non_exhaustive]`.
+  - New crate-level `anofox_regression::Error` and `Result`: `Error` has a `From` conversion from every module error, so an application can use `?` across the whole crate.
+  - The 14 public functions that returned `Result<_, &'static str>` return `RegressionError` (singular → `SingularMatrix`): `compute_xtx_inverse*`, `compute_xtwx_inverse*`, `compute_hc_standard_errors` / `compute_hc_inference`, `FittedOls::hc_standard_errors` / `hc_inference`, the variance-factor helpers and `CoefficientInference`.
+  - `PenalizedGlmRegressor::fit` / `augment`, `AftRegressor::fit`, `diagnostics::augment_glm*` and the partial-residual functions return `RegressionError` like the other estimators. `GlmEngineError` converts structurally: `InvalidValue` becomes `InvalidParameter`, and `NumericalFailure` becomes `NumericalError`.
+
 ## [0.8.0] - 2026-11-01
 
 A release about correctness: the R-validation audit (#187–#210), robustness

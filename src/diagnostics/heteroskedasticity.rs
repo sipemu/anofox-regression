@@ -94,7 +94,7 @@ fn score_test(
     if (0..n).any(|i| !residuals[i].is_finite())
         || z.col_iter().any(|c| c.iter().any(|v| !v.is_finite()))
     {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "residuals and regressors must be finite".to_string(),
         ));
     }

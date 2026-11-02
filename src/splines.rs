@@ -39,6 +39,7 @@ use thiserror::Error;
 
 /// Errors from building a spline basis.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum SplineError {
     /// Default knots need at least 6 non-missing observations.
     #[error("knots not specified, and < 6 non-missing observations")]

@@ -5,7 +5,7 @@ use faer::{Col, Mat};
 
 use super::distribution::AftDistribution;
 use super::model::{fit_aft, AftFitResult, AftInference, AftOptions, AftResult};
-use crate::solvers::penalized_glm::{GlmEngineError, GlmEngineResult, PriorSpec, VcovType};
+use crate::solvers::penalized_glm::{GlmEngineError, PriorSpec, VcovType};
 
 /// Accelerated failure time regression with right censoring (`survival::survreg`).
 #[derive(Debug, Clone, Default)]
@@ -28,19 +28,26 @@ impl AftRegressor {
     /// Fit to survival times `time` (> 0) with `event[i] == true` for an observed
     /// event and `false` for a right-censored time. Rows with a non-finite value
     /// are dropped.
-    pub fn fit(&self, x: &Mat<f64>, time: &Col<f64>, event: &[bool]) -> GlmEngineResult<FittedAft> {
+    pub fn fit(
+        &self,
+        x: &Mat<f64>,
+        time: &Col<f64>,
+        event: &[bool],
+    ) -> Result<FittedAft, crate::solvers::RegressionError> {
         let n = x.nrows();
         if time.nrows() != n {
             return Err(GlmEngineError::DimensionMismatch {
                 y_len: time.nrows(),
                 x_rows: n,
-            });
+            }
+            .into());
         }
         if event.len() != n {
             return Err(GlmEngineError::DimensionMismatch {
                 y_len: event.len(),
                 x_rows: n,
-            });
+            }
+            .into());
         }
         let cols: Vec<Vec<f64>> = (0..x.ncols())
             .map(|j| (0..n).map(|i| x[(i, j)]).collect())

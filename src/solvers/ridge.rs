@@ -330,7 +330,7 @@ impl RidgeRegressor {
 
         // Dimension validation.
         if xtx.ncols() != p {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "xtx must be square: got {}x{}",
                 p,
                 xtx.ncols()

@@ -149,7 +149,7 @@ impl OlsRegressor {
         let p = xtx.nrows();
 
         if xtx.ncols() != p {
-            return Err(RegressionError::NumericalError(format!(
+            return Err(RegressionError::InvalidInput(format!(
                 "xtx must be square: got {}x{}",
                 p,
                 xtx.ncols()
@@ -1164,7 +1164,7 @@ impl FittedOls {
         &self,
         x: &Mat<f64>,
         hc_type: HcType,
-    ) -> Result<HcResult, &'static str> {
+    ) -> Result<HcResult, RegressionError> {
         let with_intercept = self.result.intercept.is_some();
         compute_hc_standard_errors(
             x,
@@ -1207,7 +1207,11 @@ impl FittedOls {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn hc_inference(&self, x: &Mat<f64>, hc_type: HcType) -> Result<HcInference, &'static str> {
+    pub fn hc_inference(
+        &self,
+        x: &Mat<f64>,
+        hc_type: HcType,
+    ) -> Result<HcInference, RegressionError> {
         let with_intercept = self.result.intercept.is_some();
         compute_hc_inference(
             x,
@@ -1382,7 +1386,7 @@ mod tests {
             .fit(&x, &y)
             .unwrap_err();
         match err {
-            RegressionError::NumericalError(msg) => {
+            RegressionError::InvalidInput(msg) => {
                 assert!(msg.contains("X contains a non-finite value"));
             }
             other => panic!("expected NumericalError, got {:?}", other),
@@ -1401,7 +1405,7 @@ mod tests {
             .fit(&x, &y)
             .unwrap_err();
         match err {
-            RegressionError::NumericalError(msg) => {
+            RegressionError::InvalidInput(msg) => {
                 assert!(msg.contains("y contains a non-finite value"));
             }
             other => panic!("expected NumericalError, got {:?}", other),

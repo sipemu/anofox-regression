@@ -22,6 +22,7 @@ use thiserror::Error;
 
 /// Errors of the likelihood tools.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum LikelihoodError {
     /// Inconsistent inputs.
     #[error("invalid data: {0}")]

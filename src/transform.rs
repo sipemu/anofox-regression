@@ -114,7 +114,7 @@ impl BoxCoxProblem {
             });
         }
         if y.iter().any(|v| !(*v > 0.0 && v.is_finite())) {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "the Box–Cox response must be positive".to_string(),
             ));
         }
@@ -175,12 +175,14 @@ pub fn box_cox(
     options: &BoxCoxOptions,
 ) -> Result<BoxCoxProfile, RegressionError> {
     if options.lambdas.is_empty() || options.lambdas.iter().any(|l| !l.is_finite()) {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "lambdas",
             "the λ grid must be non-empty and finite".to_string(),
         ));
     }
     if !(options.confidence_level > 0.0 && options.confidence_level < 1.0) {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "level",
             "confidence_level must be in (0, 1)".to_string(),
         ));
     }
@@ -283,13 +285,14 @@ pub fn smearing_estimate(
     statistic: Smearing,
 ) -> Result<Vec<f64>, RegressionError> {
     if residuals.is_empty() {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::InvalidInput(
             "smearing needs residuals".to_string(),
         ));
     }
     if let Smearing::Quantile(q) = statistic {
         if !(0.0..=1.0).contains(&q) {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::invalid_parameter(
+                "quantile",
                 "the smearing quantile must be in [0, 1]".to_string(),
             ));
         }

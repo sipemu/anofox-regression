@@ -76,9 +76,9 @@ fn expansion(z: &[f64], kind: AregType, nk: usize) -> Result<Expansion, Regressi
         // too few distinct values for nk knots: linear, as areg intends
         AregType::Spline if nk >= 3 && distinct.len() >= nk => Rcs::from_data(z, nk)
             .map(Expansion::Spline)
-            .map_err(|e| RegressionError::NumericalError(e.to_string())),
+            .map_err(|e| RegressionError::InvalidInput(e.to_string())),
         AregType::Categorical if distinct.len() >= 2 => Ok(Expansion::Categorical(distinct)),
-        AregType::Categorical => Err(RegressionError::NumericalError(
+        AregType::Categorical => Err(RegressionError::InvalidInput(
             "a categorical predictor needs two or more levels".to_string(),
         )),
         _ => Ok(Expansion::Linear),
@@ -154,7 +154,8 @@ pub fn areg(x: &Mat<f64>, y: &[f64], options: &AregOptions) -> Result<Areg, Regr
     }
     let x_types = options.x_types.clone().unwrap_or(vec![AregType::Spline; p]);
     if x_types.len() != p {
-        return Err(RegressionError::NumericalError(
+        return Err(RegressionError::invalid_parameter(
+            "x_types",
             "x_types needs one entry per predictor".to_string(),
         ));
     }
@@ -683,13 +684,13 @@ impl Areg {
         let (mad, med) = match (self.mad, self.med) {
             (Some(a), Some(b)) if self.y_expansion != Expansion::Linear => (a, b),
             _ => {
-                return Err(RegressionError::NumericalError(
+                return Err(RegressionError::InvalidInput(
                     "bootstrap needs a monotone spline response transformation".to_string(),
                 ))
             }
         };
         if indices.is_empty() || indices.iter().flatten().any(|&i| i >= n) {
-            return Err(RegressionError::NumericalError(
+            return Err(RegressionError::InvalidInput(
                 "bootstrap indices must be non-empty and in range".to_string(),
             ));
         }
@@ -706,7 +707,7 @@ impl Areg {
             let yb = affine(&self.y_design, &by);
             r2o += r2b - cor2(&xb, &yb);
             let inv = self.inverse_with(&by).ok_or_else(|| {
-                RegressionError::NumericalError(
+                RegressionError::InvalidInput(
                     "a bootstrap response transformation is not monotone".to_string(),
                 )
             })?;

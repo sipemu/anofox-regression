@@ -738,10 +738,13 @@ impl BlsRegressor {
 
         for j in 0..n_features {
             if lower[j] > upper[j] {
-                return Err(RegressionError::NumericalError(format!(
-                    "lower bound {} exceeds upper bound {} for feature {}",
-                    lower[j], upper[j], j
-                )));
+                return Err(RegressionError::invalid_parameter(
+                    "bounds",
+                    format!(
+                        "lower bound {} exceeds upper bound {} for feature {}",
+                        lower[j], upper[j], j
+                    ),
+                ));
             }
         }
 

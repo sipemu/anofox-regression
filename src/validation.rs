@@ -44,6 +44,7 @@ use thiserror::Error;
 
 /// Errors of the resampling validation.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum ValidationError {
     /// Invalid resampling setup.
     #[error("invalid resamples: {0}")]
