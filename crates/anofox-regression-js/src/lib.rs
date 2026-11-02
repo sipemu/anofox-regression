@@ -10,6 +10,7 @@ pub mod design;
 pub mod diagnostics;
 pub mod inference;
 pub mod regressors;
+pub mod survival;
 
 /// Initialize the WASM module.
 ///

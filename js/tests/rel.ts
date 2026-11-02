@@ -1,8 +1,9 @@
 // Relative-tolerance comparisons as in the Rust R validation tests.
 
-/** |a − b| ≤ tol · (1 + |b|). */
+/** |a − b| ≤ tol · (1 + |b|); NaN matches NaN. */
 export function near(a: number, b: number, tol: number, what = ''): void {
-  if (!(Math.abs(a - b) <= tol * (1 + Math.abs(b)))) {
+  if (Number.isNaN(a) && Number.isNaN(b)) return;
+  if (!(a === b || Math.abs(a - b) <= tol * (1 + Math.abs(b)))) {
     throw new Error(`${what}: ${a} vs ${b} (tol ${tol})`);
   }
 }
