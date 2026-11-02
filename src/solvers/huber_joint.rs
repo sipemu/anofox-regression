@@ -113,8 +113,8 @@ impl JointHuber<'_> {
 
     /// Newton direction `−(H + μI)⁻¹ g`, with the smallest damping `μ` that
     /// makes the system solvable (the Hessian is singular when few rows are
-    /// inliers).
-    fn direction(g: &[f64], h: &Mat<f64>) -> Option<Vec<f64>> {
+    /// inliers); steepest descent if none does.
+    fn direction(g: &[f64], h: &Mat<f64>) -> Vec<f64> {
         let m = g.len();
         let scale = (0..m).map(|j| h[(j, j)].abs()).fold(0.0, f64::max).max(1.0);
         let rhs = Mat::from_fn(m, 1, |j, _| -g[j]);
@@ -127,11 +127,11 @@ impl JointHuber<'_> {
                 let d = faer::prelude::Solve::solve(&llt, &rhs);
                 let d: Vec<f64> = (0..m).map(|j| d[(j, 0)]).collect();
                 if d.iter().all(|v| v.is_finite()) {
-                    return Some(d);
+                    return d;
                 }
             }
         }
-        None
+        g.iter().map(|v| -v).collect()
     }
 
     /// Backtracking along `d`, keeping `σ ≥ SIGMA_MIN`; `None` when no
@@ -156,7 +156,8 @@ impl JointHuber<'_> {
     }
 
     /// Minimise `F` from `θ₀ = (β₀, σ₀)`. Converged when a step moves no
-    /// parameter by more than `tol · (1 + max |θ|)`, or no descent is left.
+    /// parameter by more than `tol · (1 + max |θ|)`, the objective stops
+    /// improving beyond rounding, or no descent is left.
     pub(crate) fn minimize(
         &self,
         mut theta: Vec<f64>,
@@ -172,9 +173,7 @@ impl JointHuber<'_> {
                 converged: true,
                 iterations: iter,
             };
-            let Some(d) = Self::direction(&g, &h) else {
-                return (theta, done);
-            };
+            let d = Self::direction(&g, &h);
             let Some((next, f_next)) = self.line_search(&theta, f, &g, &d) else {
                 return (theta, done);
             };
@@ -183,9 +182,12 @@ impl JointHuber<'_> {
                 .iter()
                 .zip(&next)
                 .fold(0.0_f64, |a, (u, v)| a.max((u - v).abs()));
+            // Converged on a small step, or when the objective only improves
+            // at rounding level.
+            let stalled = f - f_next <= 1e-15 * f.abs();
             theta = next;
             f = f_next;
-            if step <= tol * scale {
+            if step <= tol * scale || stalled {
                 return (theta, done);
             }
         }
@@ -196,5 +198,31 @@ impl JointHuber<'_> {
                 iterations: max_iterations,
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallbacks() {
+        // A Hessian no damping can factor: steepest descent.
+        let h = Mat::from_fn(2, 2, |_, _| f64::NAN);
+        assert_eq!(JointHuber::direction(&[1.0, -2.0], &h), vec![-1.0, 2.0]);
+        // An ascent direction is refused by the line search.
+        let xd = Mat::from_fn(3, 1, |i, _| i as f64);
+        let y = Col::from_fn(3, |i| i as f64);
+        let p = JointHuber {
+            xd: &xd,
+            y: &y,
+            epsilon: 1.35,
+            alpha: 0.0,
+            intercept: false,
+        };
+        let theta = [0.5, 1.0];
+        let f = p.objective(&theta);
+        let (g, _) = p.derivatives(&theta);
+        assert!(p.line_search(&theta, f, &g, &g).is_none());
     }
 }

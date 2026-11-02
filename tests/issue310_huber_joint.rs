@@ -167,3 +167,22 @@ fn mad_scale_stays_the_default() {
         .unwrap();
     assert!((joint.scale() - mad.scale()).abs() > 1e-3);
 }
+
+#[test]
+fn joint_iteration_limits() {
+    let (x, y) = data(1);
+    let joint = || HuberRegressor::builder().scale_method(HuberScale::Joint);
+    // One Newton step from the IRLS start is not enough.
+    let f = joint()
+        .max_iterations(1)
+        .tolerance(1e-14)
+        .build()
+        .fit(&x, &y)
+        .unwrap();
+    assert!(!f.converged());
+    // A vanishing tolerance runs until no descent is left: the optimum.
+    let tight = joint().tolerance(1e-300).build().fit(&x, &y).unwrap();
+    let loose = joint().build().fit(&x, &y).unwrap();
+    assert!(tight.converged());
+    assert!((tight.scale() - loose.scale()).abs() < 1e-8);
+}
