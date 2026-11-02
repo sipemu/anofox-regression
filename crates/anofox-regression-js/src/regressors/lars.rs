@@ -199,3 +199,13 @@ impl FittedLars {
         .to_string()
     }
 }
+
+#[wasm_bindgen]
+impl FittedLars {
+    /// Column indices active at the end of the path, in entry order
+    /// (sklearn `active_`).
+    #[wasm_bindgen]
+    pub fn active(&self) -> Vec<usize> {
+        self.fitted.active().to_vec()
+    }
+}

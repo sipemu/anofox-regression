@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **LassoLars drop rule (#305).** With `LarsMethod::Lasso`, a variable whose coefficient crossed zero was re-admitted at the next step with its old sign, so after the first drop the path was plain LAR. The step after a drop now moves along the reduced active set without adding a variable (Efron et al. 2004, §3.1), and the step length is capped at `C / A`. Path, knots and `alpha` fits match `sklearn.linear_model.lars_path(method="lasso")` / `LassoLars` to 1e-10.
+
+### Added
+
+- `FittedLars::active()` (JS `active()`): the active set at the end of the path in entry order (sklearn's `active_`).
+
 ## [0.9.0] - 2026-11-02
 
 The 1.0 release candidate (#183). Breaking for Rust users: the API cleanup of
