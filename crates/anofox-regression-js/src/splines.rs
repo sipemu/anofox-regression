@@ -1,13 +1,15 @@
 //! Spline bases (`anofox_regression::splines`): restricted cubic splines
 //! (`Hmisc::rcspline.eval`, `rms::rcs`), linear splines (`rms::lsp`) and
-//! restricted interactions (`rms::%ia%`).
+//! restricted interactions (`rms::%ia%`) and B-splines (sklearn's
+//! `SplineTransformer`).
 //!
 //! Basis matrices are flat row-major arrays (`nRows × nColumns`), ready to
 //! pass to a regressor's `fit`.
 
 use anofox_regression::splines::{
     default_knot_quantiles, rcs_default_knots, rcs_default_knots_with, restricted_interaction,
-    Basis as RustBasis, Lsp as RustLsp, Rcs as RustRcs, RcsNorm, RcsRestated as RustRcsRestated,
+    BSpline as RustBSpline, Basis as RustBasis, KnotPlacement, Lsp as RustLsp, Rcs as RustRcs,
+    RcsNorm, RcsRestated as RustRcsRestated, SplineExtrapolation,
 };
 use wasm_bindgen::prelude::*;
 
@@ -260,4 +262,126 @@ pub fn restricted_interaction_js(a: &Basis, b: &Basis) -> Result<Basis, JsError>
     Ok(Basis {
         inner: restricted_interaction(&a.inner, &b.inner).map_err(fit_error)?,
     })
+}
+
+fn parse_extrapolation(name: &str) -> Result<SplineExtrapolation, JsError> {
+    match name.to_ascii_lowercase().as_str() {
+        "constant" => Ok(SplineExtrapolation::Constant),
+        "linear" => Ok(SplineExtrapolation::Linear),
+        "continue" => Ok(SplineExtrapolation::Continue),
+        "periodic" => Ok(SplineExtrapolation::Periodic),
+        "error" => Ok(SplineExtrapolation::Error),
+        other => Err(JsError::new(&format!(
+            "Unknown extrapolation '{other}': expected constant, linear, continue, periodic or error"
+        ))),
+    }
+}
+
+/// B-spline basis of one variable, as scikit-learn's `SplineTransformer`.
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct BSpline {
+    inner: RustBSpline,
+}
+
+#[wasm_bindgen]
+impl BSpline {
+    /// Basis of degree `degree` on explicit base knots (at least 2,
+    /// strictly increasing).
+    #[wasm_bindgen(constructor)]
+    pub fn new(base_knots: &[f64], degree: usize) -> Result<BSpline, JsError> {
+        Ok(Self {
+            inner: RustBSpline::new(base_knots, degree).map_err(fit_error)?,
+        })
+    }
+
+    /// Basis with `nKnots` base knots on `x`, "uniform" (default) or
+    /// "quantile".
+    #[wasm_bindgen(js_name = fromData)]
+    pub fn from_data(
+        x: &[f64],
+        n_knots: usize,
+        degree: usize,
+        knots: Option<String>,
+    ) -> Result<BSpline, JsError> {
+        let placement = match knots.as_deref().unwrap_or("uniform") {
+            "uniform" => KnotPlacement::Uniform,
+            "quantile" => KnotPlacement::Quantile,
+            other => {
+                return Err(JsError::new(&format!(
+                    "Unknown knots '{other}': expected uniform or quantile"
+                )))
+            }
+        };
+        Ok(Self {
+            inner: RustBSpline::from_data(x, n_knots, degree, placement).map_err(fit_error)?,
+        })
+    }
+
+    /// "constant" (default), "linear", "continue", "periodic" or "error".
+    #[wasm_bindgen(js_name = setExtrapolation)]
+    pub fn set_extrapolation(&mut self, extrapolation: &str) -> Result<(), JsError> {
+        self.inner = self
+            .inner
+            .clone()
+            .with_extrapolation(parse_extrapolation(extrapolation)?);
+        Ok(())
+    }
+
+    /// Keep (default) or drop the last spline (sklearn `include_bias`).
+    #[wasm_bindgen(js_name = setBias)]
+    pub fn set_bias(&mut self, include_bias: bool) {
+        self.inner = self.inner.clone().with_bias(include_bias);
+    }
+
+    /// The base knots.
+    #[wasm_bindgen(js_name = baseKnots)]
+    pub fn base_knots(&self) -> Vec<f64> {
+        self.inner.base_knots().to_vec()
+    }
+
+    /// The full knot vector (base knots plus `degree` on each side).
+    #[wasm_bindgen]
+    pub fn knots(&self) -> Vec<f64> {
+        self.inner.knots()
+    }
+
+    /// The degree.
+    #[wasm_bindgen]
+    pub fn degree(&self) -> usize {
+        self.inner.degree()
+    }
+
+    /// The extrapolation mode.
+    #[wasm_bindgen]
+    pub fn extrapolation(&self) -> String {
+        match self.inner.extrapolation() {
+            SplineExtrapolation::Linear => "linear",
+            SplineExtrapolation::Continue => "continue",
+            SplineExtrapolation::Periodic => "periodic",
+            SplineExtrapolation::Error => "error",
+            _ => "constant",
+        }
+        .to_string()
+    }
+
+    /// Whether the last spline is kept.
+    #[wasm_bindgen(js_name = includeBias)]
+    pub fn include_bias(&self) -> bool {
+        self.inner.include_bias()
+    }
+
+    /// Number of basis columns.
+    #[wasm_bindgen(js_name = nColumns)]
+    pub fn n_columns(&self) -> usize {
+        self.inner.n_columns()
+    }
+
+    /// The basis at `x` (columns `name_sp_0, …`).
+    #[wasm_bindgen]
+    pub fn basis(&self, x: &[f64], name: &str) -> Result<Basis, JsError> {
+        Ok(Basis {
+            inner: self.inner.basis(x, name).map_err(fit_error)?,
+        })
+    }
 }
