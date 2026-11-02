@@ -69,6 +69,7 @@ This library provides sklearn-style regression estimators with full statistical 
 
 - **Generalized Linear Models**
   - Logistic Regression (binary classification with sklearn-like API)
+  - Multinomial logistic regression (softmax, sample weights, L2 / L1 / elastic-net; sklearn `LogisticRegression`)
   - Poisson GLM (Log, Identity, Sqrt links) with offset support
   - Negative Binomial GLM (overdispersed count data with theta estimation)
   - Binomial GLM (Logistic, Probit, Complementary log-log)

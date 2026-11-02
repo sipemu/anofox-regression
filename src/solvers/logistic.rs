@@ -4,6 +4,11 @@
 //! provides an sklearn-like classifier API: `predict` returns class labels,
 //! `predict_proba` returns probabilities, and `score` returns accuracy.
 //!
+//! For more than two classes (the softmax loss), sample weights with an L1
+//! or elastic-net penalty and exact zeros, use
+//! [`MultinomialLogisticRegressor`](crate::solvers::MultinomialLogisticRegressor)
+//! (sklearn's `LogisticRegression` objective).
+//!
 //! # Example
 //!
 //! ```rust

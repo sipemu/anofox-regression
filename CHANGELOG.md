@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`MultinomialLogisticRegressor` (#307).** sklearn's `LogisticRegression` objective: the multinomial (softmax) loss for `K ≥ 3` classes, the binomial loss with sklearn's binary parameterization for two, sample weights, `C` / `lambda` and `l1_ratio` (ridge, lasso, elastic net) with unpenalized intercepts. A proximal Newton solver (coordinate descent on the quadratic model, Armijo line search) gives exact zeros for L1. `classes`, `coefficients` (`m × p`), `intercepts`, `decision_function`, `predict_proba`, `predict`, `score`, `log_likelihood`, `objective`; JS class of the same name. Matches sklearn 1.9.1 (lbfgs / saga) to 1e-7, the accuracy of sklearn's own solutions.
 - `FittedLars::active()` (JS `active()`): the active set at the end of the path in entry order (sklearn's `active_`).
 
 ## [0.9.0] - 2026-11-02
