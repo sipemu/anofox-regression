@@ -29,6 +29,7 @@ WebAssembly bindings for [anofox-regression](https://github.com/sipemu/anofox-re
 - **Penalized GLM** - Poisson, binomial, logistic, negative binomial, Gamma and Tweedie GLMs with a ridge penalty and Normal / Laplace priors (posterior mode, as `arm::bayesglm`)
 
 ### Longitudinal, Survival & Smoothing
+- **GLMM** - Linear and generalized linear mixed models (Gaussian, Poisson, binomial, negative binomial, Gamma, Tweedie) with random intercepts and slopes, crossed and nested factors, Satterthwaite tests (`lme4`, `lmerTest`)
 - **GLS** - Generalized least squares with within-group correlation (AR(1), CAR(1), compound symmetry, spatial, unstructured) and variance functions (`nlme::gls`)
 - **AFT** - Accelerated failure time regression with right censoring (Weibull, lognormal, log-logistic, exponential; `survival::survreg`)
 - **P-spline** - Penalized B-spline smoother with GCV-selected smoothing (`mgcv::gam(bs = "ps")`)
@@ -292,6 +293,32 @@ class PenalizedGlmRegressor {
 // FittedPenalizedGlm: getResult(), predict, predictLinear, predictWithOffset
 ```
 
+### GlmmRegressor
+
+Mixed model with random intercepts (and slopes) per group, as `lme4::lmer` / `glmer(nAGQ = 0)`.
+
+```typescript
+class GlmmRegressor {
+  constructor(family?: 'gaussian' | 'poisson' | 'binomial' | 'negative_binomial' | 'gamma' | 'tweedie',
+              power?: number);
+  setRandomSlopes(columns: Uint32Array): void;
+  setRandomSlopesPerFactor(columns: number[][]): void;  // for fitCrossed
+  setReml(reml: boolean): void;
+  setSatterthwaite(compute: boolean): void;
+  setNAgq(nAgq: number): void;
+  setNbTheta(theta: number): void;
+  setOffset(offset: Float64Array): void;
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array, group: Uint32Array): FittedGlmm;
+  // crossed (1|a) + (1|b): [a, b]; nested (1|a/b): [a, ab] with a unique id per (a, b)
+  fitCrossed(x: Float64Array, nRows: number, nCols: number, y: Float64Array,
+             groups: (number[] | Uint32Array)[]): FittedGlmm;
+}
+// FittedGlmm: getResult() (fixed effects, SEs, vcov, BLUPs and their SEs, variance components,
+// logLik / AIC / BIC, fitted values, residuals), confInt(level), inference('wald' | 'satterthwaite',
+// level), randomEffectsConfInt(level), factorRandomCov / factorRandomSd / factorRandomEffects /
+// factorRandomEffectsSe / factorRandomEffectsConfInt(f), predictFixed (linear predictor)
+```
+
 ### GlsRegressor
 
 Generalized least squares for grouped (longitudinal) data, as `nlme::gls`.
@@ -350,7 +377,7 @@ class PSplineRegressor {
 Every iteratively fitted model (`FittedPoisson`, `FittedBinomial`, `FittedNegativeBinomial`,
 `FittedTweedie`, `FittedGamma`, `FittedLogistic`, `FittedHuber`, `FittedQuantile`,
 `FittedBayesianRidge`, `FittedArd`, `FittedPassiveAggressive`, `FittedAft`, `FittedOrdinal`,
-`FittedContinuationRatio`, `FittedPenalizedGlm`) has
+`FittedContinuationRatio`, `FittedPenalizedGlm`, `FittedGlmm`) has
 `getConverged(): boolean` and `getIterations(): number`. The IRLS GLMs throw when they don't
 converge; `setErrorOnNonConvergence(false)` returns the last iterate instead.
 
