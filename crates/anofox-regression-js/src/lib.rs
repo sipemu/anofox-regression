@@ -13,6 +13,7 @@ pub mod inference;
 pub mod regressors;
 pub mod splines;
 pub mod survival;
+pub mod validation;
 
 /// Initialize the WASM module.
 ///

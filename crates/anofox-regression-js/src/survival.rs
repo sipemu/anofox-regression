@@ -88,7 +88,7 @@ fn parse<T: for<'de> Deserialize<'de> + Default>(v: JsValue) -> Result<T, JsErro
     serde_wasm_bindgen::from_value(v).map_err(|e| JsError::new(&e.to_string()))
 }
 
-fn events(event: &[u8], n: usize) -> Result<Vec<bool>, JsError> {
+pub(crate) fn events(event: &[u8], n: usize) -> Result<Vec<bool>, JsError> {
     if event.len() != n {
         return Err(JsError::new(&format!(
             "Expected {} event values, got {}",
@@ -99,7 +99,7 @@ fn events(event: &[u8], n: usize) -> Result<Vec<bool>, JsError> {
     Ok(event.iter().map(|&e| e != 0).collect())
 }
 
-fn usizes(v: &[u32]) -> Vec<usize> {
+pub(crate) fn usizes(v: &[u32]) -> Vec<usize> {
     v.iter().map(|&c| c as usize).collect()
 }
 
@@ -187,7 +187,7 @@ struct CoxOpts {
     timefix: Option<bool>,
 }
 
-fn cox_options(options: JsValue) -> Result<CoxOptions, JsError> {
+pub(crate) fn cox_options(options: JsValue) -> Result<CoxOptions, JsError> {
     let o: CoxOpts = parse(options)?;
     let mut out = CoxOptions::default();
     if let Some(t) = o.ties {
