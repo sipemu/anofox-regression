@@ -195,3 +195,5 @@ impl Default for QuantileRegressor {
         Self::new()
     }
 }
+
+iterative_fit!(FittedQuantile);

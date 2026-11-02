@@ -318,3 +318,5 @@ impl Default for LogisticRegression {
         Self::new()
     }
 }
+
+iterative_fit!(FittedLogistic);

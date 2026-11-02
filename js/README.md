@@ -23,6 +23,11 @@ WebAssembly bindings for [anofox-regression](https://github.com/sipemu/anofox-re
 - **Negative Binomial** - For overdispersed count data
 - **Tweedie Regression** - Flexible variance (Gamma, Compound Poisson-Gamma, etc.)
 
+### Longitudinal, Survival & Smoothing
+- **GLS** - Generalized least squares with within-group correlation (AR(1), CAR(1), compound symmetry, spatial, unstructured) and variance functions (`nlme::gls`)
+- **AFT** - Accelerated failure time regression with right censoring (Weibull, lognormal, log-logistic, exponential; `survival::survreg`)
+- **P-spline** - Penalized B-spline smoother with GCV-selected smoothing (`mgcv::gam(bs = "ps")`)
+
 ### Augmented Linear Model (ALM)
 - **ALM Regression** - Maximum likelihood with various distributions (Normal, Laplace, Student-t, Gamma, etc.)
 
@@ -230,6 +235,67 @@ class TweedieRegressor {
   fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedTweedie;
 }
 ```
+
+### GlsRegressor
+
+Generalized least squares for grouped (longitudinal) data, as `nlme::gls`.
+
+```typescript
+class GlsRegressor {
+  constructor();
+  setCorrelation(name: 'independent' | 'compound_symmetry' | 'ar1' | 'car1' | 'exponential'
+    | 'gaussian' | 'linear' | 'spherical' | 'unstructured', nugget?: boolean): void;
+  setVarIdent(strata: Uint32Array): void;  // or setVarPower(v) / setVarExp(v) / setVarConstant()
+  setMethod(method: 'reml' | 'ml'): void;
+  // group: subject id per row; time: optional observation times
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array,
+      group: Uint32Array, time?: Float64Array): FittedGls;
+}
+// FittedGls: getResult(), residuals('response' | 'pearson' | 'normalized'),
+// predict(x, nRows), predictWithSe(x, nRows), variogram(time, kind, nint)
+```
+
+### AftRegressor
+
+Accelerated failure time model with right censoring, as `survival::survreg`.
+
+```typescript
+class AftRegressor {
+  constructor();
+  setDistribution(dist: 'weibull' | 'lognormal' | 'loglogistic' | 'exponential'): void;
+  setComputeInference(compute: boolean): void;
+  setPriors(priors: { kind: 'flat' | 'normal' | 'laplace'; loc?: number; scale?: number }[]): void;
+  setVcovType(vcov: 'laplace' | 'sandwich' | 'naive'): void;
+  // event[i] = 1 for an observed event, 0 for a right-censored time
+  fit(x: Float64Array, nRows: number, nCols: number, time: Float64Array, event: Uint8Array): FittedAft;
+}
+// FittedAft: getResult(), predictMedian / predictQuantile(x, nRows, p) / predictSurvival(x, nRows, t)
+// / predictCdf / predictLinear, standardizedResiduals, coxSnellResiduals, scoreContributions
+```
+
+### PSplineRegressor
+
+Penalized B-spline smoother of one predictor, as `mgcv::gam(y ~ s(x, bs = "ps"), method = "GCV.Cp")`.
+
+```typescript
+class PSplineRegressor {
+  constructor();
+  setNBasis(k: number): void;        // 0 = automatic
+  setPenaltyOrder(m: number): void;  // default 2
+  setLambda(lambda: number): void;   // fixed; GCV-selected by default
+  fit(x: Float64Array, y: Float64Array): FittedPSpline;
+}
+// FittedPSpline: predict(x), predictInterval(x, 'confidence' | 'prediction', level),
+// getEdf(), getSigma2(), getLambda(), getResult()
+```
+
+### Convergence
+
+Every iteratively fitted model (`FittedPoisson`, `FittedBinomial`, `FittedNegativeBinomial`,
+`FittedTweedie`, `FittedGamma`, `FittedLogistic`, `FittedHuber`, `FittedQuantile`,
+`FittedBayesianRidge`, `FittedArd`, `FittedPassiveAggressive`, `FittedAft`) has
+`getConverged(): boolean` and `getIterations(): number`. The IRLS GLMs throw when they don't
+converge; `setErrorOnNonConvergence(false)` returns the last iterate instead.
 
 ### Missing values, offsets and prior weights
 
