@@ -97,6 +97,8 @@ use crate::core::{
     TweedieFamily,
 };
 use crate::core::{HasModelInfo, ModelInfo};
+use crate::numeric::linalg::{chol_inverse, chol_solve, chol_solve_mat, cholesky};
+use crate::numeric::optim::{golden_section, nelder_mead, INV_PHI};
 use crate::solvers::penalized_glm::loglik::{log_likelihood as family_log_likelihood, LogLikKind};
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
@@ -910,7 +912,7 @@ impl GlmmRegressor {
             })?;
         let h = super::glmm_satterthwaite::hessian(&cost, &best);
         let vcov = cholesky(&h).map(|c| {
-            let inv = cholesky_inverse(&c);
+            let inv = chol_inverse(&c);
             (0..ctx.p)
                 .map(|a| (0..ctx.p).map(|b| 2.0 * inv[k + a][k + b]).collect())
                 .collect()
@@ -967,7 +969,7 @@ impl GlmmRegressor {
         let ts = spec.ts(&theta);
         let st = MultiStats::new(design, y, &spec.zl(&ts), m_dim, p, None);
         let a_inv = cholesky(&st.a)
-            .map(|l| cholesky_inverse(&l))
+            .map(|l| chol_inverse(&l))
             .ok_or(RegressionError::SingularMatrix)?;
         let (factors, details) = spec.summaries(&ts, &sol.u, sigma, &a_inv, sigma);
         let mut fitted = FittedGlmm::new_multi(
@@ -1041,7 +1043,7 @@ impl GlmmRegressor {
         let ts = spec.ts(&theta);
         // GLMM random-effect covariances are unscaled (lme4 convention); the
         // conditional variances are scaled by σ² as lme4's condVar.
-        let a_inv = cholesky_inverse(&sol.chol_a);
+        let a_inv = chol_inverse(&sol.chol_a);
         let (factors, details) = spec.summaries(&ts, &sol.u, 1.0, &a_inv, sigma);
         let mut fitted = FittedGlmm::new_multi(
             self.with_intercept,
@@ -1069,7 +1071,7 @@ fn group_conditional_se(t: &[Vec<f64>], ztz: &[Vec<Vec<f64>>], scale: f64) -> Ve
         .map(|block| {
             let a = add_identity(&mm(&tt, &mm(block, t)));
             match cholesky(&a) {
-                Some(l) => conditional_se(t, &cholesky_inverse(&l), scale),
+                Some(l) => conditional_se(t, &chol_inverse(&l), scale),
                 None => vec![f64::NAN; t.len()],
             }
         })
@@ -2095,7 +2097,7 @@ fn solve_lmm_theta(
         logdet_l2 += 2.0 * (0..q).map(|i| chol[i][i].ln()).sum::<f64>();
 
         let aib = chol_solve_mat(&chol, &bmat); // q×p
-        let aic = cholesky_solve(&chol, &c); // q
+        let aic = chol_solve(&chol, &c); // q
 
         // M -= Bᵀ A⁻¹ B ; rhs -= Bᵀ A⁻¹ c.
         let btaib = mm(&transpose(&bmat), &aib);
@@ -2112,8 +2114,8 @@ fn solve_lmm_theta(
 
     let chol_m = cholesky(&m)?;
     let logdet_rx2 = 2.0 * (0..p).map(|i| chol_m[i][i].ln()).sum::<f64>();
-    let beta = cholesky_solve(&chol_m, &rhs);
-    let m_inv = cholesky_inverse(&chol_m);
+    let beta = chol_solve(&chol_m, &rhs);
+    let m_inv = chol_inverse(&chol_m);
 
     // Back-substitute uⱼ = A⁻¹c − (A⁻¹B) β, then bⱼ = T uⱼ.
     let mut b = vec![vec![0.0; q]; j];
@@ -2242,7 +2244,7 @@ fn pirls(
             let c = matvec(&tt, &stats.zty[g]);
             let chol = cholesky(&a)?;
             let aib = chol_solve_mat(&chol, &bmat);
-            let aic = cholesky_solve(&chol, &c);
+            let aic = chol_solve(&chol, &c);
             let btaib = mm(&transpose(&bmat), &aib);
             let btaic = matvec(&transpose(&bmat), &aic);
             for k in 0..p {
@@ -2259,8 +2261,8 @@ fn pirls(
             beta.clone()
         } else {
             let chol_m = cholesky(&m)?;
-            last_m_inv = cholesky_inverse(&chol_m);
-            cholesky_solve(&chol_m, &rhs)
+            last_m_inv = chol_inverse(&chol_m);
+            chol_solve(&chol_m, &rhs)
         };
 
         let mut u_new = vec![vec![0.0; q]; n_groups];
@@ -2446,7 +2448,7 @@ fn glm_warm_start(
             }
         }
         let chol = cholesky(&xtwx).ok_or(RegressionError::SingularMatrix)?;
-        let beta_new = cholesky_solve(&chol, &xtwz);
+        let beta_new = chol_solve(&chol, &xtwz);
 
         let mut max_change = 0.0f64;
         for k in 0..p {
@@ -2674,7 +2676,7 @@ fn solve_multi(st: &MultiStats, m_dim: usize, p: usize) -> Option<MultiSolution>
     let chol_a = cholesky(&st.a)?;
     let logdet_l2 = 2.0 * (0..m_dim).map(|i| chol_a[i][i].ln()).sum::<f64>();
     let aib = chol_solve_mat(&chol_a, &st.bmat); // M×p
-    let aic = cholesky_solve(&chol_a, &st.cvec); // M
+    let aic = chol_solve(&chol_a, &st.cvec); // M
 
     let mut mfix = st.xtx.clone();
     let mut rhs = st.xtr.clone();
@@ -2688,8 +2690,8 @@ fn solve_multi(st: &MultiStats, m_dim: usize, p: usize) -> Option<MultiSolution>
     }
     let chol_m = cholesky(&mfix)?;
     let logdet_rx2 = 2.0 * (0..p).map(|i| chol_m[i][i].ln()).sum::<f64>();
-    let beta = cholesky_solve(&chol_m, &rhs);
-    let m_inv = cholesky_inverse(&chol_m);
+    let beta = chol_solve(&chol_m, &rhs);
+    let m_inv = chol_inverse(&chol_m);
 
     let u: Vec<f64> = (0..m_dim)
         .map(|c| aic[c] - (0..p).map(|k| aib[c][k] * beta[k]).sum::<f64>())
@@ -2889,141 +2891,20 @@ fn optimize_theta_vec(
 
 /// Golden-section minimisation of a unimodal objective on `[a, b]`.
 fn golden_section_min(
-    mut a: f64,
-    mut b: f64,
+    a: f64,
+    b: f64,
     tol: f64,
     f: &dyn Fn(f64) -> Option<f64>,
 ) -> Result<f64, RegressionError> {
-    const INV_PHI: f64 = 0.618_033_988_749_895;
     let eval = |x: f64| -> f64 { f(x).unwrap_or(f64::INFINITY) };
-
-    let mut c = b - INV_PHI * (b - a);
-    let mut d = a + INV_PHI * (b - a);
-    let mut fc = eval(c);
-    let mut fd = eval(d);
-
-    for _ in 0..200 {
-        if (b - a).abs() < tol * (1.0 + b.abs()) {
-            break;
-        }
-        if fc < fd {
-            b = d;
-            d = c;
-            fd = fc;
-            c = b - INV_PHI * (b - a);
-            fc = eval(c);
-        } else {
-            a = c;
-            c = d;
-            fc = fd;
-            d = a + INV_PHI * (b - a);
-            fd = eval(d);
-        }
-    }
-    let theta = 0.5 * (a + b);
+    let done = |a: f64, b: f64| (b - a).abs() < tol * (1.0 + b.abs());
+    let theta = golden_section(&eval, a, b, INV_PHI, &done, 200);
     if !theta.is_finite() {
         return Err(RegressionError::NumericalError(
             "θ optimisation did not produce a finite value".to_string(),
         ));
     }
     Ok(theta)
-}
-
-/// Nelder–Mead simplex minimisation for the multi-parameter `T` case.
-#[allow(clippy::needless_range_loop)]
-fn nelder_mead(x0: &[f64], f: &dyn Fn(&[f64]) -> f64, tol: f64, max_iter: usize) -> Vec<f64> {
-    let n = x0.len();
-    let (alpha, gamma, rho, sigma) = (1.0, 2.0, 0.5, 0.5);
-
-    let mut simplex: Vec<Vec<f64>> = Vec::with_capacity(n + 1);
-    simplex.push(x0.to_vec());
-    for i in 0..n {
-        let mut xi = x0.to_vec();
-        let step = if x0[i].abs() > 1e-6 {
-            0.5 * x0[i].abs()
-        } else {
-            0.5
-        };
-        xi[i] += step;
-        simplex.push(xi);
-    }
-    let mut fvals: Vec<f64> = simplex.iter().map(|x| f(x)).collect();
-
-    for _ in 0..max_iter {
-        // Order vertices by cost (ascending).
-        let mut order: Vec<usize> = (0..=n).collect();
-        order.sort_by(|&a, &b| {
-            fvals[a]
-                .partial_cmp(&fvals[b])
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        simplex = order.iter().map(|&i| simplex[i].clone()).collect();
-        fvals = order.iter().map(|&i| fvals[i]).collect();
-
-        if (fvals[n] - fvals[0]).abs() < tol * (1.0 + fvals[0].abs()) {
-            break;
-        }
-
-        // Centroid of the best n vertices.
-        let mut cent = vec![0.0; n];
-        for vertex in simplex.iter().take(n) {
-            for (k, ck) in cent.iter_mut().enumerate() {
-                *ck += vertex[k];
-            }
-        }
-        for ck in &mut cent {
-            *ck /= n as f64;
-        }
-
-        // Reflection.
-        let xr: Vec<f64> = (0..n)
-            .map(|k| cent[k] + alpha * (cent[k] - simplex[n][k]))
-            .collect();
-        let fr = f(&xr);
-        if fr < fvals[0] {
-            // Expansion.
-            let xe: Vec<f64> = (0..n)
-                .map(|k| cent[k] + gamma * (xr[k] - cent[k]))
-                .collect();
-            let fe = f(&xe);
-            if fe < fr {
-                simplex[n] = xe;
-                fvals[n] = fe;
-            } else {
-                simplex[n] = xr;
-                fvals[n] = fr;
-            }
-        } else if fr < fvals[n - 1] {
-            simplex[n] = xr;
-            fvals[n] = fr;
-        } else {
-            // Contraction.
-            let xc: Vec<f64> = (0..n)
-                .map(|k| cent[k] + rho * (simplex[n][k] - cent[k]))
-                .collect();
-            let fc = f(&xc);
-            if fc < fvals[n] {
-                simplex[n] = xc;
-                fvals[n] = fc;
-            } else {
-                // Shrink toward the best vertex.
-                for i in 1..=n {
-                    for k in 0..n {
-                        simplex[i][k] = simplex[0][k] + sigma * (simplex[i][k] - simplex[0][k]);
-                    }
-                    fvals[i] = f(&simplex[i]);
-                }
-            }
-        }
-    }
-
-    let mut best = 0;
-    for i in 1..=n {
-        if fvals[i] < fvals[best] {
-            best = i;
-        }
-    }
-    simplex[best].clone()
 }
 
 // ================================================= shared numeric helpers ====
@@ -3148,82 +3029,6 @@ fn matvec(a: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
     a.iter()
         .map(|row| row.iter().zip(v).map(|(x, y)| x * y).sum())
         .collect()
-}
-
-/// Lower-triangular Cholesky factor `L` (`M = L Lᵀ`) of a small SPD matrix.
-fn cholesky(m: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
-    let p = m.len();
-    let mut l = vec![vec![0.0; p]; p];
-    for i in 0..p {
-        for k in 0..=i {
-            let mut sum = m[i][k];
-            for (li, lk) in l[i].iter().zip(&l[k]).take(k) {
-                sum -= li * lk;
-            }
-            if i == k {
-                if sum <= 0.0 {
-                    return None;
-                }
-                l[i][k] = sum.sqrt();
-            } else {
-                l[i][k] = sum / l[k][k];
-            }
-        }
-    }
-    Some(l)
-}
-
-/// Solve `M x = b` given the Cholesky factor `L` of `M`.
-fn cholesky_solve(l: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
-    let p = l.len();
-    let mut y = vec![0.0; p];
-    for i in 0..p {
-        let mut sum = b[i];
-        for k in 0..i {
-            sum -= l[i][k] * y[k];
-        }
-        y[i] = sum / l[i][i];
-    }
-    let mut x = vec![0.0; p];
-    for i in (0..p).rev() {
-        let mut sum = y[i];
-        for k in (i + 1)..p {
-            sum -= l[k][i] * x[k];
-        }
-        x[i] = sum / l[i][i];
-    }
-    x
-}
-
-/// Solve `M X = B` columnwise given the Cholesky factor `L` of `M`.
-/// `b` is `q×c`; the result is `q×c`.
-fn chol_solve_mat(l: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    let q = b.len();
-    let c = if q > 0 { b[0].len() } else { 0 };
-    let mut out = vec![vec![0.0; c]; q];
-    for col in 0..c {
-        let rhs: Vec<f64> = (0..q).map(|r| b[r][col]).collect();
-        let sol = cholesky_solve(l, &rhs);
-        for r in 0..q {
-            out[r][col] = sol[r];
-        }
-    }
-    out
-}
-
-/// Inverse of an SPD matrix from its Cholesky factor.
-fn cholesky_inverse(l: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    let p = l.len();
-    let mut inv = vec![vec![0.0; p]; p];
-    for col in 0..p {
-        let mut e = vec![0.0; p];
-        e[col] = 1.0;
-        let x = cholesky_solve(l, &e);
-        for (row, xr) in x.iter().enumerate() {
-            inv[row][col] = *xr;
-        }
-    }
-    inv
 }
 
 fn scale_matrix(m: &[Vec<f64>], s: f64) -> Vec<Vec<f64>> {

@@ -60,6 +60,7 @@ pub mod effects;
 pub mod error;
 pub mod imputation;
 pub mod inference;
+pub(crate) mod numeric;
 pub mod reduction;
 pub mod solvers;
 pub mod splines;

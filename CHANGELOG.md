@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Internal: shared numerics (#284).** The private Cholesky (pspline, GLMM, GLS), jittered SPD solve (Huber, quantile), golden-section and Nelder–Mead (P-spline, GLMM) and R type-7 quantile / median copies (accuracy, splines, mediation, Theil–Sen, RANSAC, Huber, validation) now live once in a crate-private `numeric` module. No API change. A non-finite Cholesky pivot is now rejected everywhere, and the mediation / Theil–Sen quantiles use R's exact type-7 rule; results can move in the last bits.
 - **Public surface cleanup (#180).** Breaking:
   - **statrs is no longer part of the API.** The `distributions` module only re-exported `statrs` types, and nothing else in the public API names a statrs type; it is removed. Use statrs directly if you need its distributions.
   - **The penalized-GLM building blocks are crate-private:** `engine`, `irls`, `laplace`, `loglik`, `normal_eq`, `penalty` and `design`. The estimator, families, options, results and errors stay public.

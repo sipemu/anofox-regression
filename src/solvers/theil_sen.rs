@@ -78,6 +78,7 @@
 
 use crate::core::{HasModelInfo, ModelInfo, OptionsError};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
+use crate::numeric::quantile::{median_in_place, quantile7};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::linalg::solvers::SolveLstsq;
 use faer::prelude::Solve;
@@ -341,7 +342,7 @@ impl TheilSenRegressor {
                 let m = d.len() as f64;
                 let mean = d.iter().sum::<f64>() / m;
                 let sd = (d.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (m - 1.0)).sqrt();
-                (sd, quantile_type7(d, a), quantile_type7(d, 1.0 - a))
+                (sd, quantile7(d, a), quantile7(d, 1.0 - a))
             })
             .collect();
         let off = usize::from(self.with_intercept);
@@ -719,20 +720,6 @@ impl SplitMix64 {
     }
 }
 
-/// R-style median (mean of the two middle values for even length).
-fn median_in_place(v: &mut [f64]) -> f64 {
-    let n = v.len();
-    let mid = n / 2;
-    let (_, hi, _) = v.select_nth_unstable_by(mid, |a, b| a.total_cmp(b));
-    let hi = *hi;
-    if n % 2 == 1 {
-        hi
-    } else {
-        let lo = v[..mid].iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        0.5 * (lo + hi)
-    }
-}
-
 /// Above this many pairs the median slope is found by counting instead of
 /// materialising every pairwise slope.
 const EXPLICIT_PAIR_LIMIT: u64 = 4_000_000;
@@ -999,14 +986,6 @@ fn kendall_var_s(x: &[f64], y: &[f64]) -> f64 {
         v += tx3 * ty3 / (9.0 * n * (n - 1.0) * (n - 2.0));
     }
     v
-}
-
-/// R `quantile(type = 7)` of sorted data.
-fn quantile_type7(sorted: &[f64], q: f64) -> f64 {
-    let h = (sorted.len() - 1) as f64 * q;
-    let lo = h.floor() as usize;
-    let hi = (lo + 1).min(sorted.len() - 1);
-    sorted[lo] + (h - lo as f64) * (sorted[hi] - sorted[lo])
 }
 
 /// Number of index pairs `a < b` with `v[b] <= v[a]` (merge sort; sorts `v`).

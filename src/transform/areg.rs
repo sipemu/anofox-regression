@@ -7,7 +7,7 @@
 //! the additive transformations of the predictors that maximise R². With a
 //! linear `y` the fit is ordinary least squares on the predictor bases.
 
-use crate::diagnostics::accuracy::quantile7;
+use crate::numeric::quantile::quantile7;
 use crate::solvers::RegressionError;
 use crate::splines::Rcs;
 use crate::utils::RRng;

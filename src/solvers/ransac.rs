@@ -51,6 +51,7 @@
 
 use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
+use crate::numeric::quantile::median_in_place;
 use crate::solvers::ols::{FittedOls, OlsRegressor};
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::prelude::Solve;
@@ -284,18 +285,6 @@ fn mad(y: &Col<f64>) -> f64 {
         *vi = (*vi - med).abs();
     }
     median_in_place(&mut v)
-}
-
-fn median_in_place(v: &mut [f64]) -> f64 {
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let n = v.len();
-    // `usize::is_multiple_of` is unstable on Rust < 1.87. See #20.
-    #[allow(clippy::manual_is_multiple_of)]
-    if n % 2 == 0 {
-        0.5 * (v[n / 2 - 1] + v[n / 2])
-    } else {
-        v[n / 2]
-    }
 }
 
 fn ols_on_subsample(

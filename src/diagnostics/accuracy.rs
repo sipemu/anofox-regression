@@ -24,6 +24,7 @@
 //!   slope, Emax / E90 / Eavg from a lowess calibration curve, Spiegelhalter
 //!   z).
 
+use crate::numeric::quantile::quantile7;
 use crate::solvers::lowess::{lowess, LowessOptions};
 use statrs::distribution::{ChiSquared, ContinuousCDF, Normal};
 use thiserror::Error;
@@ -841,21 +842,6 @@ pub(crate) fn approx_ties_mean(x: &[f64], y: &[f64], xout: &[f64]) -> Vec<f64> {
             }
         })
         .collect()
-}
-
-/// R's default (type 7) quantile of sorted values.
-pub(crate) fn quantile7(sorted: &[f64], p: f64) -> f64 {
-    let n = sorted.len();
-    let h = (n - 1) as f64 * p;
-    let fuzz = 4.0 * f64::EPSILON;
-    let lo = (h + fuzz).floor();
-    let frac = h - lo;
-    let lo = lo as usize;
-    if frac.abs() < fuzz || lo + 1 >= n {
-        sorted[lo.min(n - 1)]
-    } else {
-        (1.0 - frac) * sorted[lo] + frac * sorted[lo + 1]
-    }
 }
 
 #[cfg(test)]
