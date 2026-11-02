@@ -19,7 +19,8 @@
 //! coefficients (centered design; for ARD, `diag(λ_kept)` over the kept
 //! features). The posterior predictive standard deviation of a new row `x`
 //! is `sqrt((x − x̄)ᵀ Σ (x − x̄) + 1/α)`, as sklearn's
-//! `predict(X, return_std=True)`; [`FittedRegressor::predict_with_interval`]
+//! `predict(X, return_std=True)` (sklearn ≥ 1.9; earlier versions omitted
+//! the centring); [`FittedRegressor::predict_with_interval`]
 //! turns it into Gaussian credible intervals (`IntervalType::Prediction`)
 //! or, without the `1/α` noise term, intervals for the mean
 //! (`IntervalType::Confidence`).
@@ -561,8 +562,12 @@ impl FittedBayesianRidge {
     pub fn log_marginal_likelihood(&self) -> f64 {
         self.log_marginal_likelihood
     }
-    /// Posterior predictive standard deviation of the rows of `x`, as
-    /// sklearn's `predict(X, return_std=True)`.
+    /// Posterior predictive standard deviation of the rows of `x`,
+    /// `sqrt((x − x̄)ᵀ Σ (x − x̄) + 1/α)`, as sklearn's
+    /// `predict(X, return_std=True)` from version 1.9 on. sklearn ≤ 1.8
+    /// applied `Σ` to the raw rows (`sqrt(xᵀ Σ x + 1/α)`), which is only
+    /// right for centred data; that value can be rebuilt from
+    /// [`sigma`](Self::sigma) and [`alpha`](Self::alpha) if needed (#306).
     pub fn predict_std(&self, x: &Mat<f64>) -> Col<f64> {
         let columns: Vec<usize> = (0..x.ncols()).collect();
         posterior_std(x, &self.x_mean, &columns, &self.sigma, 1.0 / self.alpha)
@@ -870,8 +875,12 @@ impl FittedArd {
         };
         faer::Col::from_fn(v.len(), |i| v[i])
     }
-    /// Posterior predictive standard deviation of the rows of `x`, as
-    /// sklearn's `predict(X, return_std=True)`.
+    /// Posterior predictive standard deviation of the rows of `x`,
+    /// `sqrt((x − x̄)ᵀ Σ (x − x̄) + 1/α)`, as sklearn's
+    /// `predict(X, return_std=True)` from version 1.9 on. sklearn ≤ 1.8
+    /// applied `Σ` to the raw rows (`sqrt(xᵀ Σ x + 1/α)`), which is only
+    /// right for centred data; that value can be rebuilt from
+    /// [`sigma`](Self::sigma) and [`alpha`](Self::alpha) if needed (#306).
     pub fn predict_std(&self, x: &Mat<f64>) -> Col<f64> {
         posterior_std(x, &self.x_mean, &self.kept, &self.sigma, 1.0 / self.alpha)
     }
