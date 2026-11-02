@@ -889,6 +889,11 @@ impl FittedBinomial {
         self.scale_by_sqrt_weights(deviance_residuals(&self.y_values, mu, &self.family))
     }
 
+    /// The prior weights the model was fitted with (`None`: all 1).
+    pub fn prior_weights(&self) -> Option<&Col<f64>> {
+        self.prior_weights.as_ref()
+    }
+
     fn scale_by_sqrt_weights(&self, r: Col<f64>) -> Col<f64> {
         match &self.prior_weights {
             None => r,

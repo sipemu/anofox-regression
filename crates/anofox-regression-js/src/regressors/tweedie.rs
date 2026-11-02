@@ -130,6 +130,7 @@ impl FittedTweedie {
 pub struct TweedieRegressor {
     na_action: NaAction,
     offset: Option<Vec<f64>>,
+    weights: Option<Vec<f64>>,
     var_power: f64,
     link_power: f64,
     with_intercept: bool,
@@ -146,6 +147,7 @@ impl TweedieRegressor {
         Self {
             na_action: NaAction::default(),
             offset: None,
+            weights: None,
             var_power: 1.5,  // Compound Poisson-Gamma
             link_power: 0.0, // Log link
             with_intercept: true,
@@ -208,6 +210,13 @@ impl TweedieRegressor {
         self.offset = Some(offset);
     }
 
+    /// Set prior (case) weights, one per row, as `glm(weights = )` and
+    /// sklearn's `sample_weight`.
+    #[wasm_bindgen(js_name = setWeights)]
+    pub fn set_weights(&mut self, weights: Vec<f64>) {
+        self.weights = Some(weights);
+    }
+
     /// Set the convergence tolerance for IRLS.
     #[wasm_bindgen(js_name = setTolerance)]
     pub fn set_tolerance(&mut self, tol: f64) {
@@ -253,6 +262,9 @@ impl TweedieRegressor {
         if let Some(offset) = row_column(&self.offset, n_rows, "offset")? {
             builder = builder.offset(offset);
         }
+        if let Some(weights) = row_column(&self.weights, n_rows, "weights")? {
+            builder = builder.weights(weights);
+        }
 
         let model = builder.build();
 
@@ -284,3 +296,14 @@ glm_residual_methods!(FittedTweedie);
 predict_col_methods!(FittedTweedie { "predictEta" => predict_eta, "predictMu" => predict_mu });
 predict_with_se_method!(FittedTweedie);
 vcov_method!(FittedTweedie);
+
+#[wasm_bindgen]
+impl FittedTweedie {
+    /// The prior weights the model was fitted with (`undefined`: all 1).
+    #[wasm_bindgen(js_name = priorWeights)]
+    pub fn prior_weights(&self) -> Option<Vec<f64>> {
+        self.fitted
+            .prior_weights()
+            .map(|w| w.iter().copied().collect())
+    }
+}

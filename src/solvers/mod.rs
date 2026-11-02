@@ -13,6 +13,7 @@ mod elastic_net;
 pub(crate) mod fit_stats;
 mod gamma;
 mod glm_alias;
+mod glm_weights;
 mod glmm;
 mod glmm_satterthwaite;
 pub mod gls;

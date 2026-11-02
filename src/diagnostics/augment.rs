@@ -545,13 +545,19 @@ impl Augmentable for FittedWls {
 
 impl Augmentable for FittedPoisson {
     fn augment_spec(&self) -> AugmentSpec<'_> {
-        AugmentSpec::glm(self.result(), self.family(), true, true)
+        AugmentSpec {
+            weights: self.prior_weights(),
+            ..AugmentSpec::glm(self.result(), self.family(), true, true)
+        }
     }
 }
 
 impl Augmentable for FittedBinomial {
     fn augment_spec(&self) -> AugmentSpec<'_> {
-        AugmentSpec::glm(self.result(), self.family(), true, true)
+        AugmentSpec {
+            weights: self.prior_weights(),
+            ..AugmentSpec::glm(self.result(), self.family(), true, true)
+        }
     }
 }
 
@@ -569,7 +575,10 @@ impl Augmentable for FittedNegativeBinomial {
 
 impl Augmentable for FittedTweedie {
     fn augment_spec(&self) -> AugmentSpec<'_> {
-        AugmentSpec::glm(self.result(), self.family(), false, false)
+        AugmentSpec {
+            weights: self.prior_weights(),
+            ..AugmentSpec::glm(self.result(), self.family(), false, false)
+        }
     }
 }
 

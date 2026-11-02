@@ -148,6 +148,7 @@ impl FittedGamma {
 pub struct GammaRegressor {
     na_action: NaAction,
     offset: Option<Vec<f64>>,
+    weights: Option<Vec<f64>>,
     with_intercept: bool,
     compute_inference: bool,
     confidence_level: f64,
@@ -164,6 +165,7 @@ impl GammaRegressor {
         Self {
             na_action: NaAction::default(),
             offset: None,
+            weights: None,
             with_intercept: true,
             compute_inference: true,
             confidence_level: 0.95,
@@ -229,6 +231,13 @@ impl GammaRegressor {
         self.offset = Some(offset);
     }
 
+    /// Set prior (case) weights, one per row, as `glm(weights = )` and
+    /// sklearn's `sample_weight`.
+    #[wasm_bindgen(js_name = setWeights)]
+    pub fn set_weights(&mut self, weights: Vec<f64>) {
+        self.weights = Some(weights);
+    }
+
     #[wasm_bindgen]
     pub fn fit(
         &self,
@@ -262,6 +271,9 @@ impl GammaRegressor {
 
         if let Some(offset) = row_column(&self.offset, n_rows, "offset")? {
             builder = builder.offset(offset);
+        }
+        if let Some(weights) = row_column(&self.weights, n_rows, "weights")? {
+            builder = builder.weights(weights);
         }
 
         let model = builder.build();

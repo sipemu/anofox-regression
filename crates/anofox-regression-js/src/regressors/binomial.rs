@@ -292,3 +292,14 @@ impl FittedBinomial {
         Self { fitted, n_features }
     }
 }
+
+#[wasm_bindgen]
+impl FittedBinomial {
+    /// The prior weights the model was fitted with (`undefined`: all 1).
+    #[wasm_bindgen(js_name = priorWeights)]
+    pub fn prior_weights(&self) -> Option<Vec<f64>> {
+        self.fitted
+            .prior_weights()
+            .map(|w| w.iter().copied().collect())
+    }
+}

@@ -140,6 +140,7 @@ pub struct GammaRegressorBuilder {
     lambda: f64,
     link_power: Option<f64>,
     offset: Option<Col<f64>>,
+    weights: Option<Col<f64>>,
     error_on_non_convergence: bool,
     na_action: NaAction,
 }
@@ -155,6 +156,7 @@ impl Default for GammaRegressorBuilder {
             lambda: 0.0,
             link_power: None,
             offset: None,
+            weights: None,
             error_on_non_convergence: true,
             na_action: NaAction::default(),
         }
@@ -213,6 +215,14 @@ impl GammaRegressorBuilder {
         self
     }
 
+    /// Prior (case) weights, as `glm(weights = )` and sklearn's
+    /// `sample_weight` (see
+    /// the Tweedie builder's `weights`).
+    pub fn weights(mut self, weights: Col<f64>) -> Self {
+        self.weights = Some(weights);
+        self
+    }
+
     /// Control what happens when IRLS fails to converge within
     /// `max_iterations`.
     ///
@@ -248,6 +258,9 @@ impl GammaRegressorBuilder {
         }
         if let Some(offset) = self.offset {
             tw = tw.offset(offset);
+        }
+        if let Some(w) = self.weights {
+            tw = tw.weights(w);
         }
 
         GammaRegressor { inner: tw.build() }
