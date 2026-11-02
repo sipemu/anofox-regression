@@ -436,6 +436,27 @@ computeHcStandardErrors / computeHcInference / computeXtxInverse / computeVarian
 computeRidgeVarianceFactor / computePredictionIntervals / intervalsFromVarianceFactor / leverageNew
 ```
 
+### Survival
+
+```typescript
+// event: Uint8Array (1 = event, 0 = censored); codes: non-negative integers
+const km = kaplanMeier(time, event, { confLevel?, confType?: 'log' | 'log-log' | 'plain' })
+const curves = survfit(time, event, { entry?, weights?, cluster?, strata? },
+  { confLevel?, confType?, hazard?: 'nelson-aalen' | 'fleming-harrington', timefix?, robust? })
+km.getResult()      // { time, nRisk, nEvent, nCensor, surv, stdErr, lower, upper, cumhaz, stdChaz, ... }
+km.median(); km.restrictedMean(tau); km.summary(tau); km.survivalAt(t)
+survdiff(time, event, group, strata?, rho?)   // rho = 0 log-rank, 1 Peto–Peto
+
+const cox = coxph(x, nRows, nCols, time, event, { entry?, weights?, offset?, strata? },
+  { ties?: 'efron' | 'breslow', maxIter?, eps?, ridge?, confLevel?, timefix? })
+cox.getResult(); cox.getCoefficients(); cox.getVcov(); cox.concordance(); cox.dxy(); cox.r2()
+cox.martingaleResiduals(); cox.devianceResiduals(); cox.scoreResiduals(); cox.dfbeta(); cox.dfbetas()
+cox.schoenfeldResiduals(scaled?); cox.robustVcov(clusters)
+cox.coxZph('km' | 'rank' | 'identity' | 'log', terms?)   // proportional-hazards test
+cox.predictSurvival(x0, stratum?)                        // survfit(fit, newdata)
+cox.likelihood(); cox.modelLrTest()
+```
+
 ### Missing values, offsets and prior weights
 
 ```typescript
