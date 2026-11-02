@@ -668,19 +668,6 @@ impl HasModelInfo for FittedQuantile {
 }
 
 impl FittedQuantile {
-    /// Whether the fit is the certified optimum of the quantile-regression
-    /// LP: the simplex pivots after IRLS stopped at a vertex where no edge
-    /// descends. `false` when they stopped early (a singular basis or the
-    /// pivot limit) and the IRLS estimate was kept.
-    pub fn converged(&self) -> bool {
-        self.status.converged
-    }
-
-    /// IRLS iterations before the simplex polish.
-    pub fn iterations(&self) -> usize {
-        self.status.iterations
-    }
-
     /// Get the quantile (tau) that was estimated.
     pub fn tau(&self) -> f64 {
         self.tau
@@ -872,6 +859,21 @@ impl QuantileRegressorBuilder {
             epsilon: self.epsilon,
             weights: self.weights,
         }
+    }
+}
+
+impl crate::solvers::IterativeFit for FittedQuantile {
+    /// Whether the fit is the certified optimum of the quantile-regression
+    /// LP: the simplex pivots after IRLS stopped at a vertex where no edge
+    /// descends. `false` when they stopped early (a singular basis or the
+    /// pivot limit) and the IRLS estimate was kept.
+    fn converged(&self) -> bool {
+        self.status.converged
+    }
+
+    /// IRLS iterations before the simplex polish.
+    fn iterations(&self) -> usize {
+        self.status.iterations
     }
 }
 

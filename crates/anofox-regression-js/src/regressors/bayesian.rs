@@ -83,7 +83,7 @@ impl FittedBayesianRidge {
 /// Bayesian Ridge regression with evidence-maximisation hyperparameters.
 #[wasm_bindgen]
 pub struct BayesianRidge {
-    fit_intercept: bool,
+    with_intercept: bool,
     max_iter: usize,
     tol: f64,
     alpha_1: f64,
@@ -97,7 +97,7 @@ impl BayesianRidge {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             max_iter: 300,
             tol: 1e-3,
             alpha_1: 1e-6,
@@ -109,7 +109,7 @@ impl BayesianRidge {
 
     #[wasm_bindgen(js_name = setFitIntercept)]
     pub fn set_fit_intercept(&mut self, v: bool) {
-        self.fit_intercept = v;
+        self.with_intercept = v;
     }
     #[wasm_bindgen(js_name = setMaxIter)]
     pub fn set_max_iter(&mut self, v: usize) {
@@ -153,7 +153,7 @@ impl BayesianRidge {
         let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
         let y_col = Col::from_fn(n_rows, |i| y[i]);
         let model = RustBayesianRidge::builder()
-            .fit_intercept(self.fit_intercept)
+            .with_intercept(self.with_intercept)
             .max_iter(self.max_iter)
             .tolerance(self.tol)
             .alpha_1(self.alpha_1)
@@ -250,7 +250,7 @@ impl FittedArd {
 /// Automatic Relevance Determination regression.
 #[wasm_bindgen]
 pub struct ArdRegression {
-    fit_intercept: bool,
+    with_intercept: bool,
     max_iter: usize,
     tol: f64,
     alpha_1: f64,
@@ -265,7 +265,7 @@ impl ArdRegression {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             max_iter: 300,
             tol: 1e-3,
             alpha_1: 1e-6,
@@ -278,7 +278,7 @@ impl ArdRegression {
 
     #[wasm_bindgen(js_name = setFitIntercept)]
     pub fn set_fit_intercept(&mut self, v: bool) {
-        self.fit_intercept = v;
+        self.with_intercept = v;
     }
     #[wasm_bindgen(js_name = setMaxIter)]
     pub fn set_max_iter(&mut self, v: usize) {
@@ -326,7 +326,7 @@ impl ArdRegression {
         let x_mat = Mat::from_fn(n_rows, n_cols, |i, j| x[i * n_cols + j]);
         let y_col = Col::from_fn(n_rows, |i| y[i]);
         let model = RustArd::builder()
-            .fit_intercept(self.fit_intercept)
+            .with_intercept(self.with_intercept)
             .max_iter(self.max_iter)
             .tolerance(self.tol)
             .alpha_1(self.alpha_1)

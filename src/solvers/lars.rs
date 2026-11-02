@@ -62,7 +62,7 @@ pub enum LarsMethod {
 #[derive(Debug, Clone)]
 pub struct LarsRegressor {
     method: LarsMethod,
-    fit_intercept: bool,
+    with_intercept: bool,
     /// Stop when this many active predictors are reached (`None` ⇒ run to
     /// `min(n - intercept, p)`).
     n_nonzero_coefs: Option<usize>,
@@ -80,7 +80,7 @@ impl Default for LarsRegressor {
     fn default() -> Self {
         Self {
             method: LarsMethod::Lar,
-            fit_intercept: true,
+            with_intercept: true,
             n_nonzero_coefs: None,
             alpha: 0.0,
             standardize: false,
@@ -112,10 +112,10 @@ impl Regressor for LarsRegressor {
         }
 
         // 1. Centering + (optional) column standardisation. sklearn's
-        // lars_path always centers when fit_intercept=True; column-norm
+        // lars_path always centers when with_intercept=True; column-norm
         // normalisation is controlled by `Xy=None & normalize=True/False`.
         let (xs, x_mean, x_norm, ys, y_mean) =
-            preprocess(x, y, self.fit_intercept, self.standardize);
+            preprocess(x, y, self.with_intercept, self.standardize);
 
         // 2. Alias linearly dependent columns (issue #62). An exactly
         // collinear column would otherwise enter the active set or not
@@ -165,7 +165,7 @@ impl Regressor for LarsRegressor {
             };
         }
 
-        let intercept = if self.fit_intercept {
+        let intercept = if self.with_intercept {
             let mut acc = y_mean;
             for j in 0..p {
                 if !aliased[j] {
@@ -190,7 +190,7 @@ impl Regressor for LarsRegressor {
         let residuals = Col::from_fn(n, |i| y[i] - fitted_values[i]);
 
         let n_aliased = aliased.iter().filter(|&&a| a).count();
-        let n_params = p - n_aliased + if self.fit_intercept { 1 } else { 0 };
+        let n_params = p - n_aliased + if self.with_intercept { 1 } else { 0 };
         let mut result = RegressionResult::empty(p, n);
         result.coefficients = coefficients;
         result.aliased = aliased;
@@ -211,10 +211,10 @@ impl Regressor for LarsRegressor {
         let n_active = (0..p)
             .filter(|&j| !result.aliased[j] && result.coefficients[j] != 0.0)
             .count();
-        let df = n_active + usize::from(self.fit_intercept);
+        let df = n_active + usize::from(self.with_intercept);
         let rss: f64 = result.residuals.iter().map(|r| r * r).sum();
         let df_resid = n as f64 - df as f64;
-        let df_total = if self.fit_intercept {
+        let df_total = if self.with_intercept {
             n as f64 - 1.0
         } else {
             n as f64
@@ -241,7 +241,7 @@ impl Regressor for LarsRegressor {
             y,
             &result.residuals,
             None,
-            self.fit_intercept,
+            self.with_intercept,
             df,
             false,
         );
@@ -260,7 +260,7 @@ impl Regressor for LarsRegressor {
             x_norm,
             y_mean,
             method: self.method,
-            fit_intercept: self.fit_intercept,
+            with_intercept: self.with_intercept,
         })
     }
 }
@@ -327,13 +327,13 @@ fn compute_r_squared(y: &Col<f64>, residuals: &Col<f64>) -> f64 {
 fn preprocess(
     x: &Mat<f64>,
     y: &Col<f64>,
-    fit_intercept: bool,
+    with_intercept: bool,
     standardize: bool,
 ) -> (Mat<f64>, Vec<f64>, Vec<f64>, Col<f64>, f64) {
     let n = x.nrows();
     let p = x.ncols();
     let mut x_mean = vec![0.0_f64; p];
-    if fit_intercept {
+    if with_intercept {
         for j in 0..p {
             let mut s = 0.0;
             for i in 0..n {
@@ -342,7 +342,7 @@ fn preprocess(
             x_mean[j] = s / n as f64;
         }
     }
-    let y_mean = if fit_intercept {
+    let y_mean = if with_intercept {
         let s: f64 = (0..n).map(|i| y[i]).sum();
         s / n as f64
     } else {
@@ -595,7 +595,7 @@ pub struct FittedLars {
     y_mean: f64,
     method: LarsMethod,
     #[allow(dead_code)]
-    fit_intercept: bool,
+    with_intercept: bool,
 }
 
 impl HasModelInfo for FittedLars {
@@ -643,7 +643,7 @@ impl FittedLars {
         let intercepts = rows
             .iter()
             .map(|b| {
-                if self.fit_intercept {
+                if self.with_intercept {
                     self.y_mean - b.iter().zip(&self.x_mean).map(|(c, m)| c * m).sum::<f64>()
                 } else {
                     0.0
@@ -705,8 +705,8 @@ impl LarsRegressorBuilder {
         self
     }
     /// Centre `x` and `y` and fit an intercept (default `true`).
-    pub fn fit_intercept(mut self, include: bool) -> Self {
-        self.inner.fit_intercept = include;
+    pub fn with_intercept(mut self, include: bool) -> Self {
+        self.inner.with_intercept = include;
         self
     }
     /// Stop when this many predictors are active (default: run to

@@ -20,6 +20,7 @@
 #![allow(clippy::approx_constant)]
 
 use anofox_regression::solvers::GlmmRegressor;
+use anofox_regression::solvers::IterativeFit;
 use faer::{Col, Mat};
 
 include!("fixtures/glmm_validation.rs");

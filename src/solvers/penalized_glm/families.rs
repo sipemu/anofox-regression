@@ -162,7 +162,7 @@ pub fn fit_poisson(
     )?;
 
     let engine_opts = EngineOptions {
-        fit_intercept: options.fit_intercept,
+        with_intercept: options.with_intercept,
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
@@ -226,7 +226,7 @@ pub fn fit_binomial(
 
     let family = binomial_family(options.link)?;
     let engine_opts = EngineOptions {
-        fit_intercept: options.fit_intercept,
+        with_intercept: options.with_intercept,
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
@@ -287,7 +287,7 @@ pub fn fit_negbinomial(
     }
 
     let engine_opts = EngineOptions {
-        fit_intercept: options.fit_intercept,
+        with_intercept: options.with_intercept,
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
@@ -441,7 +441,7 @@ pub fn fit_tweedie(
     }
 
     let engine_opts = EngineOptions {
-        fit_intercept: options.fit_intercept,
+        with_intercept: options.with_intercept,
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
@@ -488,7 +488,7 @@ pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> GlmEngine
     )?;
 
     let engine_opts = EngineOptions {
-        fit_intercept: options.fit_intercept,
+        with_intercept: options.with_intercept,
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
@@ -568,7 +568,7 @@ pub fn fit_logistic(
     }
 
     let engine_opts = EngineOptions {
-        fit_intercept: options.fit_intercept,
+        with_intercept: options.with_intercept,
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,

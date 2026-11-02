@@ -38,7 +38,7 @@ use super::loglik::LogLikKind;
 #[non_exhaustive]
 pub struct EngineOptions {
     /// Prepend an intercept column (default `true`).
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// Maximum IRLS iterations (default 100).
     pub max_iterations: u32,
     /// IRLS convergence tolerance on the relative change of the penalized
@@ -62,7 +62,7 @@ pub struct EngineOptions {
 }
 
 setters!(EngineOptions {
-    fit_intercept: bool,
+    with_intercept: bool,
     max_iterations: u32,
     tolerance: f64,
     compute_inference: bool,
@@ -77,7 +77,7 @@ setters!(EngineOptions {
 impl Default for EngineOptions {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             max_iterations: 100,
             tolerance: 1e-8,
             compute_inference: false,
@@ -185,7 +185,7 @@ impl EngineFit {
         // two. A dropped column is absent rather than present-and-`NaN`, so a caller
         // cannot index a row that was never fitted.
         let mut matrix_parameters: Vec<Option<usize>> = Vec::new();
-        if self.design.fit_intercept {
+        if self.design.with_intercept {
             matrix_parameters.push(None);
         }
         matrix_parameters.extend(self.design.retained_columns.iter().map(|&j| Some(j)));
@@ -227,11 +227,11 @@ pub fn null_deviance<F: GlmFamily + ?Sized>(
     family: &F,
     y: &[f64],
     offset: Option<&[f64]>,
-    fit_intercept: bool,
+    with_intercept: bool,
     config: &IrlsConfig,
 ) -> GlmEngineResult<f64> {
     let n = y.len();
-    match (fit_intercept, offset) {
+    match (with_intercept, offset) {
         (true, None) => Ok(family.null_deviance(y)),
         (true, Some(off)) => {
             let ones = faer::Mat::from_fn(n, 1, |_, _| 1.0);
@@ -310,7 +310,7 @@ pub(crate) fn fit_impl<F: GlmFamily + ?Sized>(
     let design = design::build(&DesignSpec {
         y,
         x,
-        fit_intercept: options.fit_intercept,
+        with_intercept: options.with_intercept,
         offset_column: options.offset_column,
         constant_policy: options.constant_policy,
     })?;
@@ -354,7 +354,7 @@ pub(crate) fn fit_impl<F: GlmFamily + ?Sized>(
         family,
         &design.y,
         design.offset.as_deref(),
-        design.fit_intercept,
+        design.with_intercept,
         &config,
     )?;
 

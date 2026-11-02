@@ -13,6 +13,7 @@ use anofox_regression::solvers::penalized_glm::{
     fit_negbinomial, fit_poisson, FittedPenalizedGlm, NegBinomialOptions, PenalizedGlmFamily,
     PenalizedGlmRegressor, PoissonOptions, PriorSpec, VcovType,
 };
+use anofox_regression::solvers::IterativeFit;
 use faer::{Col, Mat};
 use reference::*;
 

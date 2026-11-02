@@ -123,7 +123,7 @@ impl Default for PenalizedGlmFamily {
 #[derive(Debug, Clone)]
 pub struct PenalizedGlmRegressor {
     family: PenalizedGlmFamily,
-    fit_intercept: bool,
+    with_intercept: bool,
     max_iterations: u32,
     tolerance: f64,
     compute_inference: bool,
@@ -139,7 +139,7 @@ impl Default for PenalizedGlmRegressor {
     fn default() -> Self {
         Self {
             family: PenalizedGlmFamily::default(),
-            fit_intercept: true,
+            with_intercept: true,
             max_iterations: 100,
             tolerance: 1e-8,
             compute_inference: false,
@@ -205,7 +205,7 @@ impl PenalizedGlmRegressor {
                 &yv,
                 &cols,
                 &PoissonOptions {
-                    fit_intercept: self.fit_intercept,
+                    with_intercept: self.with_intercept,
                     link,
                     max_iterations: self.max_iterations,
                     tolerance: self.tolerance,
@@ -221,7 +221,7 @@ impl PenalizedGlmRegressor {
                 &yv,
                 &cols,
                 &BinomialOptions {
-                    fit_intercept: self.fit_intercept,
+                    with_intercept: self.with_intercept,
                     link,
                     max_iterations: self.max_iterations,
                     tolerance: self.tolerance,
@@ -237,7 +237,7 @@ impl PenalizedGlmRegressor {
                     &yv,
                     &cols,
                     &LogisticOptions {
-                        fit_intercept: self.fit_intercept,
+                        with_intercept: self.with_intercept,
                         lambda: self.lambda,
                         threshold,
                         max_iterations: self.max_iterations,
@@ -255,7 +255,7 @@ impl PenalizedGlmRegressor {
                 &yv,
                 &cols,
                 &NegBinomialOptions {
-                    fit_intercept: self.fit_intercept,
+                    with_intercept: self.with_intercept,
                     alpha: theta,
                     max_iterations: self.max_iterations,
                     tolerance: self.tolerance,
@@ -270,7 +270,7 @@ impl PenalizedGlmRegressor {
                 &yv,
                 &cols,
                 &GammaOptions {
-                    fit_intercept: self.fit_intercept,
+                    with_intercept: self.with_intercept,
                     max_iterations: self.max_iterations,
                     tolerance: self.tolerance,
                     compute_inference: self.compute_inference,
@@ -284,7 +284,7 @@ impl PenalizedGlmRegressor {
                 &yv,
                 &cols,
                 &TweedieOptions {
-                    fit_intercept: self.fit_intercept,
+                    with_intercept: self.with_intercept,
                     power,
                     max_iterations: self.max_iterations,
                     tolerance: self.tolerance,
@@ -332,12 +332,12 @@ impl PenalizedGlmRegressorBuilder {
         self
     }
     /// Whether to fit an intercept (default `true`).
-    pub fn with_intercept(mut self, fit_intercept: bool) -> Self {
-        self.inner.fit_intercept = fit_intercept;
+    pub fn with_intercept(mut self, with_intercept: bool) -> Self {
+        self.inner.with_intercept = with_intercept;
         self
     }
     /// Maximum IRLS iterations (default 100). Non-convergence is reported through
-    /// [`FittedPenalizedGlm::converged`], not as an error.
+    /// [`FittedPenalizedGlm::converged`](crate::solvers::IterativeFit::converged), not as an error.
     pub fn max_iterations(mut self, max_iterations: u32) -> Self {
         self.inner.max_iterations = max_iterations;
         self
@@ -486,14 +486,7 @@ impl FittedPenalizedGlm {
             _ => None,
         }
     }
-    /// IRLS iterations of the final fit.
-    pub fn iterations(&self) -> u32 {
-        self.result.core.iterations
-    }
     /// Whether IRLS converged (the last iterate is returned either way).
-    pub fn converged(&self) -> bool {
-        self.result.core.converged
-    }
     /// Number of rows used.
     pub fn n_observations(&self) -> usize {
         self.result.core.n_observations
@@ -593,5 +586,17 @@ impl FittedPenalizedGlm {
         Col::from_fn(eta.nrows(), |i| {
             self.family.link_inverse(eta[i] + offset[i])
         })
+    }
+}
+
+impl crate::solvers::IterativeFit for FittedPenalizedGlm {
+    /// See [`IterativeFit::converged`](crate::solvers::IterativeFit::converged).
+    fn converged(&self) -> bool {
+        self.result.core.converged
+    }
+
+    /// IRLS iterations of the final fit.
+    fn iterations(&self) -> usize {
+        self.result.core.iterations as usize
     }
 }

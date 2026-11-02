@@ -70,7 +70,7 @@ pub struct PathOptions {
     /// Elastic-net mixing `α ∈ [0, 1]`: 0 is ridge, 1 is the lasso.
     pub alpha: f64,
     /// Fit an unpenalised intercept (centres `X` and `y`). Default `true`.
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// Penalise the coefficients of the unit-variance columns (`glmnet`'s
     /// `standardize`). Default `false`, the crate's convention.
     pub standardize: bool,
@@ -84,7 +84,7 @@ pub struct PathOptions {
 
 setters!(PathOptions {
     alpha: f64,
-    fit_intercept: bool,
+    with_intercept: bool,
     standardize: bool,
     tol: f64,
     max_iter: usize,
@@ -94,7 +94,7 @@ impl Default for PathOptions {
     fn default() -> Self {
         Self {
             alpha: 1.0,
-            fit_intercept: true,
+            with_intercept: true,
             standardize: false,
             tol: 1e-18,
             max_iter: 100_000,
@@ -117,12 +117,6 @@ impl PathOptions {
             alpha,
             ..Self::default()
         }
-    }
-
-    /// Set whether an intercept is fitted.
-    pub fn with_intercept(mut self, fit_intercept: bool) -> Self {
-        self.fit_intercept = fit_intercept;
-        self
     }
 
     /// Set whether the columns are standardised for the penalty.
@@ -269,7 +263,7 @@ fn prepare(x: &Mat<f64>, y: &Col<f64>, opts: &PathOptions) -> Prepared {
     let n = x.nrows();
     let p = x.ncols();
     let nf = n as f64;
-    let y_mean = if opts.fit_intercept {
+    let y_mean = if opts.with_intercept {
         y.iter().sum::<f64>() / nf
     } else {
         0.0
@@ -284,7 +278,7 @@ fn prepare(x: &Mat<f64>, y: &Col<f64>, opts: &PathOptions) -> Prepared {
     let mut v = vec![0.0; p];
     let mut constant = vec![false; p];
     for j in 0..p {
-        let m = if opts.fit_intercept {
+        let m = if opts.with_intercept {
             (0..n).map(|i| x[(i, j)]).sum::<f64>() / nf
         } else {
             0.0
@@ -505,14 +499,14 @@ pub(crate) fn fit_penalized(
     y: &Col<f64>,
     l1: f64,
     l2: f64,
-    fit_intercept: bool,
+    with_intercept: bool,
     tol: f64,
     max_iter: usize,
 ) -> Result<(f64, Col<f64>), RegressionError> {
     validate_xy(x, y)?;
     let opts = PathOptions {
         alpha: 1.0,
-        fit_intercept,
+        with_intercept,
         standardize: false,
         tol,
         max_iter,

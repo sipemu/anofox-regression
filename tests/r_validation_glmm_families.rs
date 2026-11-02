@@ -25,6 +25,7 @@
 #![allow(dead_code)]
 #![allow(clippy::approx_constant)]
 
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{FittedGlmm, GlmmRegressor};
 use faer::{Col, Mat};
 

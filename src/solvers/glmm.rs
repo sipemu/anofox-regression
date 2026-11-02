@@ -1757,16 +1757,6 @@ impl FittedGlmm {
         self.reml
     }
 
-    /// Whether the fit converged.
-    pub fn converged(&self) -> bool {
-        self.converged
-    }
-
-    /// PIRLS iterations at the optimum (1 for the closed-form Gaussian LMM).
-    pub fn iterations(&self) -> usize {
-        self.iterations
-    }
-
     /// Population-level linear predictor `η = x'β + offset` for new data
     /// (random effects set to zero).
     pub fn predict_fixed_with_offset(&self, x: &Mat<f64>, offset: &Col<f64>) -> Col<f64> {
@@ -3262,9 +3252,22 @@ fn conditional_se(t: &[Vec<f64>], a_inv: &[Vec<f64>], scale: f64) -> Vec<f64> {
     ))
 }
 
+impl crate::solvers::IterativeFit for FittedGlmm {
+    /// Whether the fit converged.
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// PIRLS iterations at the optimum (1 for the closed-form Gaussian LMM).
+    fn iterations(&self) -> usize {
+        self.iterations
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::solvers::IterativeFit;
 
     // A tiny deterministic panel: 4 groups × 4 obs, clear group offsets.
     fn panel() -> (Mat<f64>, Col<f64>, Vec<usize>) {

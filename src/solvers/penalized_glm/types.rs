@@ -125,7 +125,7 @@ pub enum VcovType {
 #[non_exhaustive]
 pub struct GlmPriorOptions {
     /// Per-coefficient priors, positionally aligned with the feature columns.
-    /// When `fit_intercept` is set, an extra leading entry applies to the intercept.
+    /// When `with_intercept` is set, an extra leading entry applies to the intercept.
     /// An empty vector means "no explicit priors" and is the default.
     pub priors: Vec<PriorSpec>,
     /// How to compute the coefficient covariance matrix.
@@ -156,7 +156,7 @@ impl GlmPriorOptions {
 #[non_exhaustive]
 pub struct PoissonOptions {
     /// Whether to fit an intercept term
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// Link function (Log, Identity, or Sqrt)
     pub link: PoissonLink,
     /// Maximum iterations for IRLS
@@ -182,7 +182,7 @@ pub struct PoissonOptions {
 }
 
 setters!(PoissonOptions {
-    fit_intercept: bool,
+    with_intercept: bool,
     link: PoissonLink,
     max_iterations: u32,
     tolerance: f64,
@@ -197,7 +197,7 @@ setters!(PoissonOptions {
 impl Default for PoissonOptions {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             link: PoissonLink::Log,
             max_iterations: 100,
             tolerance: 1e-8,
@@ -216,7 +216,7 @@ impl Default for PoissonOptions {
 #[non_exhaustive]
 pub struct BinomialOptions {
     /// Whether to fit an intercept term
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// Link function (Logit, Probit, etc.)
     pub link: BinomialLink,
     /// Maximum iterations for IRLS
@@ -238,7 +238,7 @@ pub struct BinomialOptions {
 }
 
 setters!(BinomialOptions {
-    fit_intercept: bool,
+    with_intercept: bool,
     link: BinomialLink,
     max_iterations: u32,
     tolerance: f64,
@@ -252,7 +252,7 @@ setters!(BinomialOptions {
 impl Default for BinomialOptions {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             link: BinomialLink::Logit,
             max_iterations: 100,
             tolerance: 1e-8,
@@ -270,7 +270,7 @@ impl Default for BinomialOptions {
 #[non_exhaustive]
 pub struct NegBinomialOptions {
     /// Whether to fit an intercept term
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// Dispersion parameter (alpha). If None, it will be estimated.
     pub alpha: Option<f64>,
     /// Maximum iterations for IRLS
@@ -292,7 +292,7 @@ pub struct NegBinomialOptions {
 }
 
 setters!(NegBinomialOptions {
-    fit_intercept: bool,
+    with_intercept: bool,
     alpha: Option<f64>,
     max_iterations: u32,
     tolerance: f64,
@@ -306,7 +306,7 @@ setters!(NegBinomialOptions {
 impl Default for NegBinomialOptions {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             alpha: None,
             max_iterations: 100,
             tolerance: 1e-8,
@@ -324,7 +324,7 @@ impl Default for NegBinomialOptions {
 #[non_exhaustive]
 pub struct TweedieOptions {
     /// Whether to fit an intercept term
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// Tweedie power parameter (typically 1 < p < 2 for zero-inflated continuous)
     /// p=1 is Poisson, p=2 is Gamma, 1<p<2 is compound Poisson-Gamma
     pub power: f64,
@@ -347,7 +347,7 @@ pub struct TweedieOptions {
 }
 
 setters!(TweedieOptions {
-    fit_intercept: bool,
+    with_intercept: bool,
     power: f64,
     max_iterations: u32,
     tolerance: f64,
@@ -361,7 +361,7 @@ setters!(TweedieOptions {
 impl Default for TweedieOptions {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             power: 1.5,
             max_iterations: 100,
             tolerance: 1e-8,
@@ -379,7 +379,7 @@ impl Default for TweedieOptions {
 #[non_exhaustive]
 pub struct GammaOptions {
     /// Whether to fit an intercept term.
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// Maximum iterations for IRLS.
     pub max_iterations: u32,
     /// Convergence tolerance.
@@ -399,7 +399,7 @@ pub struct GammaOptions {
 }
 
 setters!(GammaOptions {
-    fit_intercept: bool,
+    with_intercept: bool,
     max_iterations: u32,
     tolerance: f64,
     compute_inference: bool,
@@ -412,7 +412,7 @@ setters!(GammaOptions {
 impl Default for GammaOptions {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             max_iterations: 100,
             tolerance: 1e-8,
             compute_inference: false,
@@ -430,7 +430,7 @@ impl Default for GammaOptions {
 #[non_exhaustive]
 pub struct LogisticOptions {
     /// Whether to fit an intercept term.
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// L2 (ridge) penalty strength. 0.0 = unpenalised.
     pub lambda: f64,
     /// Classification threshold on the predicted probability.
@@ -452,7 +452,7 @@ pub struct LogisticOptions {
 }
 
 setters!(LogisticOptions {
-    fit_intercept: bool,
+    with_intercept: bool,
     lambda: f64,
     threshold: f64,
     max_iterations: u32,
@@ -466,7 +466,7 @@ setters!(LogisticOptions {
 impl Default for LogisticOptions {
     fn default() -> Self {
         Self {
-            fit_intercept: true,
+            with_intercept: true,
             lambda: 0.0,
             threshold: 0.5,
             max_iterations: 100,

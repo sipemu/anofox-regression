@@ -37,7 +37,7 @@ fn main() {
     // --- Plain LARS, full path → equals OLS solution -----------------------
     let lars = LarsRegressor::builder()
         .method(LarsMethod::Lar)
-        .fit_intercept(true)
+        .with_intercept(true)
         .n_nonzero_coefs(p)
         .build()
         .fit(&x, &y)
@@ -58,7 +58,7 @@ fn main() {
     // --- LARS truncated to two predictors ----------------------------------
     let lars2 = LarsRegressor::builder()
         .method(LarsMethod::Lar)
-        .fit_intercept(true)
+        .with_intercept(true)
         .n_nonzero_coefs(2)
         .build()
         .fit(&x, &y)
@@ -74,7 +74,7 @@ fn main() {
     // sklearn's α via α_ours = n * α_sklearn.
     let lasso = LarsRegressor::builder()
         .method(LarsMethod::Lasso)
-        .fit_intercept(true)
+        .with_intercept(true)
         .alpha(0.05 * n as f64)
         .build()
         .fit(&x, &y)

@@ -79,8 +79,8 @@ impl AftRegressorBuilder {
         self
     }
     /// Whether to fit an intercept (default `true`).
-    pub fn with_intercept(mut self, fit_intercept: bool) -> Self {
-        self.inner.options.fit_intercept = fit_intercept;
+    pub fn with_intercept(mut self, with_intercept: bool) -> Self {
+        self.inner.options.with_intercept = with_intercept;
         self
     }
     /// Maximum Newton iterations (default 100).
@@ -254,10 +254,6 @@ impl FittedAft {
     pub fn bic(&self) -> f64 {
         self.result.core.bic
     }
-    /// Whether the Newton iterations converged.
-    pub fn converged(&self) -> bool {
-        self.result.core.converged
-    }
     /// Core fit summary (counts of events / censored rows, iterations, ...).
     pub fn fit_result(&self) -> &AftFitResult {
         &self.result.core
@@ -316,5 +312,17 @@ impl FittedAft {
         let eta = self.predict_linear(x);
         let s = self.scale();
         Col::from_fn(eta.nrows(), |i| self.distribution.cdf_time(t, eta[i], s))
+    }
+}
+
+impl crate::solvers::IterativeFit for FittedAft {
+    /// Whether the Newton iterations converged.
+    fn converged(&self) -> bool {
+        self.result.core.converged
+    }
+
+    /// See [`IterativeFit::iterations`](crate::solvers::IterativeFit::iterations).
+    fn iterations(&self) -> usize {
+        self.result.core.iterations as usize
     }
 }

@@ -36,7 +36,7 @@ pub struct AftOptions {
     /// Survival-time distribution (`survreg(dist = )`; default Weibull).
     pub dist: AftDistribution,
     /// Fit an intercept (default `true`).
-    pub fit_intercept: bool,
+    pub with_intercept: bool,
     /// Maximum Newton iterations (default 100).
     pub max_iterations: u32,
     /// Convergence tolerance on the log-likelihood change, relative to
@@ -55,7 +55,7 @@ pub struct AftOptions {
 
 setters!(AftOptions {
     dist: AftDistribution,
-    fit_intercept: bool,
+    with_intercept: bool,
     max_iterations: u32,
     tolerance: f64,
     compute_inference: bool,
@@ -68,7 +68,7 @@ impl Default for AftOptions {
     fn default() -> Self {
         Self {
             dist: AftDistribution::Weibull,
-            fit_intercept: true,
+            with_intercept: true,
             max_iterations: 100,
             tolerance: 1e-9,
             compute_inference: false,
@@ -262,7 +262,7 @@ pub fn fit_aft(
     }
 
     let fit_scale = !options.dist.scale_is_fixed();
-    let n_beta = n_features + usize::from(options.fit_intercept);
+    let n_beta = n_features + usize::from(options.with_intercept);
     let n_params = n_beta + usize::from(fit_scale);
 
     if n < n_params + 1 {
@@ -274,16 +274,16 @@ pub fn fit_aft(
 
     let log_t: Vec<f64> = rows.iter().map(|&i| time[i].ln()).collect();
     let delta: Vec<f64> = rows.iter().map(|&i| event[i]).collect();
-    let int_off = usize::from(options.fit_intercept);
+    let int_off = usize::from(options.with_intercept);
     let design = Mat::from_fn(n, n_beta, |r, c| {
-        if options.fit_intercept && c == 0 {
+        if options.with_intercept && c == 0 {
             1.0
         } else {
             x[c - int_off][rows[r]]
         }
     });
 
-    let penalty = build_penalty(&options.priors, n_beta, options.fit_intercept, n_features)?;
+    let penalty = build_penalty(&options.priors, n_beta, options.with_intercept, n_features)?;
 
     let state = newton(
         options.dist,
@@ -297,7 +297,7 @@ pub fn fit_aft(
     )?;
 
     // Null model: intercept (and scale) only.
-    let null_ll = if options.fit_intercept {
+    let null_ll = if options.with_intercept {
         let null_design = Mat::from_fn(n, 1, |_, _| 1.0);
         newton(
             options.dist,
@@ -315,7 +315,7 @@ pub fn fit_aft(
         f64::NAN
     };
 
-    let (coefficients, intercept) = if options.fit_intercept {
+    let (coefficients, intercept) = if options.with_intercept {
         (state.beta[1..].to_vec(), Some(state.beta[0]))
     } else {
         (state.beta.clone(), None)
@@ -358,15 +358,15 @@ pub fn fit_aft(
             ci_lower: inf.ci_lower[int_off..n_beta].to_vec(),
             ci_upper: inf.ci_upper[int_off..n_beta].to_vec(),
             confidence_level: options.confidence_level,
-            intercept_std_error: if options.fit_intercept {
+            intercept_std_error: if options.with_intercept {
                 Some(inf.std_errors[0])
             } else {
                 None
             },
-            intercept_z_value: options.fit_intercept.then(|| inf.z_values[0]),
-            intercept_p_value: options.fit_intercept.then(|| inf.p_values[0]),
-            intercept_ci_lower: options.fit_intercept.then(|| inf.ci_lower[0]),
-            intercept_ci_upper: options.fit_intercept.then(|| inf.ci_upper[0]),
+            intercept_z_value: options.with_intercept.then(|| inf.z_values[0]),
+            intercept_p_value: options.with_intercept.then(|| inf.p_values[0]),
+            intercept_ci_lower: options.with_intercept.then(|| inf.ci_lower[0]),
+            intercept_ci_upper: options.with_intercept.then(|| inf.ci_upper[0]),
             log_scale_std_error: if fit_scale {
                 Some(inf.std_errors[n_beta])
             } else {
@@ -389,20 +389,20 @@ pub fn fit_aft(
 fn build_penalty(
     priors: &[PriorSpec],
     n_beta: usize,
-    fit_intercept: bool,
+    with_intercept: bool,
     n_features: usize,
 ) -> GlmEngineResult<Penalty> {
     if priors.is_empty() {
         return Ok(Penalty::none(n_beta));
     }
-    let expected = n_features + usize::from(fit_intercept);
+    let expected = n_features + usize::from(with_intercept);
     if priors.len() != expected && priors.len() != n_features {
         return Err(GlmEngineError::InvalidInput(format!(
             "expected {expected} priors, got {}",
             priors.len()
         )));
     }
-    let has_intercept_entry = fit_intercept && priors.len() == expected;
+    let has_intercept_entry = with_intercept && priors.len() == expected;
     let mut aligned = vec![PriorSpec::flat(); n_beta];
     if has_intercept_entry {
         aligned[0] = priors[0];
@@ -412,7 +412,7 @@ fn build_penalty(
     } else {
         priors
     };
-    let off = usize::from(fit_intercept);
+    let off = usize::from(with_intercept);
     for (j, p) in feature_priors.iter().enumerate() {
         aligned[j + off] = *p;
     }

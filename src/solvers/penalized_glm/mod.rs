@@ -36,6 +36,7 @@
 //! use anofox_regression::solvers::penalized_glm::{
 //!     PenalizedGlmFamily, PenalizedGlmRegressor, PriorSpec, VcovType,
 //! };
+//! use anofox_regression::solvers::IterativeFit;
 //! use faer::{Col, Mat};
 //!
 //! let x = Mat::from_fn(8, 1, |i, _| i as f64);
@@ -92,9 +93,9 @@ const CONSTANT_RANGE_RTOL: f64 = 1e-10;
 
 /// True when column `col` restricted to `rows` should be dropped as aliased:
 /// constant (scale-relative test) with an intercept, all-zero without one.
-pub(crate) fn is_droppable_column(col: &[f64], rows: &[usize], fit_intercept: bool) -> bool {
+pub(crate) fn is_droppable_column(col: &[f64], rows: &[usize], with_intercept: bool) -> bool {
     let m = faer::Mat::from_fn(rows.len(), 1, |i, _| col[rows[i]]);
-    if fit_intercept {
+    if with_intercept {
         crate::utils::detect_constant_columns_relative(&m, CONSTANT_RANGE_RTOL)[0]
     } else {
         crate::utils::detect_zero_columns(&m)[0]

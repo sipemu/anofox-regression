@@ -328,7 +328,7 @@ fn no_intercept_fit_matches_upstream() {
         .expect("upstream fit");
 
     let opts = EngineOptions {
-        fit_intercept: false,
+        with_intercept: false,
         ..Default::default()
     };
     let fit = fit(

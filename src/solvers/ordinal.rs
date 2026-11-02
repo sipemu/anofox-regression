@@ -791,16 +791,6 @@ impl FittedOrdinal {
         -2.0 * self.log_likelihood + 2.0 * (self.intercepts.nrows() as f64 + self.effective_df())
     }
 
-    /// Newton iterations used.
-    pub fn iterations(&self) -> usize {
-        self.iterations
-    }
-
-    /// Whether the score reached the tolerance.
-    pub fn converged(&self) -> bool {
-        self.converged
-    }
-
     /// Number of observations.
     pub fn n_observations(&self) -> usize {
         self.n_observations
@@ -1322,6 +1312,18 @@ fn interpolate_decreasing(xs: &[f64], ys: &[f64], x: f64) -> f64 {
         }
     }
     pts[last].1
+}
+
+impl crate::solvers::IterativeFit for FittedOrdinal {
+    /// Whether the score reached the tolerance.
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// Newton iterations used.
+    fn iterations(&self) -> usize {
+        self.iterations
+    }
 }
 
 #[cfg(test)]

@@ -101,13 +101,6 @@ impl FittedGamma {
         self.inner.predict_with_offset(x, offset)
     }
 
-    /// Whether the underlying IRLS loop met its convergence criterion. `false`
-    /// only when the regressor was built with `error_on_non_convergence(false)`
-    /// and the fit exhausted `max_iterations`.
-    pub fn converged(&self) -> bool {
-        self.inner.converged
-    }
-
     /// Access the wrapped [`FittedTweedie`] for full GLM diagnostics.
     pub fn inner(&self) -> &FittedTweedie {
         &self.inner
@@ -261,9 +254,24 @@ impl GammaRegressorBuilder {
     }
 }
 
+impl crate::solvers::IterativeFit for FittedGamma {
+    /// Whether the underlying IRLS loop met its convergence criterion. `false`
+    /// only when the regressor was built with `error_on_non_convergence(false)`
+    /// and the fit exhausted `max_iterations`.
+    fn converged(&self) -> bool {
+        self.inner.converged
+    }
+
+    /// See [`IterativeFit::iterations`](crate::solvers::IterativeFit::iterations).
+    fn iterations(&self) -> usize {
+        self.inner.iterations
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::solvers::IterativeFit;
 
     fn dataset() -> (Mat<f64>, Col<f64>) {
         // Reproduce a small Gamma-shaped sample with mean = exp(0.5 + 0.4 x).

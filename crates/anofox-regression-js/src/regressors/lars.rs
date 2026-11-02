@@ -75,7 +75,7 @@ impl FittedLars {
 #[wasm_bindgen]
 pub struct LarsRegressor {
     method: String,
-    fit_intercept: bool,
+    with_intercept: bool,
     n_nonzero_coefs: Option<usize>,
     alpha: f64,
     standardize: bool,
@@ -87,7 +87,7 @@ impl LarsRegressor {
     pub fn new() -> Self {
         Self {
             method: "lar".to_string(),
-            fit_intercept: true,
+            with_intercept: true,
             n_nonzero_coefs: None,
             alpha: 0.0,
             standardize: false,
@@ -102,7 +102,7 @@ impl LarsRegressor {
 
     #[wasm_bindgen(js_name = setFitIntercept)]
     pub fn set_fit_intercept(&mut self, include: bool) {
-        self.fit_intercept = include;
+        self.with_intercept = include;
     }
 
     #[wasm_bindgen(js_name = setNNonzeroCoefs)]
@@ -145,7 +145,7 @@ impl LarsRegressor {
 
         let mut builder = RustLarsRegressor::builder()
             .method(method)
-            .fit_intercept(self.fit_intercept)
+            .with_intercept(self.with_intercept)
             .alpha(self.alpha)
             .standardize(self.standardize);
         if let Some(k) = self.n_nonzero_coefs {
