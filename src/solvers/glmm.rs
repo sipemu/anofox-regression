@@ -3264,6 +3264,19 @@ impl crate::solvers::IterativeFit for FittedGlmm {
     }
 }
 
+impl crate::solvers::GroupedRegressor for GlmmRegressor {
+    type Fitted = FittedGlmm;
+
+    fn fit_grouped(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        groups: &[usize],
+    ) -> Result<FittedGlmm, RegressionError> {
+        self.fit(x, y, groups)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

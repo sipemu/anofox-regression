@@ -420,3 +420,34 @@ fn fitted_models_are_send_and_sync() {
     send_sync::<FittedTweedie>();
     send_sync::<FittedWls>();
 }
+
+/// #179: one trait per kind of data.
+#[test]
+fn grouped_survival_and_logistic_traits() {
+    use anofox_regression::solvers::aft::AftRegressor;
+    use anofox_regression::solvers::{GroupedRegressor, SurvivalRegressor};
+    let (x, y) = data(2, false);
+    let g: Vec<usize> = (0..N).map(|i| i % 5).collect();
+    let glmm = GlmmRegressor::gaussian()
+        .build()
+        .fit_grouped(&x, &y, &g)
+        .unwrap();
+    assert_eq!(glmm.fixed_effects().len(), 3);
+    let gls = GlsRegressor::builder()
+        .build()
+        .fit_grouped(&x, &y, &g)
+        .unwrap();
+    assert_eq!(gls.coefficients().nrows(), 3);
+    let time = Col::from_fn(N, |i| 1.0 + (i % 7) as f64);
+    let events: Vec<bool> = (0..N).map(|i| i % 4 != 0).collect();
+    let aft = AftRegressor::builder()
+        .build()
+        .fit_survival(&x, &time, &events)
+        .unwrap();
+    assert_eq!(aft.coefficients().nrows(), 2);
+    let (xb, yb) = data(2, true);
+    let logistic = Regressor::fit(&LogisticRegression::builder().build(), &xb, &yb).unwrap();
+    let labels = FittedRegressor::predict(&logistic, &xb);
+    assert!(labels.iter().all(|&v| v == 0.0 || v == 1.0));
+    assert_eq!(FittedRegressor::result(&logistic).coefficients.nrows(), 2);
+}

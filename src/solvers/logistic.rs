@@ -344,6 +344,36 @@ impl crate::solvers::IterativeFit for FittedLogistic {
     }
 }
 
+impl crate::solvers::Regressor for LogisticRegression {
+    type Fitted = FittedLogistic;
+
+    fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedLogistic, RegressionError> {
+        LogisticRegression::fit(self, x, y)
+    }
+}
+
+impl crate::solvers::FittedRegressor for FittedLogistic {
+    /// Class labels, as [`FittedLogistic::predict`]; probabilities are
+    /// [`FittedLogistic::predict_proba`].
+    fn predict(&self, x: &Mat<f64>) -> Col<f64> {
+        FittedLogistic::predict(self, x)
+    }
+
+    fn result(&self) -> &crate::core::RegressionResult {
+        crate::solvers::FittedRegressor::result(&self.inner)
+    }
+
+    /// Intervals of the inner binomial fit (on the probability scale).
+    fn predict_with_interval(
+        &self,
+        x: &Mat<f64>,
+        interval: Option<crate::core::IntervalType>,
+        level: f64,
+    ) -> crate::core::PredictionResult {
+        crate::solvers::FittedRegressor::predict_with_interval(&self.inner, x, interval, level)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

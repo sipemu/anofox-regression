@@ -261,3 +261,40 @@ pub trait IterativeFit: Sized {
         }
     }
 }
+
+/// An estimator fitted to grouped (clustered, repeated-measures) data: the
+/// rows of `x` / `y` belong to the groups in `groups` (one label per row).
+///
+/// Implemented by [`GlmmRegressor`](crate::solvers::GlmmRegressor) (a random
+/// intercept / slopes per group) and [`GlsRegressor`](crate::solvers::GlsRegressor)
+/// (correlation within groups, observation order as time; use its inherent
+/// `fit` for explicit times).
+pub trait GroupedRegressor {
+    /// The fitted model.
+    type Fitted;
+
+    /// Fit to `(x, y)` with one group label per row.
+    fn fit_grouped(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        groups: &[usize],
+    ) -> Result<Self::Fitted, RegressionError>;
+}
+
+/// An estimator fitted to right-censored survival data: `time` and whether
+/// the event was observed (`event[i] == true`) or censored.
+///
+/// Implemented by [`AftRegressor`](crate::solvers::aft::AftRegressor).
+pub trait SurvivalRegressor {
+    /// The fitted model.
+    type Fitted;
+
+    /// Fit to the covariates `x`, survival times and event indicators.
+    fn fit_survival(
+        &self,
+        x: &Mat<f64>,
+        time: &Col<f64>,
+        event: &[bool],
+    ) -> Result<Self::Fitted, RegressionError>;
+}
