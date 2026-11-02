@@ -11,6 +11,8 @@ pub mod diagnostics;
 pub mod effects;
 pub mod imputation;
 pub mod inference;
+pub mod path;
+pub mod pentrace;
 pub mod reduction;
 pub mod regressors;
 pub mod splines;
