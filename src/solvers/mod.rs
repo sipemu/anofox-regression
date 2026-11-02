@@ -18,6 +18,7 @@ mod glmm;
 mod glmm_satterthwaite;
 pub mod gls;
 mod huber;
+mod huber_joint;
 mod isotonic;
 mod lars;
 pub mod lm_dynamic;
@@ -73,7 +74,7 @@ pub use gls::{
     FittedGls, GlsCorrelation, GlsMethod, GlsRegressor, GlsRegressorBuilder, GlsResidualType,
     GlsVariance, VarCovIntervals, VariogramBin,
 };
-pub use huber::{FittedHuber, HuberRegressor, HuberRegressorBuilder};
+pub use huber::{FittedHuber, HuberRegressor, HuberRegressorBuilder, HuberScale};
 pub use isotonic::{FittedIsotonic, IsotonicRegressor, IsotonicRegressorBuilder, OutOfBounds};
 pub use lars::{FittedLars, LarsMethod, LarsRegressor, LarsRegressorBuilder};
 pub use lm_dynamic::{

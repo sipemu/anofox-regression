@@ -14,7 +14,14 @@
 //! w_i = 1.0                 if |r_i / (ε·σ)| ≤ 1
 //! w_i = 1.0 / |r_i / (ε·σ)|  otherwise
 //!
-//! Scale σ is estimated via MAD: median(|r_i|) / 0.6745.
+//! Scale σ is estimated via MAD: median(|r_i|) / 0.6745 (the default,
+//! [`HuberScale::Mad`], as `MASS::rlm`), or jointly with the coefficients
+//! by minimising Owen's (2007) concomitant-scale objective
+//! ([`HuberScale::Joint`], scikit-learn's `HuberRegressor`):
+//!
+//! ```text
+//! n σ + Σ_{|rᵢ| ≤ εσ} rᵢ²/σ + Σ_{|rᵢ| > εσ} (2ε|rᵢ| − ε²σ) + α ‖β‖²
+//! ```
 //!
 //! L2 regularization is applied via the `alpha` parameter.
 //!
@@ -29,6 +36,20 @@ use crate::numeric::linalg::solve_spd_jittered;
 use crate::numeric::quantile::median_in_place;
 use crate::solvers::traits::{Convergence, FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
+
+/// How [`HuberRegressor`] estimates the scale `σ`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum HuberScale {
+    /// IRLS with `σ` re-estimated by the MAD of the residuals,
+    /// `median|rᵢ| / 0.6745`, at every step (as `MASS::rlm`). The default.
+    #[default]
+    Mad,
+    /// `(β, σ)` jointly minimise Owen's concomitant-scale objective, as
+    /// scikit-learn's `HuberRegressor` (#310); `scale()` and `outliers()` are
+    /// sklearn's `scale_` and `outliers_`.
+    Joint,
+}
 
 /// Huber M-estimator regression.
 ///
@@ -71,6 +92,8 @@ pub struct HuberRegressor {
     compute_inference: bool,
     /// Confidence level for the coefficient confidence intervals.
     confidence_level: f64,
+    /// Scale estimator.
+    scale_method: HuberScale,
 }
 
 impl HuberRegressor {
@@ -84,6 +107,7 @@ impl HuberRegressor {
             tolerance: 1e-5,
             compute_inference: false,
             confidence_level: 0.95,
+            scale_method: HuberScale::Mad,
         }
     }
 
@@ -182,6 +206,39 @@ impl HuberRegressor {
         } else {
             Ok((beta, None, sigma, status))
         }
+    }
+
+    /// sklearn's joint `(β, σ)` estimator, started from the IRLS fit `start`.
+    fn fit_joint(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        start: (Col<f64>, Option<f64>, f64, Convergence),
+    ) -> (Col<f64>, Option<f64>, f64, Convergence) {
+        let (coef, intercept, sigma, _) = start;
+        let (n, p) = (x.nrows(), x.ncols());
+        let off = usize::from(self.with_intercept);
+        let xd = Mat::from_fn(
+            n,
+            p + off,
+            |i, j| if j < off { 1.0 } else { x[(i, j - off)] },
+        );
+        let theta0: Vec<f64> = intercept
+            .into_iter()
+            .chain(coef.iter().copied())
+            .chain(std::iter::once(sigma))
+            .collect();
+        let problem = super::huber_joint::JointHuber {
+            xd: &xd,
+            y,
+            epsilon: self.epsilon,
+            alpha: self.alpha,
+            intercept: self.with_intercept,
+        };
+        let (theta, status) = problem.minimize(theta0, self.max_iterations, self.tolerance);
+        let coefficients = Col::from_fn(p, |j| theta[off + j]);
+        let intercept = self.with_intercept.then(|| theta[0]);
+        (coefficients, intercept, theta[p + off], status)
     }
 
     /// Estimate the scale (sigma) via MAD of residuals.
@@ -456,8 +513,12 @@ impl Regressor for HuberRegressor {
             ));
         }
 
-        // Fit using IRLS
-        let (coefficients, intercept, sigma, status) = self.fit_irls(x, y)?;
+        // Fit using IRLS; the joint estimator starts from that fit.
+        let irls = self.fit_irls(x, y)?;
+        let (coefficients, intercept, sigma, status) = match self.scale_method {
+            HuberScale::Joint => self.fit_joint(x, y, irls),
+            _ => irls,
+        };
 
         // Compute fitted values and residuals
         let mut fitted_values = Col::zeros(n_samples);
@@ -532,7 +593,9 @@ impl HasModelInfo for FittedHuber {
 }
 
 impl FittedHuber {
-    /// Get the estimated scale (sigma) from the MAD estimator.
+    /// The estimated scale `σ`: the MAD scale of the last IRLS step, or
+    /// with [`HuberScale::Joint`] the jointly estimated scale (sklearn
+    /// `scale_`).
     pub fn scale(&self) -> f64 {
         self.scale
     }
@@ -628,6 +691,7 @@ pub struct HuberRegressorBuilder {
     tolerance: f64,
     compute_inference: bool,
     confidence_level: f64,
+    scale_method: HuberScale,
 }
 
 impl Default for HuberRegressorBuilder {
@@ -640,6 +704,7 @@ impl Default for HuberRegressorBuilder {
             tolerance: 1e-5,
             compute_inference: false,
             confidence_level: 0.95,
+            scale_method: HuberScale::Mad,
         }
     }
 }
@@ -705,6 +770,15 @@ impl HuberRegressorBuilder {
         self
     }
 
+    /// Scale estimator: [`HuberScale::Mad`] (default, IRLS at the MAD scale
+    /// as `MASS::rlm`) or [`HuberScale::Joint`] (scikit-learn's joint
+    /// coefficient / scale estimator). With `Joint`, `max_iterations` and
+    /// `tolerance` apply to the Newton iterations that follow the IRLS start.
+    pub fn scale_method(mut self, method: HuberScale) -> Self {
+        self.scale_method = method;
+        self
+    }
+
     /// Build the Huber regressor.
     pub fn build(self) -> HuberRegressor {
         HuberRegressor {
@@ -715,6 +789,7 @@ impl HuberRegressorBuilder {
             tolerance: self.tolerance,
             compute_inference: self.compute_inference,
             confidence_level: self.confidence_level,
+            scale_method: self.scale_method,
         }
     }
 }
