@@ -270,3 +270,6 @@ impl Default for NegativeBinomialRegressor {
 }
 
 iterative_fit!(FittedNegativeBinomial);
+
+augment_methods!(FittedNegativeBinomial);
+partial_residuals_method!(FittedNegativeBinomial);

@@ -152,3 +152,4 @@ impl Default for RlsRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedRls);

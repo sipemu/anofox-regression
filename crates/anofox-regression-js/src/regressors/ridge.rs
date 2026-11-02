@@ -230,3 +230,32 @@ impl Default for RidgeRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedRidge);
+
+impl crate::convert::ToJs for anofox_regression::solvers::RidgeLoo {
+    fn to_js(&self) -> JsValue {
+        crate::convert::object(&[
+            ("leverage", crate::convert::ToJs::to_js(&self.leverage)),
+            (
+                "loo_residual",
+                crate::convert::ToJs::to_js(&self.loo_residual),
+            ),
+            ("loo_fitted", crate::convert::ToJs::to_js(&self.loo_fitted)),
+            ("press", crate::convert::ToJs::to_js(&self.press)),
+        ])
+    }
+}
+
+#[wasm_bindgen]
+impl FittedRidge {
+    /// Exact leave-one-out diagnostics of the ridge fit (same λ):
+    /// `{ leverage, looResidual, looFitted, press: { press, pressRmse,
+    /// looRSquared, n } }`. `x` and `y` are the data of the fit.
+    #[wasm_bindgen]
+    pub fn loo(&self, x: &[f64], n_rows: usize, y: &[f64]) -> Result<JsValue, JsError> {
+        let x_mat = super::to_mat(x, n_rows, self.n_features)?;
+        let y_col = super::to_col(y, n_rows, "target")?;
+        let loo = self.fitted.loo(&x_mat, &y_col).map_err(super::fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&loo))
+    }
+}

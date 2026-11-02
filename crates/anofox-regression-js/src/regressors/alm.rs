@@ -209,3 +209,4 @@ impl Default for AlmRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedAlm);

@@ -5,6 +5,8 @@
 
 use wasm_bindgen::prelude::*;
 
+mod convert;
+pub mod diagnostics;
 pub mod regressors;
 
 /// Initialize the WASM module.

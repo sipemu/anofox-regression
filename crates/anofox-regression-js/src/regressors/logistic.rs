@@ -320,3 +320,6 @@ impl Default for LogisticRegression {
 }
 
 iterative_fit!(FittedLogistic);
+
+augment_methods!(FittedLogistic);
+partial_residuals_method!(FittedLogistic);

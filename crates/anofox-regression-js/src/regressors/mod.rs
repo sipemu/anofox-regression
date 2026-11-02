@@ -22,6 +22,94 @@ macro_rules! iterative_fit {
     )*};
 }
 
+/// `augment`, `press` and `partialResiduals` on a fitted wrapper whose
+/// inner model implements the Rust `Augmentable` trait.
+macro_rules! augment_methods {
+    ($($wrapper:ident),* $(,)?) => {$(
+        #[wasm_bindgen]
+        impl $wrapper {
+            /// Per-observation diagnostics (`broom::augment`): fitted values,
+            /// residuals of `residType` ("response", "pearson" or "deviance";
+            /// the model's default when omitted), standardized and
+            /// studentized residuals, leverage, Cook's distance, DFFITS and
+            /// leave-one-out residuals. `x` and `y` are the data of the fit.
+            #[wasm_bindgen]
+            pub fn augment(
+                &self,
+                x: &[f64],
+                n_rows: usize,
+                y: &[f64],
+                resid_type: Option<String>,
+                weights: Option<Vec<f64>>,
+            ) -> Result<JsValue, JsError> {
+                let x_mat = $crate::regressors::to_mat(x, n_rows, self.n_features)?;
+                let y_col = $crate::regressors::to_col(y, n_rows, "target")?;
+                let w = $crate::regressors::row_column(&weights, n_rows, "weight")?;
+                let a = match resid_type {
+                    Some(kind) => anofox_regression::diagnostics::augment_with(
+                        &self.fitted,
+                        &x_mat,
+                        &y_col,
+                        w.as_ref(),
+                        $crate::diagnostics::parse_residual_type(&kind)?,
+                    ),
+                    None => anofox_regression::diagnostics::augment(
+                        &self.fitted,
+                        &x_mat,
+                        &y_col,
+                        w.as_ref(),
+                    ),
+                }
+                .map_err($crate::regressors::fit_error)?;
+                Ok($crate::convert::ToJs::to_js(&a))
+            }
+
+            /// PRESS statistic, its RMSE and the leave-one-out R².
+            #[wasm_bindgen]
+            pub fn press(
+                &self,
+                x: &[f64],
+                n_rows: usize,
+                y: &[f64],
+                weights: Option<Vec<f64>>,
+            ) -> Result<JsValue, JsError> {
+                let x_mat = $crate::regressors::to_mat(x, n_rows, self.n_features)?;
+                let y_col = $crate::regressors::to_col(y, n_rows, "target")?;
+                let w = $crate::regressors::row_column(&weights, n_rows, "weight")?;
+                let p = anofox_regression::diagnostics::press(&self.fitted, &x_mat, &y_col, w.as_ref())
+                    .map_err($crate::regressors::fit_error)?;
+                Ok($crate::convert::ToJs::to_js(&p))
+            }
+        }
+    )*};
+}
+
+/// `partialResiduals` on a fitted wrapper whose inner model implements the
+/// Rust `FittedRegressor` trait.
+macro_rules! partial_residuals_method {
+    ($($wrapper:ident),* $(,)?) => {$(
+        #[wasm_bindgen]
+        impl $wrapper {
+            /// Component-plus-residual data for every predictor (`crPlots`):
+            /// `[{ term, x, component, partialResidual }]`. `x` and `y` are
+            /// the data of the fit.
+            #[wasm_bindgen(js_name = partialResiduals)]
+            pub fn partial_residuals(
+                &self,
+                x: &[f64],
+                n_rows: usize,
+                y: &[f64],
+            ) -> Result<JsValue, JsError> {
+                let x_mat = $crate::regressors::to_mat(x, n_rows, self.n_features)?;
+                let y_col = $crate::regressors::to_col(y, n_rows, "target")?;
+                let p = anofox_regression::diagnostics::partial_residuals(&self.fitted, &x_mat, &y_col)
+                    .map_err($crate::regressors::fit_error)?;
+                Ok($crate::convert::ToJs::to_js(&p))
+            }
+        }
+    )*};
+}
+
 mod aft;
 mod aid;
 mod alm;

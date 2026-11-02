@@ -272,3 +272,6 @@ impl Default for BinomialRegressor {
 }
 
 iterative_fit!(FittedBinomial);
+
+augment_methods!(FittedBinomial);
+partial_residuals_method!(FittedBinomial);

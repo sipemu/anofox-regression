@@ -284,3 +284,4 @@ impl Default for HuberRegressor {
 }
 
 iterative_fit!(FittedHuber);
+partial_residuals_method!(FittedHuber);

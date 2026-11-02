@@ -156,6 +156,49 @@ impl FittedPenalizedGlm {
         ))
     }
 
+    /// Per-observation diagnostics (`broom::augment`) of an unpenalized
+    /// fit: fitted mean, residuals of `residType` ("deviance" by default),
+    /// standardized and studentized residuals, leverage, Cook's distance,
+    /// DFFITS. `x` and `y` are the data of the fit (without the offset).
+    #[wasm_bindgen]
+    pub fn augment(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        y: &[f64],
+        resid_type: Option<String>,
+    ) -> Result<JsValue, JsError> {
+        let x_mat = self.mat(x, n_rows)?;
+        let y_col = to_col(y, n_rows, "target")?;
+        let kind =
+            crate::diagnostics::parse_residual_type(resid_type.as_deref().unwrap_or("deviance"))?;
+        let a = self
+            .fitted
+            .augment_with(&x_mat, &y_col, kind)
+            .map_err(fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&a))
+    }
+
+    /// Component-plus-residual data per predictor on the working scale
+    /// (`crPlots` for a GLM): `[{ term, x, component, partialResidual }]`.
+    #[wasm_bindgen(js_name = partialResiduals)]
+    pub fn partial_residuals(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        y: &[f64],
+    ) -> Result<JsValue, JsError> {
+        let x_mat = self.mat(x, n_rows)?;
+        to_col(y, n_rows, "target")?;
+        let cols: Vec<Vec<f64>> = (0..self.n_features)
+            .map(|j| (0..n_rows).map(|i| x_mat[(i, j)]).collect())
+            .collect();
+        let p =
+            anofox_regression::diagnostics::partial_residuals_glm(self.fitted.result(), y, &cols)
+                .map_err(fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&p))
+    }
+
     /// Predicted means on the response scale.
     #[wasm_bindgen]
     pub fn predict(&self, x: &[f64], n_rows: usize) -> Result<Vec<f64>, JsError> {

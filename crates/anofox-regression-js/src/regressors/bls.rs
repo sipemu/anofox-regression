@@ -196,3 +196,4 @@ impl Default for BlsRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedBls);

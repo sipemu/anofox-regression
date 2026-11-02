@@ -274,3 +274,6 @@ impl Default for TweedieRegressor {
 }
 
 iterative_fit!(FittedTweedie);
+
+augment_methods!(FittedTweedie);
+partial_residuals_method!(FittedTweedie);

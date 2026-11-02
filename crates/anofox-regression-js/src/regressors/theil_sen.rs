@@ -174,3 +174,4 @@ impl Default for TheilSenRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedTheilSen);

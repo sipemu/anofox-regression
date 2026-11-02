@@ -194,3 +194,4 @@ impl Default for PlsRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedPls);

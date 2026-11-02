@@ -168,3 +168,4 @@ impl Default for LarsRegressor {
         Self::new()
     }
 }
+partial_residuals_method!(FittedLars);
