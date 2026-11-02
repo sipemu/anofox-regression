@@ -374,3 +374,5 @@ impl Default for GlsRegressor {
         Self::new()
     }
 }
+
+iterative_fit!(FittedGls);

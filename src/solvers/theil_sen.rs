@@ -260,9 +260,13 @@ impl TheilSenRegressor {
             return Err(RegressionError::SingularMatrix);
         }
 
-        let median = spatial_median(&coef_vectors, coef_dim, self.max_iter, self.tol);
+        let (median, converged, iterations) =
+            spatial_median(&coef_vectors, coef_dim, self.max_iter, self.tol);
 
-        Ok(build_fitted_from_full(median, x, y, self.with_intercept))
+        let mut fitted = build_fitted_from_full(median, x, y, self.with_intercept);
+        fitted.converged = converged;
+        fitted.iterations = iterations;
+        Ok(fitted)
     }
 
     /// Sen's exact interval and Kendall's test for the single slope.
@@ -543,13 +547,20 @@ fn ols_on_subsample(
 ///
 /// `points` is a flat list of length-`dim` coefficient vectors. The
 /// returned vector minimises `Σ_i ||x − p_i||₂`.
-fn spatial_median(points: &[Vec<f64>], dim: usize, max_iter: usize, tol: f64) -> Vec<f64> {
+/// Returns the median, whether the Weiszfeld iteration met `tol` (the
+/// closed-form exits count as converged) and its iterations.
+fn spatial_median(
+    points: &[Vec<f64>],
+    dim: usize,
+    max_iter: usize,
+    tol: f64,
+) -> (Vec<f64>, bool, usize) {
     // One dimension: the ordinary median, as sklearn's `_spatial_median`
     // (for an even count the minimiser is any point between the two middle
     // values; Weiszfeld would stop somewhere in that interval).
     if dim == 1 {
         let mut v: Vec<f64> = points.iter().map(|p| p[0]).collect();
-        return vec![median_in_place(&mut v)];
+        return (vec![median_in_place(&mut v)], true, 0);
     }
     // Initialise with the coordinate-wise mean (matching sklearn's
     // `_spatial_median` so the iteration trajectory matches term-for-term
@@ -559,7 +570,9 @@ fn spatial_median(points: &[Vec<f64>], dim: usize, max_iter: usize, tol: f64) ->
         .map(|j| points.iter().map(|p| p[j]).sum::<f64>() / m)
         .collect();
 
+    let mut iterations = 0;
     for _ in 0..max_iter {
+        iterations += 1;
         let mut num = vec![0.0_f64; dim];
         let mut denom = 0.0_f64;
         let mut coincident: Option<usize> = None;
@@ -581,7 +594,7 @@ fn spatial_median(points: &[Vec<f64>], dim: usize, max_iter: usize, tol: f64) ->
 
         if denom == 0.0 {
             // All points coincide with y — we are already at the median.
-            return y;
+            return (y, true, iterations);
         }
 
         let t_vec: Vec<f64> = (0..dim).map(|j| num[j] / denom).collect();
@@ -590,7 +603,7 @@ fn spatial_median(points: &[Vec<f64>], dim: usize, max_iter: usize, tol: f64) ->
             // Vardi–Zhang correction: y_new = max(0, 1 − 1/||R||) * T + min(1, 1/||R||) * y
             let r_norm: f64 = (0..dim).map(|j| r_vec[j] * r_vec[j]).sum::<f64>().sqrt();
             if r_norm == 0.0 {
-                return y;
+                return (y, true, iterations);
             }
             let gamma = 1.0 / r_norm;
             let alpha = (1.0_f64 - gamma).max(0.0);
@@ -603,10 +616,10 @@ fn spatial_median(points: &[Vec<f64>], dim: usize, max_iter: usize, tol: f64) ->
         let shift = euclidean_distance(&y, &new_y);
         y = new_y;
         if shift < tol {
-            break;
+            return (y, true, iterations);
         }
     }
-    y
+    (y, false, iterations)
 }
 
 fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
@@ -1135,6 +1148,8 @@ fn build_fitted_from_full(
         with_intercept,
         ci_method: None,
         bootstrap_replicates: None,
+        converged: true,
+        iterations: 0,
     }
 }
 
@@ -1145,6 +1160,21 @@ pub struct FittedTheilSen {
     with_intercept: bool,
     ci_method: Option<TheilSenCiMethod>,
     bootstrap_replicates: Option<usize>,
+    converged: bool,
+    iterations: usize,
+}
+
+/// `converged`: the Weiszfeld iteration for the spatial median of the
+/// subset estimates met its tolerance (the one-dimensional median is exact);
+/// `iterations`: its iterations.
+impl crate::solvers::IterativeFit for FittedTheilSen {
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    fn iterations(&self) -> usize {
+        self.iterations
+    }
 }
 
 impl HasModelInfo for FittedTheilSen {

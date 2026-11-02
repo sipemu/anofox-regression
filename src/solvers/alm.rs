@@ -56,12 +56,17 @@ use crate::core::{
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use basin::{
     CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente, NelderMead,
-    SimplexProgress,
+    SimplexProgress, Termination,
 };
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor, StudentsT};
 use statrs::function::gamma::{digamma, ln_gamma};
 use std::f64::consts::PI;
+
+/// Whether a basin run stopped on a convergence rule (not on its budget).
+fn met_stopping_rule(t: &Termination) -> bool {
+    matches!(t, Termination::Converged(_) | Termination::Target { .. })
+}
 
 /// Loss functions for ALM model fitting and convergence.
 ///
@@ -1734,8 +1739,12 @@ impl AlmRegressor {
                     | (AlmDistribution::BoxCoxNormal, LinkFunction::Identity)
             );
         let irls_iterations = if ols_is_ml { 0 } else { self.max_iterations };
+        // The OLS start is the optimum when no IRLS step is needed.
+        let mut converged = irls_iterations == 0;
+        let mut iterations = 0;
 
-        for iter in 0..irls_iterations {
+        for _ in 0..irls_iterations {
+            iterations += 1;
             // Compute weights and working response for IRLS
             let (weights, z) = self.compute_irls_components(y, &mu, &eta);
 
@@ -1762,18 +1771,16 @@ impl AlmRegressor {
             // Convergence criterion: relative change in loss is small
             // (loss is always in minimization form, so we check if it decreased or stabilized)
             if (loss - prev_loss).abs() < self.tolerance * (1.0 + prev_loss.abs()) {
+                converged = true;
                 break;
-            }
-
-            if iter == self.max_iterations - 1 {
-                // Allow convergence failure for now - return best estimate
             }
 
             prev_loss = loss;
         }
 
         if self.loss == AlmLoss::Likelihood && !self.distribution.irls_is_ml() {
-            if let Some(polished) = self.polish_likelihood(x, y, &beta) {
+            if let Some((polished, ok)) = self.polish_likelihood(x, y, &beta) {
+                converged &= ok;
                 beta = polished;
                 eta = self.compute_eta(x, &beta);
                 mu = self.compute_mu(&eta);
@@ -1782,7 +1789,8 @@ impl AlmRegressor {
         }
 
         if self.loss != AlmLoss::Likelihood {
-            let (b, joint) = self.minimise_loss(x, y, &beta, scale);
+            let (b, joint, ok) = self.minimise_loss(x, y, &beta, scale);
+            converged &= ok;
             beta = b;
             eta = self.compute_eta(x, &beta);
             mu = self.compute_mu(&eta);
@@ -1792,16 +1800,20 @@ impl AlmRegressor {
         }
 
         // Compute final results
-        self.build_result(x, y, &beta, &mu, scale)
+        let mut fitted = self.build_result(x, y, &beta, &mu, scale)?;
+        fitted.converged = converged;
+        fitted.iterations = iterations;
+        Ok(fitted)
     }
 
     /// Minimise the negative log-likelihood from `init` with L-BFGS and return
-    /// the best parameters and their cost.
+    /// the best parameters, their cost, whether L-BFGS met its stopping rule
+    /// and its iterations.
     fn minimise_neg_log_likelihood(
         &self,
         cost: &NegLogLikelihoodCost<'_>,
         init: Vec<f64>,
-    ) -> (Vec<f64>, f64) {
+    ) -> (Vec<f64>, f64, bool, usize) {
         // argmin's L-BFGS settings: memory 7, Moré–Thuente with c₁ = 1e-4,
         // stop on ‖∇f‖ ≤ √ε or |Δf| ≤ ε; the gradient is a central difference,
         // so also stop once |Δf| ≤ 1e-12·|f|
@@ -1816,6 +1828,8 @@ impl AlmRegressor {
         let Ok(res) = Executor::new(cost.clone(), solver, state)
             .max_iter(self.max_iterations as u64)
             .run();
+        let converged = met_stopping_rule(&res.report.termination);
+        let iterations = res.report.iteration as usize;
         let mut params = res.best_param().clone();
         let Ok(mut cost_val) = cost.cost(&params);
 
@@ -1832,21 +1846,22 @@ impl AlmRegressor {
                 cost_val = nm_cost;
             }
         }
-        (params, cost_val)
+        (params, cost_val, converged, iterations)
     }
 
     /// Minimise a non-likelihood loss directly from `beta` (the likelihood
     /// start) and `scale`, derivative-free as greybox (`nloptr`'s subplex):
     /// Nelder–Mead, restarted from its own optimum until it stops improving.
     /// MAE, HAM and ROLE have kinks, and IRLS only fits the likelihood.
-    /// Returns the coefficients and, for ROLE, the jointly estimated scale.
+    /// Returns the coefficients, for ROLE the jointly estimated scale, and
+    /// whether the last Nelder–Mead run met its stopping rule.
     fn minimise_loss(
         &self,
         x: &Mat<f64>,
         y: &Col<f64>,
         beta: &Col<f64>,
         scale: f64,
-    ) -> (Col<f64>, Option<f64>) {
+    ) -> (Col<f64>, Option<f64>, bool) {
         let joint = matches!(self.loss, AlmLoss::ROLE { .. });
         let cost = LossCost {
             inner: NegLogLikelihoodCost {
@@ -1865,11 +1880,13 @@ impl AlmRegressor {
             params.push(scale.max(1e-10).ln());
         }
         let Ok(mut best) = cost.cost(&params);
+        let mut converged = false;
         for _ in 0..50 {
             let state = SimplexProgress::new(params.clone());
             let Ok(res) = Executor::new(cost.clone(), NelderMead::adaptive(), state)
                 .max_iter(500 * (params.len() as u64 + 1))
                 .run();
+            converged = met_stopping_rule(&res.report.termination);
             let Ok(v) = cost.cost(res.best_param());
             let improved = v < best - 1e-15 * (1.0 + best.abs());
             if !improved {
@@ -1885,6 +1902,7 @@ impl AlmRegressor {
         (
             Col::from_fn(k, |i| params[i]),
             joint.then(|| params[k].exp()),
+            converged,
         )
     }
 
@@ -1893,8 +1911,14 @@ impl AlmRegressor {
     /// the score equations of an exponential-family GLM, which is not the
     /// maximum of the likelihood for most ALM distributions (e.g. the inverse
     /// Gaussian with dispersion scale/μ, or a logistic location model). The
-    /// polished β is kept only if it raises the log-likelihood.
-    fn polish_likelihood(&self, x: &Mat<f64>, y: &Col<f64>, beta: &Col<f64>) -> Option<Col<f64>> {
+    /// polished β is kept only if it raises the log-likelihood; it is
+    /// returned with whether L-BFGS met its stopping rule.
+    fn polish_likelihood(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+        beta: &Col<f64>,
+    ) -> Option<(Col<f64>, bool)> {
         let cost = NegLogLikelihoodCost {
             x,
             y,
@@ -1906,9 +1930,9 @@ impl AlmRegressor {
         };
         let init: Vec<f64> = beta.iter().copied().collect();
         let Ok(init_cost) = cost.cost(&init);
-        let (params, cost_val) = self.minimise_neg_log_likelihood(&cost, init);
+        let (params, cost_val, converged, _) = self.minimise_neg_log_likelihood(&cost, init);
         (cost_val.is_finite() && cost_val < init_cost)
-            .then(|| Col::from_fn(params.len(), |i| params[i]))
+            .then(|| (Col::from_fn(params.len(), |i| params[i]), converged))
     }
 
     /// Fit the model using L-BFGS numerical optimization.
@@ -1939,6 +1963,7 @@ impl AlmRegressor {
         // Try multiple starting points and pick the best
         let mut best_params: Option<Vec<f64>> = None;
         let mut best_cost = f64::INFINITY;
+        let (mut converged, mut iterations) = (false, 0);
 
         // Generate starting points; with a joint scale, start ln σ at the
         // moment estimate for each start's coefficients
@@ -1951,10 +1976,12 @@ impl AlmRegressor {
         }
 
         for init_params in starting_points {
-            let (params, cost_val) = self.minimise_neg_log_likelihood(&cost, init_params);
+            let (params, cost_val, ok, iters) =
+                self.minimise_neg_log_likelihood(&cost, init_params);
             if cost_val < best_cost {
                 best_cost = cost_val;
                 best_params = Some(params);
+                (converged, iterations) = (ok, iters);
             }
         }
 
@@ -1980,7 +2007,8 @@ impl AlmRegressor {
                 let mu = self.compute_mu(&eta);
                 estimate_scale(y, &mu, self.distribution, n as f64, self.extra_parameter)
             });
-            let (b, joint) = self.minimise_loss(x, y, &beta, start);
+            let (b, joint, ok) = self.minimise_loss(x, y, &beta, start);
+            converged &= ok;
             beta = b;
             joint_scale = joint;
         }
@@ -1993,7 +2021,10 @@ impl AlmRegressor {
         });
 
         // Build result
-        self.build_result(x, y, &beta, &mu, scale)
+        let mut fitted = self.build_result(x, y, &beta, &mu, scale)?;
+        fitted.converged = converged;
+        fitted.iterations = iterations;
+        Ok(fitted)
     }
 
     /// Generate multiple starting points for numerical optimization.
@@ -2776,6 +2807,8 @@ impl AlmRegressor {
             scale,
             vcov,
             result,
+            converged: true,
+            iterations: 0,
         })
     }
 
@@ -3069,6 +3102,28 @@ pub struct FittedAlm {
     /// Coefficient covariance (intercept first), with `compute_inference`.
     vcov: Option<Mat<f64>>,
     result: RegressionResult,
+    /// Whether the fit met its stopping rules (see [`IterativeFit`]).
+    converged: bool,
+    /// Iterations of the main fitting stage (IRLS or L-BFGS).
+    iterations: usize,
+}
+
+/// `converged`: IRLS met its tolerance (or was not needed) and every
+/// optimiser run whose result is used (likelihood polish, L-BFGS, the
+/// Nelder–Mead minimisation of a non-likelihood loss) stopped on its
+/// convergence rule rather than its iteration budget. `iterations`: IRLS
+/// steps, or the L-BFGS iterations of the best start for the numerically
+/// fitted distributions.
+///
+/// [`IterativeFit`]: crate::solvers::IterativeFit
+impl crate::solvers::IterativeFit for FittedAlm {
+    fn converged(&self) -> bool {
+        self.converged
+    }
+
+    fn iterations(&self) -> usize {
+        self.iterations
+    }
 }
 
 impl HasModelInfo for FittedAlm {
