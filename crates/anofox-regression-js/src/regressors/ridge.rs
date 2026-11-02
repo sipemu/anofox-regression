@@ -126,6 +126,8 @@ pub struct RidgeRegressor {
     compute_inference: bool,
     confidence_level: f64,
     lambda: f64,
+    /// `(lambda_small, cond_threshold)` of conditioning-aware λ selection.
+    conditioning: Option<(f64, f64)>,
 }
 
 #[wasm_bindgen]
@@ -139,6 +141,7 @@ impl RidgeRegressor {
             compute_inference: true,
             confidence_level: 0.95,
             lambda: 1.0,
+            conditioning: None,
         }
     }
 
@@ -211,11 +214,7 @@ impl RidgeRegressor {
             .fit(&x_mat, &y_col)
             .map_err(|e| JsError::new(&format!("Regression failed: {}", e)))?;
 
-        Ok(FittedRidge {
-            fitted,
-            n_features: n_cols,
-            lambda: self.lambda,
-        })
+        Ok(self.wrap(fitted, n_cols))
     }
 }
 
@@ -280,20 +279,26 @@ impl FittedRidge {
 
 impl RidgeRegressor {
     fn rust(&self) -> RustRidgeRegressor {
-        RustRidgeRegressor::builder()
+        let mut b = RustRidgeRegressor::builder()
             .na_action(self.na_action)
             .with_intercept(self.with_intercept)
             .compute_inference(self.compute_inference)
             .confidence_level(self.confidence_level)
-            .lambda(self.lambda)
-            .build()
+            .lambda(self.lambda);
+        if let Some((small, threshold)) = self.conditioning {
+            b = b.conditioning_aware(small, threshold);
+        }
+        b.build()
     }
 
+    /// The λ the fit used (with conditioning-aware selection, possibly the
+    /// small λ).
     fn wrap(&self, fitted: anofox_regression::solvers::FittedRidge, p: usize) -> FittedRidge {
+        let lambda = fitted.lambda();
         FittedRidge {
             fitted,
             n_features: p,
-            lambda: self.lambda,
+            lambda,
         }
     }
 }
@@ -396,5 +401,38 @@ impl RidgeRegressor {
             )
             .map_err(super::fit_error)?;
         Ok(crate::path::CvPath { inner: c })
+    }
+}
+
+#[wasm_bindgen]
+impl RidgeRegressor {
+    /// Conditioning-aware λ selection: when the condition number `κ(XᵀX)`
+    /// of the penalised design is at most `condThreshold` (default 1000),
+    /// fit with `lambdaSmall` (default 0.1) instead of the configured λ,
+    /// which would only over-shrink a well-conditioned design. The λ used
+    /// is reported by the fit.
+    #[wasm_bindgen(js_name = setConditioning)]
+    pub fn set_conditioning(&mut self, lambda_small: Option<f64>, cond_threshold: Option<f64>) {
+        use anofox_regression::solvers::{DEFAULT_CONDITION_THRESHOLD, DEFAULT_LAMBDA_SMALL};
+        self.conditioning = Some((
+            lambda_small.unwrap_or(DEFAULT_LAMBDA_SMALL),
+            cond_threshold.unwrap_or(DEFAULT_CONDITION_THRESHOLD),
+        ));
+    }
+
+    /// Turn conditioning-aware λ selection off (the default).
+    #[wasm_bindgen(js_name = clearConditioning)]
+    pub fn clear_conditioning(&mut self) {
+        self.conditioning = None;
+    }
+
+    /// The λ a fit on the row-major `x` would use: the configured λ, or the
+    /// small λ when conditioning-aware selection is on and the design is
+    /// well-conditioned.
+    #[wasm_bindgen(js_name = selectLambda)]
+    pub fn select_lambda(&self, x: &[f64], n_rows: usize, n_cols: usize) -> Result<f64, JsError> {
+        Ok(self
+            .rust()
+            .select_lambda(&super::to_mat(x, n_rows, n_cols)?))
     }
 }
