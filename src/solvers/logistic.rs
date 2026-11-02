@@ -7,13 +7,13 @@
 //! # Example
 //!
 //! ```rust
-//! use anofox_regression::solvers::LogisticRegression;
+//! use anofox_regression::solvers::LogisticRegressor;
 //! use faer::{Col, Mat};
 //!
 //! let x = Mat::from_fn(100, 1, |i, _| (i as f64) / 50.0 - 1.0);
 //! let y = Col::from_fn(100, |i| if i >= 50 { 1.0 } else { 0.0 });
 //!
-//! let model = LogisticRegression::builder()
+//! let model = LogisticRegressor::builder()
 //!     .l2(0.01)
 //!     .threshold(0.5)
 //!     .build();
@@ -49,10 +49,10 @@ pub enum Penalty {
 /// [`FittedLogistic`] returns class labels from `predict` and accuracy from
 /// `score`.
 ///
-/// Use [`LogisticRegression::builder()`] or [`LogisticRegressionBuilder`] to
+/// Use [`LogisticRegressor::builder()`] or [`LogisticRegressorBuilder`] to
 /// configure the model before fitting.
 #[derive(Debug, Clone)]
-pub struct LogisticRegression {
+pub struct LogisticRegressor {
     penalty: Penalty,
     with_intercept: bool,
     threshold: f64,
@@ -62,10 +62,10 @@ pub struct LogisticRegression {
     confidence_level: f64,
 }
 
-impl LogisticRegression {
+impl LogisticRegressor {
     /// Create a new builder for configuring logistic regression.
-    pub fn builder() -> LogisticRegressionBuilder {
-        LogisticRegressionBuilder::default()
+    pub fn builder() -> LogisticRegressorBuilder {
+        LogisticRegressorBuilder::default()
     }
 
     /// Fit the logistic regression model to the data.
@@ -214,7 +214,7 @@ impl FittedLogistic {
     }
 }
 
-/// Builder for configuring a [`LogisticRegression`] model.
+/// Builder for configuring a [`LogisticRegressor`] model.
 ///
 /// # Defaults
 ///
@@ -228,7 +228,7 @@ impl FittedLogistic {
 /// | compute_inference  | true    |
 /// | confidence_level   | 0.95    |
 #[derive(Debug, Clone)]
-pub struct LogisticRegressionBuilder {
+pub struct LogisticRegressorBuilder {
     penalty: Penalty,
     with_intercept: bool,
     threshold: f64,
@@ -238,7 +238,7 @@ pub struct LogisticRegressionBuilder {
     confidence_level: f64,
 }
 
-impl Default for LogisticRegressionBuilder {
+impl Default for LogisticRegressorBuilder {
     fn default() -> Self {
         Self {
             penalty: Penalty::None,
@@ -252,7 +252,7 @@ impl Default for LogisticRegressionBuilder {
     }
 }
 
-impl LogisticRegressionBuilder {
+impl LogisticRegressorBuilder {
     /// Set the regularization penalty.
     pub fn penalty(mut self, penalty: Penalty) -> Self {
         self.penalty = penalty;
@@ -318,9 +318,9 @@ impl LogisticRegressionBuilder {
         self
     }
 
-    /// Build the [`LogisticRegression`] model.
-    pub fn build(self) -> LogisticRegression {
-        LogisticRegression {
+    /// Build the [`LogisticRegressor`] model.
+    pub fn build(self) -> LogisticRegressor {
+        LogisticRegressor {
             penalty: self.penalty,
             with_intercept: self.with_intercept,
             threshold: self.threshold,
@@ -344,11 +344,11 @@ impl crate::solvers::IterativeFit for FittedLogistic {
     }
 }
 
-impl crate::solvers::Regressor for LogisticRegression {
+impl crate::solvers::Regressor for LogisticRegressor {
     type Fitted = FittedLogistic;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<FittedLogistic, RegressionError> {
-        LogisticRegression::fit(self, x, y)
+        LogisticRegressor::fit(self, x, y)
     }
 }
 
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn test_logistic_defaults() {
-        let builder = LogisticRegressionBuilder::default();
+        let builder = LogisticRegressorBuilder::default();
         assert_eq!(builder.penalty, Penalty::None);
         assert!(builder.with_intercept);
         assert!((builder.threshold - 0.5).abs() < f64::EPSILON);
@@ -414,7 +414,7 @@ mod tests {
     fn test_logistic_binary_classification() {
         let (x, y) = create_test_data(100);
 
-        let model = LogisticRegression::builder().build();
+        let model = LogisticRegressor::builder().build();
         let fitted = model.fit(&x, &y).expect("model should fit");
 
         // Coefficient should be positive (higher x -> higher P(y=1))
@@ -439,7 +439,7 @@ mod tests {
     fn test_predict_proba_range() {
         let (x, y) = create_test_data(100);
 
-        let fitted = LogisticRegression::builder()
+        let fitted = LogisticRegressor::builder()
             .build()
             .fit(&x, &y)
             .expect("model should fit");
@@ -459,7 +459,7 @@ mod tests {
     fn test_predict_class_labels() {
         let (x, y) = create_test_data(100);
 
-        let fitted = LogisticRegression::builder()
+        let fitted = LogisticRegressor::builder()
             .build()
             .fit(&x, &y)
             .expect("model should fit");
@@ -479,7 +479,7 @@ mod tests {
     fn test_decision_function_sign() {
         let (x, y) = create_test_data(100);
 
-        let fitted = LogisticRegression::builder()
+        let fitted = LogisticRegressor::builder()
             .build()
             .fit(&x, &y)
             .expect("model should fit");
@@ -509,7 +509,7 @@ mod tests {
     fn test_score_accuracy() {
         let (x, y) = create_test_data(100);
 
-        let fitted = LogisticRegression::builder()
+        let fitted = LogisticRegressor::builder()
             .build()
             .fit(&x, &y)
             .expect("model should fit");
@@ -538,14 +538,14 @@ mod tests {
     fn test_threshold() {
         let (x, y) = create_test_data(100);
 
-        let fitted_default = LogisticRegression::builder()
+        let fitted_default = LogisticRegressor::builder()
             .threshold(0.5)
             .build()
             .fit(&x, &y)
             .expect("model should fit");
 
         // A very high threshold should predict more 0s
-        let fitted_high = LogisticRegression::builder()
+        let fitted_high = LogisticRegressor::builder()
             .threshold(0.9)
             .build()
             .fit(&x, &y)
@@ -569,12 +569,12 @@ mod tests {
     fn test_l2_regularization() {
         let (x, y) = create_test_data(100);
 
-        let fitted_no_reg = LogisticRegression::builder()
+        let fitted_no_reg = LogisticRegressor::builder()
             .build()
             .fit(&x, &y)
             .expect("model should fit without regularization");
 
-        let fitted_l2 = LogisticRegression::builder()
+        let fitted_l2 = LogisticRegressor::builder()
             .l2(10.0)
             .build()
             .fit(&x, &y)
@@ -597,7 +597,7 @@ mod tests {
         let x = Mat::from_fn(10, 1, |i, _| i as f64);
         let y = Col::from_fn(10, |i| i as f64 * 0.1); // not binary
 
-        let model = LogisticRegression::builder().build();
+        let model = LogisticRegressor::builder().build();
         let result = model.fit(&x, &y);
 
         assert!(result.is_err(), "should reject non-binary y values");
@@ -606,7 +606,7 @@ mod tests {
     #[test]
     fn test_c_convention() {
         // C = 1/lambda, so C = 0.1 means lambda = 10.0
-        let builder = LogisticRegressionBuilder::default().c(0.1);
+        let builder = LogisticRegressorBuilder::default().c(0.1);
         assert_eq!(builder.penalty, Penalty::L2(10.0));
     }
 
@@ -614,7 +614,7 @@ mod tests {
     fn test_inner_access() {
         let (x, y) = create_test_data(100);
 
-        let fitted = LogisticRegression::builder()
+        let fitted = LogisticRegressor::builder()
             .build()
             .fit(&x, &y)
             .expect("model should fit");

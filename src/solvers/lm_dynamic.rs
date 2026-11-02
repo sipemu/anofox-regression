@@ -107,7 +107,7 @@ impl InformationCriterion {
 /// Specification for a candidate model.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct ModelSpec {
+pub struct CandidateModel {
     /// Which variables are included (indices into original X)
     pub included_vars: Vec<usize>,
     /// Number of parameters (including intercept if applicable)
@@ -186,7 +186,7 @@ impl LmDynamicRegressor {
     /// predictors, as greybox. Errors when there are more subsets than
     /// `max_models` (the candidates are never truncated, which would drop
     /// whole predictors) or more than 30 predictors.
-    fn generate_model_specs(&self, p: usize) -> Result<Vec<ModelSpec>, RegressionError> {
+    fn generate_model_specs(&self, p: usize) -> Result<Vec<CandidateModel>, RegressionError> {
         if p > MAX_PREDICTORS {
             return Err(RegressionError::InvalidInput(format!(
                 "lmDynamic enumerates all 2^p subsets of the predictors; p = {p} exceeds {MAX_PREDICTORS}"
@@ -212,7 +212,7 @@ impl LmDynamicRegressor {
 
             let n_params = included.len() + if self.options.with_intercept { 1 } else { 0 };
 
-            specs.push(ModelSpec {
+            specs.push(CandidateModel {
                 included_vars: included,
                 n_params,
             });
@@ -427,7 +427,7 @@ impl LmDynamicRegressor {
     /// Compute time-varying coefficients as weighted average of model coefficients.
     fn compute_dynamic_coefficients(
         &self,
-        specs: &[ModelSpec],
+        specs: &[CandidateModel],
         fitted_models: &[Option<CandidateFit>],
         weights: &Mat<f64>,
         p: usize,
@@ -718,7 +718,7 @@ pub struct FittedLmDynamic {
     /// Smoothed weights if LOWESS was applied
     smoothed_weights: Option<Mat<f64>>,
     /// Candidate model specifications
-    model_specs: Vec<ModelSpec>,
+    model_specs: Vec<CandidateModel>,
     /// Pointwise IC values (n_obs x n_models matrix)
     pointwise_ic: Mat<f64>,
     /// Mean pointwise IC of each candidate model.
@@ -765,7 +765,7 @@ impl FittedLmDynamic {
     }
 
     /// Get the candidate model specifications.
-    pub fn model_specs(&self) -> &[ModelSpec] {
+    pub fn model_specs(&self) -> &[CandidateModel] {
         &self.model_specs
     }
 

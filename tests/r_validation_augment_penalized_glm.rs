@@ -382,7 +382,7 @@ fn equals_augment_on_the_dedicated_regressors() {
         tol,
     );
 
-    let ded = LogisticRegression::builder()
+    let ded = LogisticRegressor::builder()
         .with_intercept(true)
         .max_iterations(MAX_ITER as usize)
         .tolerance(ETOL)

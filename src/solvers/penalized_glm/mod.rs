@@ -25,10 +25,9 @@
 //!   `&[Vec<f64>]` design (rows with a non-finite value are dropped) and the
 //!   per-family option structs. These are what a SQL / FFI front end calls.
 //!
-//! The lower-level building blocks ([`engine`], [`irls`], [`laplace`], [`loglik`],
-//! [`normal_eq`], [`penalty`], [`design`]) are public as well so other models (e.g.
-//! the AFT model in [`crate::solvers::aft`], or mixed models with Gaussian random
-//! effects as quadratic precision blocks) can reuse them.
+//! The lower-level building blocks (engine, IRLS, Laplace, log-likelihood,
+//! normal equations, penalty, design) are crate-private; other models of the
+//! crate (e.g. the AFT model in [`crate::solvers::aft`]) reuse them.
 //!
 //! # Example
 //!
@@ -54,15 +53,15 @@
 //! assert!(fit.std_errors().unwrap()[0] > 0.0);
 //! ```
 
-pub mod design;
-pub mod engine;
+pub(crate) mod design;
+pub(crate) mod engine;
 pub mod error;
 mod families;
-pub mod irls;
-pub mod laplace;
-pub mod loglik;
-pub mod normal_eq;
-pub mod penalty;
+pub(crate) mod irls;
+pub(crate) mod laplace;
+pub(crate) mod loglik;
+pub(crate) mod normal_eq;
+pub(crate) mod penalty;
 mod predict;
 mod regressor;
 pub mod types;

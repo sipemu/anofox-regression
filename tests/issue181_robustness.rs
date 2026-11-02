@@ -192,14 +192,14 @@ fn estimators_without_na_action_reject_non_finite_input() {
     check(
         "Ard",
         false,
-        regressor(ArdRegression::builder().build()),
+        regressor(ArdRegressor::builder().build()),
         2,
         false,
     );
     check(
-        "BayesianRidge",
+        "BayesianRidgeRegressor",
         false,
-        regressor(BayesianRidge::builder().build()),
+        regressor(BayesianRidgeRegressor::builder().build()),
         2,
         false,
     );
@@ -275,7 +275,7 @@ fn other_fit_entry_points_reject_non_finite_input() {
         "Logistic",
         false,
         |x, y| {
-            LogisticRegression::builder()
+            LogisticRegressor::builder()
                 .build()
                 .fit(x, y)
                 .map(|_| ok(y.nrows()))
@@ -446,7 +446,7 @@ fn grouped_survival_and_logistic_traits() {
         .unwrap();
     assert_eq!(aft.coefficients().nrows(), 2);
     let (xb, yb) = data(2, true);
-    let logistic = Regressor::fit(&LogisticRegression::builder().build(), &xb, &yb).unwrap();
+    let logistic = Regressor::fit(&LogisticRegressor::builder().build(), &xb, &yb).unwrap();
     let labels = FittedRegressor::predict(&logistic, &xb);
     assert!(labels.iter().all(|&v| v == 0.0 || v == 1.0));
     assert_eq!(FittedRegressor::result(&logistic).coefficients.nrows(), 2);

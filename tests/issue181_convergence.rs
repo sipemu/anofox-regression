@@ -105,18 +105,21 @@ fn iterative_fit_is_implemented_everywhere() {
     );
     check(
         "logistic",
-        LogisticRegression::builder()
+        LogisticRegressor::builder()
             .build()
             .fit(&x, &binary)
             .unwrap(),
     );
     check(
         "bayesian ridge",
-        BayesianRidge::builder().build().fit(&x, &cont).unwrap(),
+        BayesianRidgeRegressor::builder()
+            .build()
+            .fit(&x, &cont)
+            .unwrap(),
     );
     check(
         "ard",
-        ArdRegression::builder().build().fit(&x, &cont).unwrap(),
+        ArdRegressor::builder().build().fit(&x, &cont).unwrap(),
     );
     check(
         "passive-aggressive",
@@ -166,7 +169,7 @@ fn iterative_fit_is_implemented_everywhere() {
     );
 
     // the strict policy turns a stopped-early fit into an error
-    let early = BayesianRidge::builder()
+    let early = BayesianRidgeRegressor::builder()
         .max_iter(1)
         .build()
         .fit(&x, &cont)
@@ -176,7 +179,7 @@ fn iterative_fit_is_implemented_everywhere() {
         early.ensure_converged(),
         Err(RegressionError::ConvergenceFailed { iterations: 1 })
     ));
-    let early = ArdRegression::builder()
+    let early = ArdRegressor::builder()
         .max_iter(1)
         .build()
         .fit(&x, &cont)

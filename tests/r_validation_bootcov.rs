@@ -5,7 +5,7 @@
 //!
 //! Reference values come from `tests/r_scripts/generate_bootcov_validation.R`.
 
-use anofox_regression::solvers::LogisticRegression;
+use anofox_regression::solvers::LogisticRegressor;
 use anofox_regression::validation::{bootcov, bootstrap_rows, cluster_bootstrap_rows};
 use faer::{Col, Mat};
 
@@ -14,7 +14,7 @@ include!("fixtures/bootcov_validation.rs");
 fn fit(rows: &[usize]) -> Option<Vec<f64>> {
     let x = Mat::from_fn(rows.len(), 2, |i, j| [X1[rows[i]], X2[rows[i]]][j]);
     let y = Col::from_fn(rows.len(), |i| Y[rows[i]]);
-    let f = LogisticRegression::builder()
+    let f = LogisticRegressor::builder()
         .tolerance(1e-12)
         .build()
         .fit(&x, &y)

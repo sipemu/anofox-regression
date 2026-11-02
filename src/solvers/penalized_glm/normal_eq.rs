@@ -73,11 +73,6 @@ impl NormalEquations {
     pub fn solve(&self, rank_tolerance: f64) -> GlmEngineResult<Col<f64>> {
         solve_qr(&self.xtwx, &self.xtwz, rank_tolerance)
     }
-
-    /// Invert the accumulated matrix. Used for the covariance of the estimates.
-    pub fn inverse(&self) -> GlmEngineResult<Mat<f64>> {
-        invert_spd(&self.xtwx)
-    }
 }
 
 /// Solve `A x = b` by QR with back-substitution.

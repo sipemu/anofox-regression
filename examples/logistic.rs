@@ -2,12 +2,12 @@
 //!
 //! Binary classification via the logit link. Returns class labels from
 //! `predict`, probabilities from `predict_proba`, and accuracy from
-//! `score` — matching sklearn's `LogisticRegression` API.
+//! `score` — matching sklearn's `LogisticRegressor` API.
 //!
 //! Run with: `cargo run --example logistic`
 
 use anofox_regression::solvers::IterativeFit;
-use anofox_regression::solvers::{LogisticRegression, Penalty};
+use anofox_regression::solvers::{LogisticRegressor, Penalty};
 use faer::{Col, Mat};
 
 fn main() {
@@ -32,7 +32,7 @@ fn main() {
         }
     });
 
-    let fitted = LogisticRegression::builder()
+    let fitted = LogisticRegressor::builder()
         .penalty(Penalty::L2(1.0))
         .with_intercept(true)
         .threshold(0.5)

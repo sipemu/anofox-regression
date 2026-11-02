@@ -1,8 +1,9 @@
 //! Bayesian Ridge and ARD wrappers for WebAssembly.
 
 use anofox_regression::solvers::{
-    ArdRegression as RustArd, BayesianRidge as RustBayesianRidge, FittedArd as RustFittedArd,
-    FittedBayesianRidge as RustFittedBayesianRidge, FittedRegressor, Regressor,
+    ArdRegressor as RustArd, BayesianRidgeRegressor as RustBayesianRidge,
+    FittedArd as RustFittedArd, FittedBayesianRidge as RustFittedBayesianRidge, FittedRegressor,
+    Regressor,
 };
 use faer::{Col, Mat};
 use serde::{Deserialize, Serialize};
