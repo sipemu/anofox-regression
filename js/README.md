@@ -23,7 +23,13 @@ WebAssembly bindings for [anofox-regression](https://github.com/sipemu/anofox-re
 - **Negative Binomial** - For overdispersed count data
 - **Tweedie Regression** - Flexible variance (Gamma, Compound Poisson-Gamma, etc.)
 
+### Ordinal Response & Penalized GLM
+- **Ordinal** - Cumulative link models (logistic, probit, loglog, cloglog, cauchit; `rms::orm`, `MASS::polr`) with means, quantiles and the proportional-odds score test
+- **Continuation ratio** - The `rms::cr.setup` + `lrm` model, with cohort-specific slopes
+- **Penalized GLM** - Poisson, binomial, logistic, negative binomial, Gamma and Tweedie GLMs with a ridge penalty and Normal / Laplace priors (posterior mode, as `arm::bayesglm`)
+
 ### Longitudinal, Survival & Smoothing
+- **GLMM** - Linear and generalized linear mixed models (Gaussian, Poisson, binomial, negative binomial, Gamma, Tweedie) with random intercepts and slopes, crossed and nested factors, Satterthwaite tests (`lme4`, `lmerTest`)
 - **GLS** - Generalized least squares with within-group correlation (AR(1), CAR(1), compound symmetry, spatial, unstructured) and variance functions (`nlme::gls`)
 - **AFT** - Accelerated failure time regression with right censoring (Weibull, lognormal, log-logistic, exponential; `survival::survreg`)
 - **P-spline** - Penalized B-spline smoother with GCV-selected smoothing (`mgcv::gam(bs = "ps")`)
@@ -236,6 +242,83 @@ class TweedieRegressor {
 }
 ```
 
+### OrdinalRegressor
+
+Cumulative link model for an ordered response, as `rms::orm`.
+
+```typescript
+class OrdinalRegressor {
+  constructor();
+  setLink(link: 'logistic' | 'probit' | 'loglog' | 'cloglog' | 'cauchit'): void;
+  setWeights(w: Float64Array): void;
+  setOffset(offset: Float64Array): void;
+  setPenalty(lambda: number): void;                 // or setPenaltyMatrix(rowMajorP)
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedOrdinal;
+}
+// FittedOrdinal: getResult(), vcov(), vcovSlopes(), vcovSandwich(), categoryProbabilities,
+// exceedanceProbabilities, predictMean, predictMeanWithSe, predictQuantile(x, nRows, q,
+// 'interpolated' | 'discrete'), predictQuantileCi, proportionalOddsScoreTest, scoreContributions
+// xmeanOrdinaly(x, y, cr) — rms::plot.xmean.ordinaly numbers
+```
+
+### ContinuationRatioRegressor
+
+```typescript
+class ContinuationRatioRegressor {
+  constructor();
+  setCohortSpecific(columns: Uint32Array): void;  // slopes that differ by cohort
+  setWeights(w: Float64Array): void;
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedContinuationRatio;
+}
+// FittedContinuationRatio: getResult(), vcov(), conditionalProbabilities, categoryProbabilities
+// crSetup(y) — the rms::cr.setup expansion
+```
+
+### PenalizedGlmRegressor
+
+```typescript
+class PenalizedGlmRegressor {
+  constructor();
+  // link: Poisson 'log' | 'identity' | 'sqrt', binomial 'logit' | 'probit' | 'cloglog';
+  // param: Tweedie power, fixed negative-binomial theta, or logistic threshold
+  setFamily(family: 'poisson' | 'binomial' | 'logistic' | 'negative_binomial' | 'gamma' | 'tweedie',
+            link?: string, param?: number): void;
+  setLambda(lambda: number): void;
+  setPriors(priors: { kind: 'flat' | 'normal' | 'laplace'; loc?: number; scale?: number }[]): void;
+  setVcovType(vcov: 'laplace' | 'sandwich' | 'naive'): void;
+  setOffset(offset: Float64Array): void;
+  setComputeInference(compute: boolean): void;
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array): FittedPenalizedGlm;
+}
+// FittedPenalizedGlm: getResult(), predict, predictLinear, predictWithOffset
+```
+
+### GlmmRegressor
+
+Mixed model with random intercepts (and slopes) per group, as `lme4::lmer` / `glmer(nAGQ = 0)`.
+
+```typescript
+class GlmmRegressor {
+  constructor(family?: 'gaussian' | 'poisson' | 'binomial' | 'negative_binomial' | 'gamma' | 'tweedie',
+              power?: number);
+  setRandomSlopes(columns: Uint32Array): void;
+  setRandomSlopesPerFactor(columns: number[][]): void;  // for fitCrossed
+  setReml(reml: boolean): void;
+  setSatterthwaite(compute: boolean): void;
+  setNAgq(nAgq: number): void;
+  setNbTheta(theta: number): void;
+  setOffset(offset: Float64Array): void;
+  fit(x: Float64Array, nRows: number, nCols: number, y: Float64Array, group: Uint32Array): FittedGlmm;
+  // crossed (1|a) + (1|b): [a, b]; nested (1|a/b): [a, ab] with a unique id per (a, b)
+  fitCrossed(x: Float64Array, nRows: number, nCols: number, y: Float64Array,
+             groups: (number[] | Uint32Array)[]): FittedGlmm;
+}
+// FittedGlmm: getResult() (fixed effects, SEs, vcov, BLUPs and their SEs, variance components,
+// logLik / AIC / BIC, fitted values, residuals), confInt(level), inference('wald' | 'satterthwaite',
+// level), randomEffectsConfInt(level), factorRandomCov / factorRandomSd / factorRandomEffects /
+// factorRandomEffectsSe / factorRandomEffectsConfInt(f), predictFixed (linear predictor)
+```
+
 ### GlsRegressor
 
 Generalized least squares for grouped (longitudinal) data, as `nlme::gls`.
@@ -293,7 +376,8 @@ class PSplineRegressor {
 
 Every iteratively fitted model (`FittedPoisson`, `FittedBinomial`, `FittedNegativeBinomial`,
 `FittedTweedie`, `FittedGamma`, `FittedLogistic`, `FittedHuber`, `FittedQuantile`,
-`FittedBayesianRidge`, `FittedArd`, `FittedPassiveAggressive`, `FittedAft`) has
+`FittedBayesianRidge`, `FittedArd`, `FittedPassiveAggressive`, `FittedAft`, `FittedOrdinal`,
+`FittedContinuationRatio`, `FittedPenalizedGlm`, `FittedGlmm`) has
 `getConverged(): boolean` and `getIterations(): number`. The IRLS GLMs throw when they don't
 converge; `setErrorOnNonConvergence(false)` returns the last iterate instead.
 

@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **JS/WASM parity, phase 1a (#287).** The npm package gains `GlsRegressor` (`nlme::gls`: correlation structures, variance functions, residual types, `predictWithSe`, `variogram`), `AftRegressor` (`survival::survreg`: four distributions, inference, priors, quantile / survival / CDF predictions, standardized and Cox–Snell residuals, score contributions) and `PSplineRegressor` (`mgcv::gam(bs = "ps")`, with confidence and prediction intervals). Every iterative fitted model has `getConverged()` / `getIterations()` (the Rust `IterativeFit` trait), and the IRLS GLMs have `setErrorOnNonConvergence`. The JS tests check the new wrappers against the R reference values of the Rust validation.
+- **JS/WASM parity, phase 1b (#287).** `OrdinalRegressor` (`rms::orm` / `MASS::polr`: five links, weights, offset, penalties, category and exceedance probabilities, means with SEs, quantiles with CIs, the proportional-odds score test, score contributions; `xmeanOrdinaly`), `ContinuationRatioRegressor` (`cr.setup` + `lrm`, cohort-specific slopes, weights; `crSetup`) and `PenalizedGlmRegressor` (six families, ridge `lambda`, Normal / Laplace priors, three covariance types, offset, quasi-Poisson).
+- **JS/WASM parity, phase 1c (#287).** `GlmmRegressor` (`lme4`: six families, random intercepts and slopes, `fitCrossed` for crossed and nested factors, REML/ML, `nAGQ`, Satterthwaite and Wald inference, BLUPs with SEs and intervals, per-factor variance components). With it, every Rust estimator has a JS class.
 
 ### Changed
 
