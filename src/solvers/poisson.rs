@@ -56,6 +56,8 @@ pub struct PoissonRegressor {
     options: RegressionOptions,
     family: PoissonFamily,
     offset: Option<Col<f64>>,
+    /// Prior (case) weights.
+    weights: super::glm_weights::PriorWeights,
     /// Scale the covariance by the Pearson χ²/df (quasi-Poisson,
     /// `glm(family = quasipoisson)`) instead of dispersion 1. Default `false`.
     estimate_dispersion: bool,
@@ -72,6 +74,7 @@ impl PoissonRegressor {
             options,
             family,
             offset: None,
+            weights: Default::default(),
             estimate_dispersion: false,
             error_on_non_convergence: true,
         }
@@ -153,7 +156,7 @@ impl PoissonRegressor {
         // unpenalised deviance rises on the way to the shrunken solution.
         let (lambda, with_intercept) = (self.options.lambda, self.options.with_intercept);
         let penalty = |b: &Col<f64>| super::fit_stats::ridge_penalty(b, lambda, with_intercept);
-        let mut dev = self.family.deviance(&y_vec, &mu);
+        let mut dev = self.weights.deviance(&self.family, &y_vec, &mu);
         let mut dev_old: f64;
 
         // Maximum step halvings per iteration (following R's glm.control default)
@@ -179,7 +182,7 @@ impl PoissonRegressor {
             self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
             // Update deviance after μ update
-            dev = self.family.deviance(&y_vec, &mu) + penalty(&beta);
+            dev = self.weights.deviance(&self.family, &y_vec, &mu) + penalty(&beta);
 
             // Step-halving: if deviance increased, halve the step (following R's glm.fit)
             if dev.is_finite() && dev_old.is_finite() {
@@ -196,7 +199,7 @@ impl PoissonRegressor {
                     self.update_eta_mu(&x_design, &beta, &mut eta, &mut mu, n_samples, n_params)?;
 
                     // Recompute deviance
-                    dev = self.family.deviance(&y_vec, &mu) + penalty(&beta);
+                    dev = self.weights.deviance(&self.family, &y_vec, &mu) + penalty(&beta);
                 }
             }
 
@@ -230,7 +233,7 @@ impl PoissonRegressor {
         let mut z = vec![0.0; n];
 
         for i in 0..n {
-            weights[i] = self.family.irls_weight(mu[i]);
+            weights[i] = self.weights.get(i) * self.family.irls_weight(mu[i]);
             // Working response needs adjustment for offset
             let eta_no_offset = if let Some(ref offset) = self.offset {
                 eta[i] - offset[i]
@@ -417,12 +420,13 @@ impl PoissonRegressor {
         let residuals = Col::from_fn(n_samples, |i| y[i] - mu[i]);
 
         let y_vec: Vec<f64> = (0..n_samples).map(|i| y[i]).collect();
-        let deviance = self.family.deviance(&y_vec, mu);
+        let deviance = self.weights.deviance(&self.family, &y_vec, mu);
+        let w_vec = self.weights.to_vec();
         let off_vec: Option<Vec<f64>> = self.offset.as_ref().map(|o| o.iter().copied().collect());
         let null_deviance = crate::core::glm_null_deviance(
             &self.family,
             &y_vec,
-            None,
+            w_vec.as_deref(),
             off_vec.as_deref(),
             self.options.with_intercept,
         );
@@ -431,12 +435,11 @@ impl PoissonRegressor {
         // gives the quasi-Poisson Pearson χ²/df (unfloored, as
         // `glm(family = quasipoisson)`). A max(1, χ²/df) floor inflated the SEs
         // on overdispersed data (#189).
-        let df_resid = (n_samples.saturating_sub(n_params)) as f64;
+        // Rows with weight 0 do not count (R's `n.ok`).
+        let n_ok = self.weights.n_ok(n_samples);
+        let df_resid = (n_ok.saturating_sub(n_params)) as f64;
         let dispersion = if self.estimate_dispersion && df_resid > 0.0 {
-            let pearson_chi2: f64 = (0..n_samples)
-                .map(|i| (y[i] - mu[i]).powi(2) / self.family.variance(mu[i]))
-                .sum();
-            pearson_chi2 / df_resid
+            self.weights.pearson_chi2(&self.family, &y_vec, mu) / df_resid
         } else {
             1.0
         };
@@ -447,7 +450,7 @@ impl PoissonRegressor {
             f64::NAN
         };
 
-        let df_total = (n_samples - 1) as f64;
+        let df_total = n_ok.saturating_sub(1) as f64;
         let adj_r_squared = if df_resid > 0.0 && df_total > 0.0 {
             1.0 - (1.0 - r_squared) * df_total / df_resid
         } else {
@@ -477,11 +480,16 @@ impl PoissonRegressor {
             f64::NAN
         };
 
+        // R's `nobs` for BIC counts zero-weight rows too.
         let n = n_samples as f64;
         let k = n_params as f64;
         // Full Poisson log-likelihood (R's logLik(glm)), not -deviance/2,
-        // which omits the saturated term.
-        let log_likelihood = super::fit_stats::poisson_log_likelihood(&y_vec, mu);
+        // which omits the saturated term; `Σ wᵢ log dpois(yᵢ, μᵢ)` with prior
+        // weights (R's `poisson()$aic`).
+        let log_likelihood = self.weights.weighted_sum(
+            (0..n_samples)
+                .map(|i| super::fit_stats::poisson_log_likelihood(&y_vec[i..=i], &mu[i..=i])),
+        );
 
         let aic = 2.0 * k - 2.0 * log_likelihood;
         let aicc = if (n - k - 1.0) > 0.0 {
@@ -548,6 +556,7 @@ impl PoissonRegressor {
             iterations,
             converged,
             y_values: y.clone(),
+            prior_weights: self.weights.clone(),
             xtwx_inverse,
             offset: self.offset.clone(),
             aliased,
@@ -565,7 +574,7 @@ impl PoissonRegressor {
 
         let mut xtwx: Mat<f64> = Mat::zeros(n_params, n_params);
         for i in 0..n_samples {
-            let w = self.family.irls_weight(mu[i]);
+            let w = self.weights.get(i) * self.family.irls_weight(mu[i]);
             for j in 0..n_params {
                 for k in 0..n_params {
                     xtwx[(j, k)] += w * x[(i, j)] * x[(i, k)];
@@ -609,9 +618,12 @@ impl Regressor for PoissonRegressor {
     type Fitted = FittedPoisson;
 
     fn fit(&self, x: &Mat<f64>, y: &Col<f64>) -> Result<Self::Fitted, RegressionError> {
-        if let Some((xc, yc, na_info)) =
-            crate::core::apply_na_action(x, y, self.options.na_action, self.offset.is_some())?
-        {
+        if let Some((xc, yc, na_info)) = crate::core::apply_na_action(
+            x,
+            y,
+            self.options.na_action,
+            self.offset.is_some() || self.weights.is_some(),
+        )? {
             let mut fitted = self.fit(&xc, &yc)?;
             fitted.result.na_info = Some(na_info);
             return Ok(fitted);
@@ -657,6 +669,7 @@ impl Regressor for PoissonRegressor {
             }
             crate::core::validate_finite_extra("offset", offset)?;
         }
+        self.weights.validate(n_samples)?;
 
         // Validate y values are non-negative
         for i in 0..n_samples {
@@ -760,6 +773,8 @@ pub struct FittedPoisson {
     pub converged: bool,
     /// Original y values.
     y_values: Col<f64>,
+    /// Prior weights (`None`: all 1).
+    prior_weights: super::glm_weights::PriorWeights,
     /// (X'WX)⁻¹ matrix for prediction SE.
     xtwx_inverse: Option<Mat<f64>>,
     /// Offset used in fitting (stored for potential residual calculations).
@@ -814,16 +829,24 @@ impl FittedPoisson {
         Col::from_fn(mu.nrows(), |i| self.family.link(mu[i]))
     }
 
-    /// Compute Pearson residuals: (y - μ) / sqrt(V(μ)).
+    /// Compute Pearson residuals: `√wᵢ (y − μ) / √V(μ)` (prior weights
+    /// `wᵢ`, 1 without weights; R's `residuals(type = "pearson")`).
     pub fn pearson_residuals(&self) -> Col<f64> {
         let mu = &self.result.fitted_values;
-        pearson_residuals(&self.y_values, mu, &self.family)
+        self.prior_weights
+            .scale_residuals(pearson_residuals(&self.y_values, mu, &self.family))
     }
 
-    /// Compute deviance residuals: sign(y - μ) * sqrt(d_i).
+    /// Compute deviance residuals: `sign(y − μ) √(wᵢ dᵢ)`.
     pub fn deviance_residuals(&self) -> Col<f64> {
         let mu = &self.result.fitted_values;
-        deviance_residuals(&self.y_values, mu, &self.family)
+        self.prior_weights
+            .scale_residuals(deviance_residuals(&self.y_values, mu, &self.family))
+    }
+
+    /// The prior weights the model was fitted with (`None`: all 1).
+    pub fn prior_weights(&self) -> Option<&Col<f64>> {
+        self.prior_weights.col()
     }
 
     /// Compute working residuals: (y - μ) * (dη/dμ).
@@ -1049,6 +1072,7 @@ pub struct PoissonRegressorBuilder {
     options_builder: RegressionOptionsBuilder,
     link: PoissonLink,
     offset: Option<Col<f64>>,
+    weights: Option<Col<f64>>,
     estimate_dispersion: bool,
     /// When `true`, non-convergence is reported via `FittedPoisson::converged`
     /// instead of returning an error. Defaults to `false` (error), so the
@@ -1116,6 +1140,16 @@ impl PoissonRegressorBuilder {
         self
     }
 
+    /// Prior (case) weights, as `glm(weights = )` and sklearn's
+    /// `sample_weight`: each row's IRLS weight, unit deviance, log-likelihood
+    /// term and Pearson χ² term are multiplied by its weight, and Pearson /
+    /// deviance residuals by its square root. Rows with weight 0 do not count
+    /// towards the residual degrees of freedom.
+    pub fn weights(mut self, weights: Col<f64>) -> Self {
+        self.weights = Some(weights);
+        self
+    }
+
     /// Scale the coefficient covariance by the Pearson χ²/df.
     ///
     /// `false` (the default) uses dispersion 1, as `glm(family = poisson)`.
@@ -1151,6 +1185,7 @@ impl PoissonRegressorBuilder {
             options: self.options_builder.build_unchecked(),
             family: PoissonFamily::new(self.link),
             offset: self.offset,
+            weights: super::glm_weights::PriorWeights::new(self.weights),
             estimate_dispersion: self.estimate_dispersion,
             error_on_non_convergence: !self.allow_non_convergence,
         }

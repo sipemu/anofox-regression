@@ -141,6 +141,7 @@ impl FittedPoisson {
 pub struct PoissonRegressor {
     na_action: NaAction,
     offset: Option<Vec<f64>>,
+    weights: Option<Vec<f64>>,
     link: String,
     with_intercept: bool,
     compute_inference: bool,
@@ -157,6 +158,7 @@ impl PoissonRegressor {
         Self {
             na_action: NaAction::default(),
             offset: None,
+            weights: None,
             link: "log".to_string(),
             with_intercept: true,
             compute_inference: true,
@@ -204,6 +206,13 @@ impl PoissonRegressor {
     #[wasm_bindgen(js_name = setOffset)]
     pub fn set_offset(&mut self, offset: Vec<f64>) {
         self.offset = Some(offset);
+    }
+
+    /// Set prior (case) weights, one per row, as `glm(weights = )` and
+    /// sklearn's `sample_weight`.
+    #[wasm_bindgen(js_name = setWeights)]
+    pub fn set_weights(&mut self, weights: Vec<f64>) {
+        self.weights = Some(weights);
     }
 
     /// Set the convergence tolerance for IRLS.
@@ -275,6 +284,9 @@ impl PoissonRegressor {
         if let Some(offset) = row_column(&self.offset, n_rows, "offset")? {
             builder = builder.offset(offset);
         }
+        if let Some(weights) = row_column(&self.weights, n_rows, "weights")? {
+            builder = builder.weights(weights);
+        }
 
         let model = builder.build();
 
@@ -306,3 +318,14 @@ glm_residual_methods!(FittedPoisson);
 predict_col_methods!(FittedPoisson { "predictLinear" => predict_linear, "predictCount" => predict_count });
 predict_with_se_method!(FittedPoisson);
 vcov_method!(FittedPoisson);
+
+#[wasm_bindgen]
+impl FittedPoisson {
+    /// The prior weights the model was fitted with (`undefined`: all 1).
+    #[wasm_bindgen(js_name = priorWeights)]
+    pub fn prior_weights(&self) -> Option<Vec<f64>> {
+        self.fitted
+            .prior_weights()
+            .map(|w| w.iter().copied().collect())
+    }
+}
