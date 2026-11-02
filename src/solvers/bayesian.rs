@@ -860,12 +860,15 @@ impl FittedArd {
         &self.sigma
     }
     /// Posterior variance of every coefficient; 0 for pruned features.
-    pub fn sigma_diag(&self) -> Vec<f64> {
-        let mut d = vec![0.0; self.lambdas.len()];
-        for (i, &j) in self.kept.iter().enumerate() {
-            d[j] = self.sigma[(i, i)];
-        }
-        d
+    pub fn sigma_diag(&self) -> faer::Col<f64> {
+        let v: Vec<f64> = {
+            let mut d = vec![0.0; self.lambdas.len()];
+            for (i, &j) in self.kept.iter().enumerate() {
+                d[j] = self.sigma[(i, i)];
+            }
+            d
+        };
+        faer::Col::from_fn(v.len(), |i| v[i])
     }
     /// Posterior predictive standard deviation of the rows of `x`, as
     /// sklearn's `predict(X, return_std=True)`.
