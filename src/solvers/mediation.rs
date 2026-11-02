@@ -62,6 +62,7 @@
 //! assert!((r.acme.estimate + r.ade.estimate - r.total.estimate).abs() < 1e-12);
 //! ```
 
+use crate::numeric::quantile::quantile7;
 use crate::solvers::{FittedRegressor, OlsRegressor, Regressor};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
@@ -247,8 +248,8 @@ impl MediationEffect {
             std_error: sd,
             statistic: f64::NAN,
             p_value,
-            conf_low: quantile_type7(&d, p_lo),
-            conf_high: quantile_type7(&d, p_hi),
+            conf_low: quantile7(&d, p_lo),
+            conf_high: quantile7(&d, p_hi),
         }
     }
 }
@@ -675,18 +676,6 @@ fn quasi_bayesian_draws(
     Ok(draws)
 }
 
-/// R's `quantile(x, p, type = 7)` of sorted data.
-fn quantile_type7(sorted: &[f64], p: f64) -> f64 {
-    if !p.is_finite() {
-        return f64::NAN;
-    }
-    let n = sorted.len();
-    let h = (n - 1) as f64 * p.clamp(0.0, 1.0);
-    let lo = h.floor() as usize;
-    let hi = (lo + 1).min(n - 1);
-    sorted[lo] + (h - lo as f64) * (sorted[hi] - sorted[lo])
-}
-
 /// Adjusted tail probabilities of `mediate`'s BCa interval (its `BC.CI`).
 fn bca_levels(d: &[f64], mean: f64, low: f64, high: f64) -> (f64, f64) {
     let normal = Normal::new(0.0, 1.0).expect("standard normal");
@@ -703,13 +692,14 @@ fn bca_levels(d: &[f64], mean: f64, low: f64, high: f64) -> (f64, f64) {
     (adj(low), adj(high))
 }
 
+/// Median of the non-NaN values of `d` (NaN if there are none).
 fn median(d: &[f64]) -> f64 {
     let mut s: Vec<f64> = d.iter().copied().filter(|v| !v.is_nan()).collect();
     if s.is_empty() {
         return f64::NAN;
     }
     s.sort_by(|a, b| a.total_cmp(b));
-    quantile_type7(&s, 0.5)
+    quantile7(&s, 0.5)
 }
 
 #[derive(Debug, Clone)]
@@ -983,15 +973,15 @@ mod tests {
         assert!((e.p_value - 0.5).abs() < 1e-12);
         assert!(median(&[f64::NAN]).is_nan());
         assert!((median(&[3.0, 1.0, 2.0]) - 2.0).abs() < 1e-12);
-        assert!(quantile_type7(&[1.0, 2.0], f64::NAN).is_nan());
+        assert!(quantile7(&[1.0, 2.0], f64::NAN).is_nan());
     }
 
     #[test]
     fn quantile_type7_matches_r() {
         // quantile(c(1, 2, 4, 8), c(0.025, 0.5, 0.975))
         let s = [1.0, 2.0, 4.0, 8.0];
-        assert!((quantile_type7(&s, 0.025) - 1.075).abs() < 1e-12);
-        assert!((quantile_type7(&s, 0.5) - 3.0).abs() < 1e-12);
-        assert!((quantile_type7(&s, 0.975) - 7.7).abs() < 1e-12);
+        assert!((quantile7(&s, 0.025) - 1.075).abs() < 1e-12);
+        assert!((quantile7(&s, 0.5) - 3.0).abs() < 1e-12);
+        assert!((quantile7(&s, 0.975) - 7.7).abs() < 1e-12);
     }
 }

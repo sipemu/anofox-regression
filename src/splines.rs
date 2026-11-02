@@ -34,6 +34,7 @@
 //! assert_eq!(new.columns.nrows(), 2);
 //! ```
 
+use crate::numeric::quantile::quantile7;
 use faer::Mat;
 use thiserror::Error;
 
@@ -565,25 +566,6 @@ fn seq(from: f64, to: f64, n: usize) -> Vec<f64> {
     }
     let by = (to - from) / (n - 1) as f64;
     (0..n).map(|i| from + by * i as f64).collect()
-}
-
-/// R's default (type 7) quantile of sorted values; NaN if empty.
-fn quantile7(sorted: &[f64], p: f64) -> f64 {
-    let n = sorted.len();
-    if n == 0 {
-        return f64::NAN;
-    }
-    let h = (n - 1) as f64 * p;
-    // R rounds h within 4·eps to avoid spurious interpolation.
-    let fuzz = 4.0 * f64::EPSILON;
-    let lo = (h + fuzz).floor();
-    let frac = h - lo;
-    let lo = lo as usize;
-    if frac.abs() < fuzz || lo + 1 >= n {
-        sorted[lo.min(n - 1)]
-    } else {
-        (1.0 - frac) * sorted[lo] + frac * sorted[lo + 1]
-    }
 }
 
 /// Distinct values of sorted data and their counts.

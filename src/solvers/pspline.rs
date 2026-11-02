@@ -29,6 +29,8 @@
 
 use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
+use crate::numeric::linalg::{chol_solve, cholesky};
+use crate::numeric::optim::golden_section;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, StudentsT};
@@ -410,27 +412,11 @@ fn minimise_gcv(gcv: &dyn Fn(f64) -> f64, ln_scale: f64) -> f64 {
     if best == 0 || best == grid.len() - 1 {
         return grid[best];
     }
-    let (mut a, mut b) = (grid[best - 1], grid[best + 1]);
     let g = (5f64.sqrt() - 1.0) / 2.0;
-    let mut c = b - g * (b - a);
-    let mut d = a + g * (b - a);
-    let (mut fc, mut fd) = (gcv(c), gcv(d));
-    while b - a > 1e-10 {
-        if fc < fd {
-            b = d;
-            d = c;
-            fd = fc;
-            c = b - g * (b - a);
-            fc = gcv(c);
-        } else {
-            a = c;
-            c = d;
-            fc = fd;
-            d = a + g * (b - a);
-            fd = gcv(d);
-        }
-    }
-    (a + b) / 2.0
+    // Written as a negated `>` so a NaN bracket width also stops the search.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    let done = |a: f64, b: f64| !(b - a > 1e-10);
+    golden_section(gcv, grid[best - 1], grid[best + 1], g, &done, usize::MAX)
 }
 
 /// Difference penalty P = Dₖᵀ Dₖ (p × p) for difference order `k`.
@@ -456,50 +442,6 @@ fn difference_penalty(p: usize, order: usize) -> Vec<Vec<f64>> {
         }
     }
     pen
-}
-
-#[allow(clippy::needless_range_loop)]
-fn cholesky(a: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
-    let n = a.len();
-    let mut l = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        for j in 0..=i {
-            let mut s = a[i][j];
-            for k in 0..j {
-                s -= l[i][k] * l[j][k];
-            }
-            if i == j {
-                if s <= 0.0 {
-                    return None;
-                }
-                l[i][j] = s.sqrt();
-            } else {
-                l[i][j] = s / l[j][j];
-            }
-        }
-    }
-    Some(l)
-}
-
-fn chol_solve(l: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
-    let n = l.len();
-    let mut y = vec![0.0; n];
-    for i in 0..n {
-        let mut s = b[i];
-        for k in 0..i {
-            s -= l[i][k] * y[k];
-        }
-        y[i] = s / l[i][i];
-    }
-    let mut x = vec![0.0; n];
-    for i in (0..n).rev() {
-        let mut s = y[i];
-        for k in i + 1..n {
-            s -= l[k][i] * x[k];
-        }
-        x[i] = s / l[i][i];
-    }
-    x
 }
 
 #[cfg(test)]

@@ -1105,7 +1105,7 @@ pub fn transcan(
             nparm.push(rcs.n_columns());
             let mut s = obs.clone();
             s.sort_by(f64::total_cmp);
-            fillin.push(crate::diagnostics::accuracy::quantile7(&s, 0.5));
+            fillin.push(crate::numeric::quantile::quantile7(&s, 0.5));
         }
     }
     let varconst = ((n - 1) as f64).sqrt();

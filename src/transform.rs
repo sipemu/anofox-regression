@@ -28,7 +28,7 @@ mod areg;
 pub(crate) use areg::canonical;
 pub use areg::{areg, Areg, AregBootstrap, AregOptions, AregType};
 
-use crate::diagnostics::accuracy::quantile7;
+use crate::numeric::quantile::quantile7;
 use crate::solvers::RegressionError;
 use faer::{Col, Mat};
 use statrs::distribution::{ChiSquared, ContinuousCDF};

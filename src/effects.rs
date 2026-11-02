@@ -21,7 +21,7 @@
 //! design's column order, intercept first when `intercept` is set.
 
 use crate::design::{Design, DesignError};
-use crate::diagnostics::accuracy::quantile7;
+use crate::numeric::quantile::quantile7;
 use crate::splines::{Basis, Lsp, Rcs};
 use faer::{Col, Mat};
 use statrs::distribution::{ChiSquared, ContinuousCDF, FisherSnedecor, Normal, StudentsT};

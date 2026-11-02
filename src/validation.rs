@@ -33,8 +33,8 @@
 
 use crate::diagnostics::accuracy::{
     approx_ties_mean, binomial_deviance, gini_md, logistic_recalibration, lrm_stats, plogis,
-    quantile7,
 };
+use crate::numeric::quantile::quantile7;
 use crate::solvers::lowess::{lowess, LowessOptions};
 use crate::solvers::{FittedRegressor, LogisticRegressor, OlsRegressor, Regressor};
 use crate::survival::cox::{coxph, CoxFit, CoxInput, CoxOptions};

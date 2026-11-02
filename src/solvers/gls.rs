@@ -31,7 +31,8 @@
 //! # }
 //! ```
 
-use crate::diagnostics::accuracy::quantile7;
+use crate::numeric::linalg::cholesky_mat;
+use crate::numeric::quantile::quantile7;
 use crate::solvers::traits::RegressionError;
 use basin::{
     CostFunction, Executor, FirstOrderState, Gradient, Lbfgs, MoreThuente, NelderMead,
@@ -471,7 +472,7 @@ impl<'a> Problem<'a> {
                         k += 1;
                     }
                 }
-                cholesky(&r).map(|_| r)
+                cholesky_mat(&r).map(|_| r)
             }
             Scale::Optimisation => {
                 let rows = unit_cholesky_rows(theta, m);
@@ -552,7 +553,7 @@ impl<'a> Problem<'a> {
         let mut logdet: f64 = s.iter().map(|v| 2.0 * v.ln()).sum();
         let mut factors = Vec::with_capacity(self.groups.len());
         for members in &self.groups {
-            let l = cholesky(&self.group_correlation(cor, symm.as_ref(), members))?;
+            let l = cholesky_mat(&self.group_correlation(cor, symm.as_ref(), members))?;
             logdet += (0..members.len())
                 .map(|a| 2.0 * l[(a, a)].ln())
                 .sum::<f64>();
@@ -598,7 +599,7 @@ impl<'a> Problem<'a> {
         let resid = &w.yw - &w.xw * &beta;
         let rss: f64 = resid.iter().map(|r| r * r).sum();
         let logdet_xtx = 2.0
-            * cholesky(&xtx)?
+            * cholesky_mat(&xtx)?
                 .diagonal()
                 .column_vector()
                 .iter()
@@ -781,25 +782,6 @@ struct Profile {
 
 // ======================================================== small linear algebra
 
-/// Lower Cholesky factor of a symmetric positive definite matrix.
-fn cholesky(a: &Mat<f64>) -> Option<Mat<f64>> {
-    let m = a.nrows();
-    let mut l = Mat::<f64>::zeros(m, m);
-    for j in 0..m {
-        let d = a[(j, j)] - (0..j).map(|k| l[(j, k)].powi(2)).sum::<f64>();
-        if !(d > 0.0 && d.is_finite()) {
-            return None;
-        }
-        let ljj = d.sqrt();
-        l[(j, j)] = ljj;
-        for i in j + 1..m {
-            let v = a[(i, j)] - (0..j).map(|k| l[(i, k)] * l[(j, k)]).sum::<f64>();
-            l[(i, j)] = v / ljj;
-        }
-    }
-    Some(l)
-}
-
 /// Solve `L Z = B` for lower-triangular `L`.
 fn forward_solve(l: &Mat<f64>, b: &Mat<f64>) -> Mat<f64> {
     let mut z = b.clone();
@@ -814,7 +796,7 @@ fn forward_solve(l: &Mat<f64>, b: &Mat<f64>) -> Mat<f64> {
 
 /// Inverse of a symmetric positive definite matrix.
 fn spd_inverse(a: &Mat<f64>) -> Option<Mat<f64>> {
-    let l = cholesky(a)?;
+    let l = cholesky_mat(a)?;
     let m = a.nrows();
     let linv = forward_solve(&l, &Mat::<f64>::identity(m, m));
     Some(linv.transpose() * &linv)

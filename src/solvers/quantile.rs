@@ -25,6 +25,7 @@
 
 use crate::core::{HasModelInfo, ModelInfo};
 use crate::core::{IntervalType, PredictionResult, RegressionResult};
+use crate::numeric::linalg::solve_spd_jittered;
 use crate::solvers::traits::{Convergence, FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
 
@@ -214,7 +215,7 @@ impl QuantileRegressor {
         }
 
         // Solve using Cholesky decomposition
-        self.solve_symmetric(&xtx, &xty)
+        Ok(solve_spd_jittered(&xtx, &xty))
     }
 
     /// Solve weighted least squares.
@@ -250,58 +251,7 @@ impl QuantileRegressor {
         }
 
         // Solve using Cholesky decomposition
-        self.solve_symmetric(&xtwx, &xtwy)
-    }
-
-    /// Solve symmetric positive definite system Ax = b using Cholesky decomposition.
-    fn solve_symmetric(&self, a: &Mat<f64>, b: &Col<f64>) -> Result<Col<f64>, RegressionError> {
-        let n = a.nrows();
-
-        // Cholesky decomposition: A = LL'
-        let mut l: Mat<f64> = Mat::zeros(n, n);
-        for j in 0..n {
-            let mut sum = 0.0;
-            for k in 0..j {
-                sum += l[(j, k)].powi(2);
-            }
-            let diag = a[(j, j)] - sum;
-            if diag <= 0.0 {
-                // Add small regularization if needed
-                l[(j, j)] = (a[(j, j)] + 1e-10).sqrt();
-            } else {
-                l[(j, j)] = diag.sqrt();
-            }
-
-            for i in (j + 1)..n {
-                let mut sum = 0.0;
-                for k in 0..j {
-                    sum += l[(i, k)] * l[(j, k)];
-                }
-                l[(i, j)] = (a[(i, j)] - sum) / l[(j, j)];
-            }
-        }
-
-        // Forward substitution: Ly = b
-        let mut y_sol = Col::zeros(n);
-        for i in 0..n {
-            let mut sum = b[i];
-            for j in 0..i {
-                sum -= l[(i, j)] * y_sol[j];
-            }
-            y_sol[i] = sum / l[(i, i)];
-        }
-
-        // Backward substitution: L'x = y
-        let mut x = Col::zeros(n);
-        for i in (0..n).rev() {
-            let mut sum = y_sol[i];
-            for j in (i + 1)..n {
-                sum -= l[(j, i)] * x[j];
-            }
-            x[i] = sum / l[(i, i)];
-        }
-
-        Ok(x)
+        Ok(solve_spd_jittered(&xtwx, &xtwy))
     }
 
     /// Weighted check-loss objective `Σ w_i ρ_τ(y_i − x_i'β)`.
