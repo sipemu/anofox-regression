@@ -479,6 +479,22 @@ nom.getResult(); nom.functionAxis((lp) => 1 / (1 + Math.exp(-lp))); nom.pointsTo
 numericLimits(x); simultaneousCritical(rows, vcov, options)
 ```
 
+### Validation and calibration
+
+```typescript
+const r = Resamples.bootstrapSeeded(n, 200, 42);  // or bootstrap(n, samples), crossvalidation(perm, B),
+                                                  // crossvalidationSeeded, point632, point632Seeded
+const t = validateLrm(x, nRows, nCols, y, r);     // validateOls; t.get('Dxy') → { orig, optimism, corrected, ... }
+calibrateLrm(x, nRows, nCols, y, r, predy?); calibrateOls(...)
+calibrateCph(x, nRows, nCols, time, event, u, r, m, cuts?, { eps: 1e-4, maxIter: 10 })
+
+// any modelling process: fit(rows) → model (null = failed), measure(model, rows, apparent) → number[]
+predabResample(r, ['R2', 'MSE'], fit, measure)
+const b = bootcov(bootstrapRows(n, 500, 1), (rows) => coefficients);  // or clusterBootstrapRows(ids, B, seed)
+b.getVcov(); b.percentileCi(0.95); b.linearCombinationCi(c, 0.95)
+rankIntervals(original, replicates, 0.9)
+```
+
 ### Missing values, offsets and prior weights
 
 ```typescript
