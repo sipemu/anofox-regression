@@ -1,0 +1,113 @@
+# JS/WASM parity allow-list (#287, phase 6), checked by scripts/js_parity.py.
+#
+# Every public item of the Rust crate needs a JS binding unless it is listed
+# here with a reason. `result` entries are verified: the name must be a field
+# of the JS class's getResult() object. Stale entries fail the check.
+
+# ---------------------------------------------------------------- renames
+type solvers::logistic::LogisticRegressor => LogisticRegression  # JS name kept stable (#180)
+type solvers::bayesian::BayesianRidgeRegressor => BayesianRidge  # JS name kept stable (#180)
+type solvers::bayesian::ArdRegressor => ArdRegression  # JS name kept stable (#180)
+
+# ------------------------------------------------- builders and options
+type solvers::*Builder  # JS regressor classes are the builders (set* methods)
+type core::options::RegressionOptionsBuilder  # JS regressor classes are the builders (set* methods)
+method solvers::*::builder  # JS regressor classes are the builders (`new` + set* methods)
+type *Options  # options are plain JS objects or set* methods
+type solvers::penalized_glm::types::PriorSpec  # priors are plain objects (setPriors)
+type solvers::pentrace::PenaltySpec  # penalties are numbers or plain objects
+type survival::SurvInput  # survival data is passed as arrays and a `data` object
+type survival::cox::CoxInput  # survival data is passed as arrays and a `data` object
+type diagnostics::augment::AugmentSpec  # augment(x, nRows, y, residType, weights) arguments
+type solvers::cv::CvSplit  # splits are plain { train, test } objects
+method solvers::ols::OlsRegressor::with_alias_tolerance  # setRankTolerance
+method solvers::wls::WlsRegressor::{with_alias_tolerance,with_weights}  # setRankTolerance / setWeights
+method solvers::pspline::PSplineRegressor::{build,with_lambda,with_n_basis,with_penalty_order}  # set* methods of PSplineRegressor
+method splines::Rcs::with_norm  # Rcs.setNorm
+method solvers::negative_binomial::NegativeBinomialRegressor::with_theta  # NegativeBinomialRegressor.setTheta
+method solvers::binomial::BinomialRegressor::{logistic,probit,cloglog}  # BinomialRegressor.setLink
+method solvers::poisson::PoissonRegressor::{log,identity,sqrt}  # PoissonRegressor.setLink
+method solvers::tweedie::TweedieRegressor::{gaussian,poisson,inverse_gaussian}  # TweedieRegressor power / link setters
+method solvers::glmm::GlmmRegressor::{gaussian,binomial,poisson,gamma,negative_binomial,tweedie}  # GlmmRegressor.setFamily
+
+# --------------------------------------- enums and families (string options)
+type core::binomial::BinomialFamily  # family / link are string options
+type core::family::TweedieFamily  # family / link are string options
+type core::link::BinomialLink  # family / link are string options
+type core::negative_binomial::NegativeBinomialFamily  # family / link are string options
+type core::poisson::PoissonFamily  # family / link are string options
+type core::poisson_link::PoissonLink  # family / link are string options
+type solvers::ordinal::OrdinalLink  # link is a string option
+type solvers::alm::{AlmDistribution,AlmLoss,LinkFunction}  # string options of AlmRegressor
+type solvers::aft::distribution::AftDistribution  # AftRegressor.setDistribution; density helpers are internal
+type solvers::lm_dynamic::InformationCriterion  # LmDynamicRegressor.setIc
+type solvers::penalized_glm::regressor::PenalizedGlmFamily  # PenalizedGlmRegressor.setFamily
+type solvers::aid::{DemandClassification,DemandDistribution}  # AidResult getters (getDemandType, getDistribution, ...)
+type diagnostics::augment::ResidualType  # residType string argument
+type diagnostics::condition_number::ConditionSeverity  # severity string in conditionDiagnostics results
+type solvers::traits::RegressionError  # errors are thrown as JS Error messages
+type core::na_action::{NaHandler,NaInfo}  # setNaAction; NA bookkeeping is internal
+type core::model_info::ModelInfo  # Rust trait plumbing
+type utils::r_rng::RRng  # R-compatible RNG used internally (aregImpute seed replays R)
+
+# ------------------------------------------- result types (plain objects)
+type core::result::RegressionResult  # returned by getResult()
+type core::prediction::PredictionResult  # returned as { fit, lower, upper, se }
+type diagnostics::accuracy::Concordance  # returned by concordance()
+type effects::Limits  # returned by numericLimits() / ModelSpec.predictors()
+type inference::anova::{WaldAnovaTable,WaldTest}  # returned by anova() / waldTest()
+type inference::coefficient::CoefficientInference  # returned by computeCoefficientInference()
+type inference::likelihood::GlmData  # fitGlm / glmScoreTest arguments
+type inference::nested_f::NestedFTest  # returned by nestedFTest()
+type inference::predict_se::PredictionSe  # returned by predictSe()
+type solvers::aft::model::AftResult  # FittedAft.getResult()
+type solvers::mediation::MediationEffect  # returned by mediate() / mediationEffectFromDraws()
+
+# ------------------------------------------------ accessors in getResult()
+result inference::pool::PooledFit::{std_errors}  # PooledFit.getResult()
+result solvers::aft::regressor::FittedAft::{aic,bic,distribution,inference,null_log_likelihood}  # FittedAft.getResult()
+result solvers::elastic_net::FittedElasticNet::{alpha,lambda}  # FittedElasticNet.getResult()
+result solvers::glmm::FittedGlmm::{aic,bic,deviance,df_residual,factors,fitted_population,fitted_values,intercept,is_reml,n_factors,n_groups,n_observations,n_parameters,nb_theta,p_values,pearson_residuals,random_corr,random_cov,random_effects_se,random_sd,residuals,satterthwaite_df,sd_random,sigma,std_errors,theta,var_random,vcov,z_values}  # FittedGlmm.getResult()
+result solvers::gls::FittedGls::{aic,bic,df_residual,fitted_values,n_params,p_values,std_errors,t_values,var_cov_intervals,vcov}  # FittedGls.getResult()
+result solvers::ordinal::FittedOrdinal::{aic,effective_df,link,lr_chisq,lr_df,lr_p_value,n_observations,null_log_likelihood,penalized_log_likelihood,std_errors}  # FittedOrdinal.getResult()
+result solvers::penalized_glm::regressor::FittedPenalizedGlm::{accuracy,aic,bic,dispersion,family,fitted_values,inference,log_likelihood,n_observations,null_deviance,pseudo_r_squared,separation,std_errors,theta,vcov}  # FittedPenalizedGlm.getResult()
+result solvers::ransac::FittedRansac::{residual_threshold}  # FittedRansac.getResult()
+result solvers::ridge::FittedRidge::{lambda}  # FittedRidge.getResult()
+
+# ------------------------------------------- other accessors and plumbing
+method solvers::gls::FittedGls::conf_int  # getResult().confIntervalLower / confIntervalUpper
+method solvers::glmm::FittedGlmm::{random_effects_matrix,random_effects_se_matrix,factor_random_effects_matrix,factor_random_effects_se_matrix}  # getRandomEffects / factorRandomEffects / factorRandomEffectsSe
+method solvers::glmm::FittedGlmm::{slopes,n_random_effects}  # getFixedEffects; random effects per group in getRandomEffects
+method solvers::*::options  # echo of the regressor's settings (set by the JS setters)
+method solvers::*::inner  # internal delegate of a wrapper fit
+method solvers::*::family  # family is the string option the model was built with
+method solvers::aft::regressor::FittedAft::fit_result  # FittedAft.getResult()
+method solvers::alm::AlmRegressor::{link,loss}  # settings echo of AlmRegressor
+method solvers::alm::FittedAlm::{link,loss,distribution,extra_parameter}  # settings echo; extra parameter in getResult()
+method solvers::lm_dynamic::LmDynamicRegressor::{distribution,auto_span,ic_type}  # settings echo of LmDynamicRegressor
+method solvers::lm_dynamic::FittedLmDynamic::distribution  # settings echo of LmDynamicRegressor
+method solvers::continuation_ratio::FittedContinuationRatio::n_features  # number of predictors the caller passed
+method solvers::theil_sen::FittedTheilSen::{bootstrap_replicates,ci_method,with_intercept}  # settings echo of TheilSenRegressor
+method solvers::rls::RlsRegressor::initial_p_diagonal  # settings echo
+method solvers::wls::FittedWls::weights  # the weights passed to setWeights
+method solvers::isotonic::IsotonicRegressor::fit_1d  # IsotonicRegressor.fit is fit_1d
+method solvers::penalized_glm::regressor::FittedPenalizedGlm::augment_with  # augment(x, nRows, y, residType)
+method solvers::ridge::RidgeRegressor::{select_lambda,with_conditioning}  # conditioning-based λ selection is not bound yet (follow-up)
+
+# ---------------------------------------------------------- functions
+fn diagnostics::augment::{augment,augment_with,press}  # augment / press methods of the fitted classes
+fn diagnostics::augment::{augment_glm,augment_glm_with}  # FittedPenalizedGlm.augment
+fn diagnostics::partial_residuals::{partial_residuals,partial_residuals_glm}  # partialResiduals methods of the fitted classes
+fn inference::likelihood::model_lr_test  # modelLrTest methods of the fitted classes
+fn inference::pool::pooled_wald_d1  # PooledFit.waldD1
+fn inference::prediction::compute_xt*x_inverse_*  # computeXtxInverse(x, nRows, nCols, augmented, weights, aliased)
+fn splines::rcs_default_knots_with  # rcsDefaultKnots(x, nk, fractied)
+fn solvers::aft::model::fit_aft  # AftRegressor.fit
+fn solvers::aid::heuristic::{compute_aid,compute_aid_anomalies}  # AidClassifier.classify / getResult
+fn solvers::alm::{compute_loss,estimate_scale,log_likelihood}  # AlmRegressor internals; values in FittedAlm.getResult()
+fn solvers::penalized_glm::engine::fit  # PenalizedGlmRegressor.fit
+fn solvers::penalized_glm::families::fit_*  # PenalizedGlmRegressor.fit (setFamily)
+fn utils::matrix::*  # low-level column helpers used inside the solvers (OlsRegressor.detectConstantColumns / isFullRank)
+type solvers::penalized_glm::engine::{DispersionRule,EngineFit}  # PenalizedGlmRegressor internals
+type solvers::penalized_glm::families::GlmResult  # PenalizedGlmRegressor internals
+type solvers::penalized_glm::loglik::LogLikKind  # PenalizedGlmRegressor internals

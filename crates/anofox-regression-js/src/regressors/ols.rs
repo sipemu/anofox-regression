@@ -467,3 +467,38 @@ impl OlsRegressor {
         })
     }
 }
+
+#[wasm_bindgen]
+impl OlsRegressor {
+    /// Which columns of the row-major `x` are constant.
+    #[wasm_bindgen(js_name = detectConstantColumns)]
+    pub fn detect_constant_columns(
+        x: &[f64],
+        n_rows: usize,
+        n_cols: usize,
+    ) -> Result<Vec<u8>, JsError> {
+        let m = super::to_mat(x, n_rows, n_cols)?;
+        Ok(RustOlsRegressor::detect_constant_columns(&m)
+            .into_iter()
+            .map(u8::from)
+            .collect())
+    }
+
+    /// Whether the row-major `x` has full column rank.
+    #[wasm_bindgen(js_name = isFullRank)]
+    pub fn is_full_rank(x: &[f64], n_rows: usize, n_cols: usize) -> Result<bool, JsError> {
+        Ok(RustOlsRegressor::is_full_rank(&super::to_mat(
+            x, n_rows, n_cols,
+        )?))
+    }
+}
+
+impl FittedOls {
+    /// Wrap a core fit (e.g. RANSAC's inlier fit).
+    pub(crate) fn from_rust(
+        fitted: anofox_regression::solvers::FittedOls,
+        n_features: usize,
+    ) -> Self {
+        Self { fitted, n_features }
+    }
+}

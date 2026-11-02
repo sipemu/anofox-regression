@@ -191,3 +191,17 @@ impl Default for ContinuationRatioRegressor {
 }
 
 iterative_fit!(FittedContinuationRatio);
+
+#[wasm_bindgen]
+impl FittedContinuationRatio {
+    /// The binary logistic fit on the expanded (`cr.setup`) data: cohort
+    /// columns first, then the predictors.
+    #[wasm_bindgen]
+    pub fn logistic(&self) -> super::FittedBinomial {
+        let f = self.fitted.logistic();
+        let p = anofox_regression::solvers::FittedRegressor::result(f)
+            .coefficients
+            .nrows();
+        super::FittedBinomial::from_rust(f.clone(), p)
+    }
+}

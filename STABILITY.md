@@ -11,8 +11,13 @@ before 1.0 (`0.y.z`) a minor bump (`0.y`) may break the API, and the
   requires a major release; additions come in minor releases. API changes are
   checked with `cargo-semver-checks` in CI.
 - **The npm package** (`js/`, the WASM bindings) follows the same version
-  line and the same promise. It covers a subset of the estimators; extending
-  it is a minor change.
+  line and the same promise, and has the same functionality as the Rust
+  crate: every public Rust item has a JS binding unless
+  `js/parity-allowlist.txt` lists it with a reason (builders and option
+  structs become `set*` methods and plain option objects, result structs
+  become plain objects, enums become strings, thread-parallel variants don't
+  exist in WASM). CI enforces this (`scripts/js_parity.py`), so a Rust
+  addition comes with its binding in the same release.
 - **Results.** Estimates that are validated against a reference (R or
   scikit-learn, see `validation/VALIDATION.md`) agree with it within the
   documented tolerance. A change that brings a result closer to the reference

@@ -277,3 +277,18 @@ augment_methods!(FittedBinomial);
 partial_residuals_method!(FittedBinomial);
 predict_se_method!(FittedBinomial);
 likelihood_methods!(FittedBinomial);
+
+glm_residual_methods!(FittedBinomial);
+predict_col_methods!(FittedBinomial {
+    "predictLinear" => predict_linear,
+    "predictProbability" => predict_probability,
+});
+predict_with_se_method!(FittedBinomial);
+vcov_method!(FittedBinomial);
+
+impl FittedBinomial {
+    /// Wrap a core fit (e.g. the logistic fit of a continuation-ratio model).
+    pub(crate) fn from_rust(fitted: RustFittedBinomial, n_features: usize) -> Self {
+        Self { fitted, n_features }
+    }
+}

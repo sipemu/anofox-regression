@@ -279,3 +279,8 @@ augment_methods!(FittedTweedie);
 partial_residuals_method!(FittedTweedie);
 predict_se_method!(FittedTweedie);
 likelihood_methods!(FittedTweedie);
+
+glm_residual_methods!(FittedTweedie);
+predict_col_methods!(FittedTweedie { "predictEta" => predict_eta, "predictMu" => predict_mu });
+predict_with_se_method!(FittedTweedie);
+vcov_method!(FittedTweedie);

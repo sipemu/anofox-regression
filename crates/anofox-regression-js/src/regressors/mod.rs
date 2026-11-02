@@ -162,6 +162,156 @@ macro_rules! likelihood_methods {
     )*};
 }
 
+/// Methods returning a column of the fit (residuals, weights, …) as an
+/// array: `{ "jsName" => rust_method, … }`.
+macro_rules! col_methods {
+    ($w:ident { $($js:literal => $m:ident),* $(,)? }) => {
+        #[wasm_bindgen]
+        impl $w {
+            $(
+                #[doc = concat!("`", stringify!($m), "` of the fit.")]
+                #[wasm_bindgen(js_name = $js)]
+                pub fn $m(&self) -> Vec<f64> {
+                    self.fitted.$m().iter().copied().collect()
+                }
+            )*
+        }
+    };
+}
+
+/// Methods predicting a column for new rows (`x`, `nRows`):
+/// `{ "jsName" => rust_method, … }`.
+macro_rules! predict_col_methods {
+    ($w:ident { $($js:literal => $m:ident),* $(,)? }) => {
+        #[wasm_bindgen]
+        impl $w {
+            $(
+                #[doc = concat!("`", stringify!($m), "` for new rows (row-major `x`).")]
+                #[wasm_bindgen(js_name = $js)]
+                pub fn $m(&self, x: &[f64], n_rows: usize) -> Result<Vec<f64>, JsError> {
+                    let x = $crate::regressors::to_mat(x, n_rows, self.n_features)?;
+                    Ok(self.fitted.$m(&x).iter().copied().collect())
+                }
+            )*
+        }
+    };
+}
+
+/// Methods returning a number: `{ "jsName" => rust_method, … }`.
+macro_rules! scalar_methods {
+    ($w:ident { $($js:literal => $m:ident),* $(,)? }) => {
+        #[wasm_bindgen]
+        impl $w {
+            $(
+                #[doc = concat!("`", stringify!($m), "` of the fit.")]
+                #[wasm_bindgen(js_name = $js)]
+                pub fn $m(&self) -> f64 {
+                    self.fitted.$m() as f64
+                }
+            )*
+        }
+    };
+}
+
+/// `vcov()`: the coefficient covariance, row-major (undefined when the fit
+/// has none).
+macro_rules! vcov_method {
+    ($($w:ident),* $(,)?) => {$(
+        #[wasm_bindgen]
+        impl $w {
+            /// Covariance of the coefficients, row-major (undefined when
+            /// not available).
+            #[wasm_bindgen]
+            pub fn vcov(&self) -> Option<Vec<f64>> {
+                $crate::regressors::FlatMat::flat(self.fitted.vcov())
+            }
+        }
+    )*};
+}
+
+/// `predictWithSe(x, nRows, type?, interval?, level?)` on an IRLS GLM:
+/// `type` "response" (default) or "link", `interval` "confidence" or
+/// "prediction" (default none), `level` 0.95.
+macro_rules! predict_with_se_method {
+    ($($w:ident),* $(,)?) => {$(
+        #[wasm_bindgen]
+        impl $w {
+            /// Predictions with standard errors and optional intervals:
+            /// `{ fit, lower, upper, se }`.
+            #[wasm_bindgen(js_name = predictWithSe)]
+            pub fn predict_with_se(
+                &self,
+                x: &[f64],
+                n_rows: usize,
+                pred_type: Option<String>,
+                interval: Option<String>,
+                level: Option<f64>,
+            ) -> Result<JsValue, JsError> {
+                let x = $crate::regressors::to_mat(x, n_rows, self.n_features)?;
+                let pt = $crate::regressors::parse_prediction_type(pred_type.as_deref())?;
+                let it = interval
+                    .as_deref()
+                    .map($crate::regressors::parse_interval)
+                    .transpose()?;
+                let r = self.fitted.predict_with_se(&x, pt, it, level.unwrap_or(0.95));
+                Ok($crate::convert::ToJs::to_js(&r))
+            }
+        }
+    )*};
+}
+
+/// GLM residual types: `devianceResiduals`, `pearsonResiduals`,
+/// `workingResiduals`.
+macro_rules! glm_residual_methods {
+    ($($w:ident),* $(,)?) => {$(
+        col_methods!($w {
+            "devianceResiduals" => deviance_residuals,
+            "pearsonResiduals" => pearson_residuals,
+            "workingResiduals" => working_residuals,
+        });
+    )*};
+}
+
+/// A matrix (or optional matrix) as a row-major array.
+pub(crate) trait FlatMat {
+    fn flat(self) -> Option<Vec<f64>>;
+}
+impl FlatMat for Mat<f64> {
+    fn flat(self) -> Option<Vec<f64>> {
+        Some(mat_flat(&self))
+    }
+}
+impl FlatMat for &Mat<f64> {
+    fn flat(self) -> Option<Vec<f64>> {
+        Some(mat_flat(self))
+    }
+}
+impl<T: FlatMat> FlatMat for Option<T> {
+    fn flat(self) -> Option<Vec<f64>> {
+        self.and_then(FlatMat::flat)
+    }
+}
+impl FlatMat for &[Vec<f64>] {
+    fn flat(self) -> Option<Vec<f64>> {
+        Some(self.iter().flatten().copied().collect())
+    }
+}
+
+/// "response" (default) or "link".
+pub(crate) fn parse_prediction_type(
+    v: Option<&str>,
+) -> Result<anofox_regression::core::PredictionType, JsError> {
+    use anofox_regression::core::PredictionType;
+    match v {
+        None | Some("response") => Ok(PredictionType::Response),
+        Some("link") => Ok(PredictionType::Link),
+        Some(other) => Err(JsError::new(&format!(
+            "Unknown type '{}': expected response or link",
+            other
+        ))),
+    }
+}
+
 mod aft;
 mod aid;
 mod alm;

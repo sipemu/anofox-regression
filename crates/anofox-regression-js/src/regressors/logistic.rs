@@ -323,3 +323,5 @@ iterative_fit!(FittedLogistic);
 
 augment_methods!(FittedLogistic);
 partial_residuals_method!(FittedLogistic);
+
+vcov_method!(FittedLogistic);

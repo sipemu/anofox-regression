@@ -413,3 +413,25 @@ impl Default for PenalizedGlmRegressor {
 
 iterative_fit!(FittedPenalizedGlm);
 predict_se_method!(FittedPenalizedGlm);
+
+#[wasm_bindgen]
+impl FittedPenalizedGlm {
+    /// `predictSe` with an offset on the linear predictor (one per row).
+    #[wasm_bindgen(js_name = predictSeWithOffset)]
+    pub fn predict_se_with_offset(
+        &self,
+        x: &[f64],
+        n_rows: usize,
+        offset: &[f64],
+        options: JsValue,
+    ) -> Result<JsValue, JsError> {
+        let x_mat = super::to_mat(x, n_rows, self.n_features)?;
+        let off = super::to_col(offset, n_rows, "offset")?;
+        let options = crate::inference::parse_predict_se_options(options)?;
+        let p = self
+            .fitted
+            .predict_se_with_offset(&x_mat, &off, &options)
+            .map_err(super::fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&p))
+    }
+}

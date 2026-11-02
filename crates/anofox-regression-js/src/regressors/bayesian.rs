@@ -354,3 +354,43 @@ impl Default for ArdRegression {
 
 iterative_fit!(FittedArd, FittedBayesianRidge);
 partial_residuals_method!(FittedArd, FittedBayesianRidge);
+
+macro_rules! bayes_methods {
+    ($($w:ident),*) => {$(
+        predict_col_methods!($w { "predictStd" => predict_std });
+        col_methods!($w { "sigmaDiag" => sigma_diag });
+
+        #[wasm_bindgen]
+        impl $w {
+            /// Posterior covariance of the coefficients, row-major.
+            #[wasm_bindgen]
+            pub fn sigma(&self) -> Vec<f64> {
+                super::mat_flat(self.fitted.sigma())
+            }
+
+            /// Credible intervals of the coefficients: `{ level, sd, lower,
+            /// upper }`.
+            #[wasm_bindgen(js_name = credibleIntervals)]
+            pub fn credible_intervals(&self, level: f64) -> JsValue {
+                let c = self.fitted.credible_intervals(level);
+                crate::convert::object(&[
+                    ("level", crate::convert::ToJs::to_js(&c.level)),
+                    ("sd", crate::convert::ToJs::to_js(&c.sd)),
+                    ("lower", crate::convert::ToJs::to_js(&c.lower)),
+                    ("upper", crate::convert::ToJs::to_js(&c.upper)),
+                ])
+            }
+        }
+    )*};
+}
+bayes_methods!(FittedBayesianRidge, FittedArd);
+scalar_methods!(FittedBayesianRidge { "logMarginalLikelihood" => log_marginal_likelihood });
+
+#[wasm_bindgen]
+impl FittedArd {
+    /// Indices of the features kept by ARD.
+    #[wasm_bindgen(js_name = keptFeatures)]
+    pub fn kept_features(&self) -> Vec<usize> {
+        self.fitted.kept_features().to_vec()
+    }
+}

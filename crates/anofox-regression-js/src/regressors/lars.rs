@@ -180,3 +180,22 @@ impl FittedLars {
         }
     }
 }
+
+#[wasm_bindgen]
+impl FittedLars {
+    /// Coefficients at every step (one array per step).
+    #[wasm_bindgen(js_name = coefsPath)]
+    pub fn coefs_path(&self) -> JsValue {
+        crate::convert::ToJs::to_js(&self.fitted.coefs_path())
+    }
+
+    /// "lar" or "lasso".
+    #[wasm_bindgen]
+    pub fn method(&self) -> String {
+        match self.fitted.method() {
+            LarsMethod::Lasso => "lasso",
+            _ => "lar",
+        }
+        .to_string()
+    }
+}

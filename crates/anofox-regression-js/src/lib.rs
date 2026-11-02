@@ -21,6 +21,7 @@ pub mod splines;
 pub mod streaming;
 pub mod survival;
 pub mod transform;
+pub mod utils;
 pub mod validation;
 
 /// Initialize the WASM module.

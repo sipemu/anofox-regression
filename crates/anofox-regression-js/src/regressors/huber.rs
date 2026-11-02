@@ -285,3 +285,5 @@ impl Default for HuberRegressor {
 
 iterative_fit!(FittedHuber);
 partial_residuals_method!(FittedHuber);
+
+col_methods!(FittedHuber { "weights" => weights });
