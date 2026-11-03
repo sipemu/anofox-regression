@@ -355,12 +355,14 @@ impl ElasticNetRegressor {
 }
 
 /// A fitted Elastic Net model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedElasticNet {
     options: RegressionOptions,
     result: RegressionResult,
     /// (X'X)⁻¹ or (X_aug'X_aug)⁻¹ for prediction intervals (reduced to non-aliased columns)
     /// Note: Standard errors for L1-penalized models are approximate
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     xtx_inverse: Option<Mat<f64>>,
     /// Which columns are aliased (constant or zero coefficient)
     aliased: Vec<bool>,

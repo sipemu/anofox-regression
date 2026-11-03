@@ -26,6 +26,7 @@ use thiserror::Error;
 /// Action to take when missing values (NA/NaN) are encountered.
 ///
 /// Mirrors R's `na.action` parameter in `lm()` and other regression functions.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum NaAction {
@@ -82,6 +83,7 @@ pub enum NaError {
 /// Information about NA handling applied to data.
 ///
 /// Used by `NaAction::Exclude` to reconstruct original-length output.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct NaInfo {

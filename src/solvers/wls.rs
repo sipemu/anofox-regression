@@ -756,12 +756,15 @@ impl WlsRegressor {
 }
 
 /// A fitted WLS model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedWls {
     options: RegressionOptions,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     weights: Col<f64>,
     result: RegressionResult,
     /// (X'WX)⁻¹ or (X_aug'WX_aug)⁻¹ for prediction intervals (reduced to non-aliased columns)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     xtwx_inverse: Option<Mat<f64>>,
     /// Which columns are aliased (collinear or constant)
     aliased: Vec<bool>,

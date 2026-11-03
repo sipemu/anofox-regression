@@ -655,19 +655,23 @@ impl QuantileRegressor {
 }
 
 /// A fitted Quantile Regression model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedQuantile {
     /// The quantile that was estimated
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     tau: f64,
     /// Whether model includes intercept
     with_intercept: bool,
     /// Whether the fit used observation weights
     weighted: bool,
     /// L1 penalty the model was fitted with.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     alpha: f64,
     /// Regression result
     result: RegressionResult,
     /// Check function loss (quantile loss)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     check_loss: f64,
     status: Convergence,
 }

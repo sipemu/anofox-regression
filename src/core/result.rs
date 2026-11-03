@@ -7,21 +7,26 @@ use faer::Col;
 ///
 /// Contains coefficients, fit statistics, and optionally inference statistics
 /// (standard errors, t-statistics, p-values, confidence intervals).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RegressionResult {
     // ========== Core Results ==========
     /// Estimated coefficients (excluding intercept).
     /// Aliased (collinear) coefficients are set to NaN.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     pub coefficients: Col<f64>,
 
     /// Intercept term (if model was fit with intercept).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept: Option<f64>,
 
     /// Residuals (y - fitted_values).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     pub residuals: Col<f64>,
 
     /// Fitted values (predictions on training data).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     pub fitted_values: Col<f64>,
 
     // ========== Rank Information ==========
@@ -41,69 +46,90 @@ pub struct RegressionResult {
     pub column_permutation: Option<Vec<usize>>,
 
     /// Tolerance used for rank determination.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub rank_tolerance: f64,
 
     // ========== Fit Statistics ==========
     /// Coefficient of determination (R²).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub r_squared: f64,
 
     /// Adjusted R².
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub adj_r_squared: f64,
 
     /// Root mean squared error.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub rmse: f64,
 
     /// Mean squared error.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub mse: f64,
 
     /// F-statistic for overall model significance.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub f_statistic: f64,
 
     /// P-value for F-statistic.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub f_pvalue: f64,
 
     // ========== Information Criteria ==========
     /// Akaike Information Criterion.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub aic: f64,
 
     /// Corrected AIC (for small samples).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub aicc: f64,
 
     /// Bayesian Information Criterion.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub bic: f64,
 
     /// Log-likelihood.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub log_likelihood: f64,
 
     // ========== Inference Statistics (Optional) ==========
     /// Standard errors of coefficients.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     pub std_errors: Option<Col<f64>>,
 
     /// Standard error of intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_std_error: Option<f64>,
 
     /// t-statistics for coefficients.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     pub t_statistics: Option<Col<f64>>,
 
     /// t-statistic for intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_t_statistic: Option<f64>,
 
     /// P-values for coefficient significance tests.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     pub p_values: Option<Col<f64>>,
 
     /// P-value for intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_p_value: Option<f64>,
 
     /// Lower bounds of confidence intervals.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     pub conf_interval_lower: Option<Col<f64>>,
 
     /// Upper bounds of confidence intervals.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     pub conf_interval_upper: Option<Col<f64>>,
 
     /// Intercept confidence interval (lower, upper).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_pair"))]
     pub intercept_conf_interval: Option<(f64, f64)>,
 
     /// Confidence level used for intervals.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub confidence_level: f64,
 
     // ========== NA Handling Information ==========

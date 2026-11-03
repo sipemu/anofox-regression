@@ -10,8 +10,11 @@ use crate::solvers::traits::RegressionError;
 use faer::Col;
 
 /// Optional prior weights (`None`: all 1).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default)]
-pub(crate) struct PriorWeights(Option<Col<f64>>);
+pub(crate) struct PriorWeights(
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))] Option<Col<f64>>,
+);
 
 impl PriorWeights {
     pub(crate) fn new(weights: Option<Col<f64>>) -> Self {

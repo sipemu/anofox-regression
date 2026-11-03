@@ -583,14 +583,19 @@ fn soft_threshold(v: f64, t: f64) -> f64 {
 }
 
 /// A fitted [`MultinomialLogisticRegressor`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedMultinomialLogistic {
     classes: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     coefficients: Mat<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     intercepts: Col<f64>,
     iterations: usize,
     converged: bool,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     objective: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     log_likelihood: f64,
 }
 

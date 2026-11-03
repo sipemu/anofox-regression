@@ -156,6 +156,7 @@ impl Basis {
 }
 
 /// Normalisation of the nonlinear terms (`norm` of `Hmisc::rcspline.eval`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum RcsNorm {
@@ -333,6 +334,7 @@ fn place_knots(
 }
 
 /// Restricted cubic spline basis with fixed knots.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rcs {
     knots: Vec<f64>,
@@ -499,6 +501,7 @@ impl RcsRestated {
 }
 
 /// Linear spline basis (`rms::lsp`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lsp {
     knots: Vec<f64>,

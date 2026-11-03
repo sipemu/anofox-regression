@@ -128,9 +128,11 @@ impl LogisticRegressor {
 ///
 /// Use [`inner()`](FittedLogistic::inner) to access the underlying
 /// [`FittedBinomial`] when you need the full GLM interface.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug)]
 pub struct FittedLogistic {
     inner: FittedBinomial,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     threshold: f64,
 }
 

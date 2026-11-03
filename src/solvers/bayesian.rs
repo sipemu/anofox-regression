@@ -517,15 +517,20 @@ impl BayesianRidgeRegressor {
 }
 
 /// A fitted Bayesian Ridge model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedBayesianRidge {
     result: RegressionResult,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     alpha: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     lambda: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     sigma: Mat<f64>,
     x_mean: Vec<f64>,
     n_iter: usize,
     converged: bool,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     log_marginal_likelihood: f64,
 }
 
@@ -829,11 +834,14 @@ impl Regressor for ArdRegressor {
 }
 
 /// A fitted ARD regression model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedArd {
     result: RegressionResult,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     alpha: f64,
     lambdas: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     sigma: Mat<f64>,
     kept: Vec<usize>,
     x_mean: Vec<f64>,

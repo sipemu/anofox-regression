@@ -38,6 +38,7 @@ use super::poisson_link::PoissonLink;
 /// d(y, μ) = 2[y·log(y/μ) - (y - μ)]
 ///
 /// with d(0, μ) = 2μ for y = 0.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct PoissonFamily {

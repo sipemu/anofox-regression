@@ -861,6 +861,7 @@ fn tweedie_log_likelihood(
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedTweedie {
     /// When constant columns were dropped (intercept model): the fit on the
@@ -870,10 +871,13 @@ pub struct FittedTweedie {
     options: RegressionOptions,
     family: TweedieFamily,
     /// Total deviance.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub deviance: f64,
     /// Null deviance (intercept-only model).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub null_deviance: f64,
     /// Estimated dispersion parameter.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub dispersion: f64,
     /// Number of IRLS iterations.
     pub iterations: usize,
@@ -882,13 +886,16 @@ pub struct FittedTweedie {
     /// fit exhausted `max_iterations`.
     pub converged: bool,
     /// Original y values (for residual calculation).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     y_values: Col<f64>,
     /// Prior weights (`None`: all 1).
     prior_weights: super::glm_weights::PriorWeights,
     /// (X'WX)⁻¹ matrix (for prediction standard errors).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     xtwx_inverse: Option<Mat<f64>>,
     /// Offset used in fitting (stored for potential residual calculations).
     #[allow(dead_code)]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     offset: Option<Col<f64>>,
     /// Aliased (collinear or constant) columns.
     #[allow(dead_code)]

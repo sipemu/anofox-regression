@@ -4,6 +4,7 @@ use super::na_action::NaAction;
 use thiserror::Error;
 
 /// Solver type for linear algebra operations.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum SolverType {
@@ -20,6 +21,7 @@ pub enum SolverType {
 ///
 /// Different software packages use different conventions for the regularization
 /// parameter lambda. This enum allows matching the behavior of various implementations.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum LambdaScaling {
@@ -40,6 +42,7 @@ pub enum LambdaScaling {
 }
 
 /// Configuration options for regression models.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RegressionOptions {
@@ -48,14 +51,18 @@ pub struct RegressionOptions {
     /// Whether to compute standard errors and inference statistics (default: true).
     pub compute_inference: bool,
     /// Confidence level for confidence intervals (default: 0.95).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub confidence_level: f64,
     /// L2 regularization parameter (Ridge/Elastic Net).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub lambda: f64,
     /// L1/L2 mixing parameter for Elastic Net (0=Ridge, 1=Lasso).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub alpha: f64,
     /// Lambda scaling convention (default: Raw).
     pub lambda_scaling: LambdaScaling,
     /// Forgetting factor for RLS (0 < forgetting_factor <= 1).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub forgetting_factor: f64,
     /// Solver type for linear algebra operations.
     pub solver: SolverType,
@@ -67,8 +74,10 @@ pub struct RegressionOptions {
     /// `|dev − dev_old| / (|dev| + 0.1)` falls below it, so coefficients are
     /// accurate to roughly `√tolerance` for non-canonical links; use e.g.
     /// `1e-15` for full precision.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub tolerance: f64,
     /// Rank tolerance for QR decomposition.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub rank_tolerance: f64,
     /// How to handle NA (missing) values (default: Omit).
     ///

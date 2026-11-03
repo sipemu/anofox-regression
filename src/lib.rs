@@ -62,6 +62,8 @@ pub mod imputation;
 pub mod inference;
 pub(crate) mod numeric;
 pub mod reduction;
+#[cfg(feature = "serde")]
+pub(crate) mod serde_impl;
 pub mod solvers;
 pub mod splines;
 pub mod survival;

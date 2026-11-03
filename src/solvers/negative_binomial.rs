@@ -791,6 +791,7 @@ impl Regressor for NegativeBinomialRegressor {
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedNegativeBinomial {
     /// When constant columns were dropped (intercept model): the fit on the
@@ -800,16 +801,20 @@ pub struct FittedNegativeBinomial {
     options: RegressionOptions,
     family: NegativeBinomialFamily,
     /// Total deviance.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub deviance: f64,
     /// Null deviance (intercept-only model).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub null_deviance: f64,
     /// Dispersion used for the covariance / standard errors. `1.0` by default:
     /// the negative binomial variance `μ + μ²/θ` models the overdispersion
     /// itself (as in `MASS::glm.nb`). With
     /// `NegativeBinomialRegressor::builder().estimate_dispersion(true)`
     /// it is the Pearson χ²/df.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub dispersion: f64,
     /// Estimated theta (size/dispersion parameter).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub theta: f64,
     /// Number of iterations.
     pub iterations: usize,
@@ -818,11 +823,14 @@ pub struct FittedNegativeBinomial {
     /// exhausted its iteration budget.
     pub converged: bool,
     /// Original y values.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     y_values: Col<f64>,
     /// (X'WX)⁻¹ matrix for prediction SE.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     xtwx_inverse: Option<Mat<f64>>,
     /// Offset used in fitting (stored for potential residual calculations).
     #[allow(dead_code)]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     offset: Option<Col<f64>>,
     /// Aliased (collinear or constant) columns.
     #[allow(dead_code)]

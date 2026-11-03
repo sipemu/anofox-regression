@@ -42,11 +42,13 @@ use statrs::function::gamma::digamma;
 /// # Link Function
 ///
 /// The canonical link is log, like Poisson.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct NegativeBinomialFamily {
     /// The dispersion parameter (also called "size" in R).
     /// Higher values mean less overdispersion (more Poisson-like).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub theta: f64,
 }
 
