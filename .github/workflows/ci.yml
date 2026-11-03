@@ -79,6 +79,24 @@ jobs:
       - name: Check the library (all features)
         run: cargo check --lib -p anofox-regression --all-features
 
+  # The DuckDB extension (anofox-statistics) builds this crate with Rust 1.86:
+  # DuckDB's wasm CI pins an emsdk that rejects objects from Rust >= 1.87. The
+  # declared MSRV stays 1.87 (basin), so this job ignores it; it catches uses
+  # of 1.87 library features such as `is_multiple_of`.
+  duckdb-toolchain:
+    name: DuckDB toolchain (Rust 1.86)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.86"
+      - uses: Swatinem/rust-cache@v2
+      - name: Check the library (no features)
+        run: cargo check --lib -p anofox-regression --no-default-features --ignore-rust-version
+      - name: Check the library (all features)
+        run: cargo check --lib -p anofox-regression --all-features --ignore-rust-version
+
   package:
     name: Package
     runs-on: ubuntu-latest
@@ -183,7 +201,7 @@ jobs:
     name: Publish to crates.io
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [test, clippy, fmt, docs, msrv, package, deny]
+    needs: [test, clippy, fmt, docs, msrv, duckdb-toolchain, package, deny]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
