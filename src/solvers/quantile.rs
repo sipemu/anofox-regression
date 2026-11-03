@@ -67,6 +67,8 @@ pub struct QuantileRegressor {
     epsilon: f64,
     /// Optional observation weights
     weights: Option<Col<f64>>,
+    /// L1 penalty on the slopes (sklearn `alpha`; 0: none).
+    alpha: f64,
 }
 
 impl QuantileRegressor {
@@ -82,6 +84,7 @@ impl QuantileRegressor {
             tolerance: 1e-6,
             epsilon: 1e-6,
             weights: None,
+            alpha: 0.0,
         }
     }
 
@@ -185,6 +188,50 @@ impl QuantileRegressor {
         } else {
             Ok((beta, None, status))
         }
+    }
+
+    /// The L1-penalized fit (sklearn's `QuantileRegressor(alpha)`), as the
+    /// unpenalized LP on augmented data: every slope `βⱼ` gets the two
+    /// pseudo-observations `x = ±eⱼ`, `y = 0` (intercept column 0) with weight
+    /// `λ = alpha · Σ wᵢ`, since `λ (ρ_τ(βⱼ) + ρ_τ(−βⱼ)) = λ |βⱼ|`. The
+    /// augmented objective is sklearn's `(1/Σw) Σ wᵢ ρ_τ(rᵢ) + alpha ‖β‖₁`
+    /// times `Σ wᵢ`, and the vertex solution has exact zeros.
+    fn fit_penalized(
+        &self,
+        x: &Mat<f64>,
+        y: &Col<f64>,
+    ) -> Result<(Col<f64>, Option<f64>, Convergence), RegressionError> {
+        let (n, p) = (x.nrows(), x.ncols());
+        let off = usize::from(self.with_intercept);
+        let w = |i: usize| self.weights.as_ref().map_or(1.0, |w| w[i]);
+        let lambda = self.alpha * (0..n).map(w).sum::<f64>();
+        let m = n + 2 * p;
+        let xa = Mat::from_fn(m, p + off, |i, a| {
+            if i < n {
+                return if a < off { 1.0 } else { x[(i, a - off)] };
+            }
+            let (k, sign) = ((i - n) / 2, if (i - n) % 2 == 0 { 1.0 } else { -1.0 });
+            if a == off + k {
+                sign
+            } else {
+                0.0
+            }
+        });
+        let ya = Col::from_fn(m, |i| if i < n { y[i] } else { 0.0 });
+        let inner = Self {
+            with_intercept: false,
+            weights: Some(Col::from_fn(m, |i| if i < n { w(i) } else { lambda })),
+            alpha: 0.0,
+            ..self.clone()
+        };
+        let (beta, _, status) = inner.fit_irls(&xa, &ya)?;
+        // A pseudo-observation in the optimal basis pins its slope at 0; the
+        // basis solve leaves rounding there.
+        let scale = beta.iter().fold(1.0_f64, |a, b| a.max(b.abs()));
+        let snap = |b: f64| if b.abs() <= 1e-12 * scale { 0.0 } else { b };
+        let coefficients = Col::from_fn(p, |j| snap(beta[off + j]));
+        let intercept = self.with_intercept.then(|| beta[0]);
+        Ok((coefficients, intercept, status))
     }
 
     /// Solve OLS using QR decomposition.
@@ -515,8 +562,19 @@ impl Regressor for QuantileRegressor {
             }
         }
 
-        // Fit using IRLS
-        let (coefficients, intercept, status) = self.fit_irls(x, y)?;
+        if !(self.alpha.is_finite() && self.alpha >= 0.0) {
+            return Err(RegressionError::invalid_parameter(
+                "alpha",
+                format!("alpha must be finite and >= 0, got {}", self.alpha),
+            ));
+        }
+
+        // Fit using IRLS (finished by exact simplex pivots)
+        let (coefficients, intercept, status) = if self.alpha > 0.0 {
+            self.fit_penalized(x, y)?
+        } else {
+            self.fit_irls(x, y)?
+        };
 
         // Compute fitted values and residuals
         let mut fitted_values = Col::zeros(n_samples);
@@ -568,6 +626,7 @@ impl Regressor for QuantileRegressor {
             tau: self.tau,
             with_intercept: self.with_intercept,
             weighted: self.weights.is_some(),
+            alpha: self.alpha,
             result,
             check_loss: full_loss,
             status,
@@ -604,6 +663,8 @@ pub struct FittedQuantile {
     with_intercept: bool,
     /// Whether the fit used observation weights
     weighted: bool,
+    /// L1 penalty the model was fitted with.
+    alpha: f64,
     /// Regression result
     result: RegressionResult,
     /// Check function loss (quantile loss)
@@ -639,11 +700,17 @@ impl FittedQuantile {
         self.with_intercept
     }
 
+    /// The L1 penalty `alpha` of the fit (0: unpenalized).
+    pub fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
     /// Standard errors, t statistics, p-values and confidence intervals of
     /// the coefficients (intercept first), as `quantreg::summary.rq`. `x` and
     /// `y` must be the data the model was fitted on. See
     /// [`quantile_inference`](crate::solvers::quantile_inference) for the
-    /// standard-error types. Fits with observation weights are rejected.
+    /// standard-error types. Fits with observation weights or an L1 penalty
+    /// are rejected.
     pub fn inference(
         &self,
         x: &Mat<f64>,
@@ -654,6 +721,11 @@ impl FittedQuantile {
         if self.weighted {
             return Err(RegressionError::InvalidInput(
                 "quantile inference is not available for weighted fits".to_string(),
+            ));
+        }
+        if self.alpha > 0.0 {
+            return Err(RegressionError::InvalidInput(
+                "quantile inference is not available for L1-penalized fits".to_string(),
             ));
         }
         crate::solvers::quantile_inference::inference_for_fit(
@@ -731,6 +803,7 @@ pub struct QuantileRegressorBuilder {
     tolerance: f64,
     epsilon: f64,
     weights: Option<Col<f64>>,
+    alpha: f64,
 }
 
 impl Default for QuantileRegressorBuilder {
@@ -742,6 +815,7 @@ impl Default for QuantileRegressorBuilder {
             tolerance: 1e-6,
             epsilon: 1e-6,
             weights: None,
+            alpha: 0.0,
         }
     }
 }
@@ -799,6 +873,16 @@ impl QuantileRegressorBuilder {
         self
     }
 
+    /// L1 penalty on the slopes (default 0, unpenalized as `quantreg::rq`):
+    /// minimises `(1/Σw) Σ wᵢ ρ_τ(rᵢ) + alpha ‖β‖₁` with the intercept
+    /// unpenalized, scikit-learn's `QuantileRegressor(alpha)` objective
+    /// (whose default is `alpha = 1`). Solved exactly as a linear program, so
+    /// slopes are exactly 0 when the penalty removes them.
+    pub fn alpha(mut self, alpha: f64) -> Self {
+        self.alpha = alpha;
+        self
+    }
+
     /// Build the quantile regressor.
     pub fn build(self) -> QuantileRegressor {
         QuantileRegressor {
@@ -808,6 +892,7 @@ impl QuantileRegressorBuilder {
             tolerance: self.tolerance,
             epsilon: self.epsilon,
             weights: self.weights,
+            alpha: self.alpha,
         }
     }
 }
