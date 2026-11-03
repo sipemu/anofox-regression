@@ -234,7 +234,11 @@ impl Problem {
     }
 
     fn penalized(&self, u: usize) -> bool {
-        !(self.with_intercept && u.is_multiple_of(self.q))
+        // `u % q == 0` rather than `usize::is_multiple_of`, which needs
+        // Rust >= 1.87 (the DuckDB wasm toolchain is older). See #20.
+        #[allow(clippy::manual_is_multiple_of)]
+        let is_intercept = u % self.q == 0;
+        !(self.with_intercept && is_intercept)
     }
 
     /// Linear predictors, `n × m`.

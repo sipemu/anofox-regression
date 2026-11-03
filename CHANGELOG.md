@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-03
+
+### Fixed
+
+- **Builds on Rust 1.86 again.** `MultinomialLogisticRegressor` (#307) used
+  `usize::is_multiple_of`, a Rust 1.87 library feature, which broke the DuckDB
+  extension's build (it pins Rust 1.86 for DuckDB's wasm toolchain, see #20). A new CI
+  job, `DuckDB toolchain (Rust 1.86)`, checks the library on 1.86. The declared MSRV
+  stays 1.87.
+
 ## [0.10.0] - 2026-11-03
 
 scikit-learn parity requested by anofox-ml (#305–#311): a LassoLars fix,
