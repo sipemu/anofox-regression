@@ -796,6 +796,7 @@ impl Regressor for BinomialRegressor {
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedBinomial {
     /// When constant columns were dropped (intercept model): the fit on the
@@ -805,10 +806,13 @@ pub struct FittedBinomial {
     options: RegressionOptions,
     family: BinomialFamily,
     /// Total deviance.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub deviance: f64,
     /// Null deviance (intercept-only model).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub null_deviance: f64,
     /// Dispersion parameter (typically 1 for binomial).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub dispersion: f64,
     /// Number of IRLS iterations.
     pub iterations: usize,
@@ -817,13 +821,17 @@ pub struct FittedBinomial {
     /// fit exhausted `max_iterations`.
     pub converged: bool,
     /// Original y values.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     y_values: Col<f64>,
     /// Prior weights (`None`: all 1).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     prior_weights: Option<Col<f64>>,
     /// (X'WX)⁻¹ matrix for prediction SE.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     xtwx_inverse: Option<Mat<f64>>,
     /// Offset used in fitting (stored for potential residual calculations).
     #[allow(dead_code)]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     offset: Option<Col<f64>>,
     /// Which columns are aliased (constant or collinear).
     #[allow(dead_code)]

@@ -6,6 +6,7 @@ use crate::numeric::quantile::quantile7;
 use faer::Mat;
 
 /// Placement of the base knots computed from data.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum KnotPlacement {
@@ -20,6 +21,7 @@ pub enum KnotPlacement {
 
 /// Behaviour of a [`BSpline`] basis outside the base knots (sklearn
 /// `extrapolation`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum SplineExtrapolation {
@@ -67,6 +69,7 @@ pub enum SplineExtrapolation {
 /// let new = spline.basis(&[-1.0, 7.5], "x").unwrap(); // same knots, extrapolated
 /// assert_eq!(new.columns.nrows(), 2);
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct BSpline {
     base_knots: Vec<f64>,

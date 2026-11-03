@@ -217,6 +217,7 @@ pub trait FittedRegressor {
 
 /// Convergence of an iterative fit: whether it met its stopping rule and
 /// after how many iterations.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Convergence {
     pub(crate) converged: bool,

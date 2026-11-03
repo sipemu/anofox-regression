@@ -140,7 +140,14 @@ anofox-regression = "0.10"
 ```
 
 The minimum supported Rust version is 1.87. The optional `parallel` feature runs
-bootstrap and validation resamples on rayon.
+bootstrap and validation resamples on rayon. The optional `serde` feature
+derives `Serialize` / `Deserialize` for the fitted models (OLS, WLS, ridge,
+elastic net, Huber, quantile, isotonic, the GLMs, Bayesian ridge / ARD, LARS,
+multinomial logistic) and the spline bases, so a fitted model can be stored
+(JSON, MessagePack, …) and used for prediction and inference after loading.
+NaN and ±∞ are written as the strings `"NaN"`, `"inf"`, `"-inf"`, so JSON
+round trips are exact; enable serde_json's `float_roundtrip` feature to read
+the last bit back.
 
 ## Examples
 
@@ -336,6 +343,7 @@ This library is developed using Test-Driven Development (TDD) against establishe
 - [statrs](https://crates.io/crates/statrs) - Statistical distributions
 - [basin](https://crates.io/crates/basin) - Numerical optimization (L-BFGS, Nelder–Mead)
 - [rayon](https://crates.io/crates/rayon) - Parallel resampling (optional `parallel` feature)
+- [serde](https://crates.io/crates/serde) - Model serialization (optional `serde` feature)
 
 ## Attribution
 

@@ -39,9 +39,17 @@ one).
   crate re-exports it as `anofox_regression::faer` so callers can use the
   matching version. A faer upgrade that changes those types (a faer major,
   or `0.y` minor, release) is a **major release** of this crate.
-- Other dependencies (`statrs`, `basin`, `rayon`) are implementation details
+- Other dependencies (`statrs`, `basin`, `rayon`, `serde`) are implementation details
   unless a public signature names them; such uses are being removed before
   1.0 (#180).
+
+## Serialized models (`serde` feature)
+
+The serialized form of a fitted model is its field names and values. Within
+a major version, files written by an older release load in a newer one:
+fields added later carry `#[serde(default)]`, and fields are not renamed or
+removed. Files written by a newer release need not load in an older one.
+Non-finite floats are the strings `"NaN"`, `"inf"` and `"-inf"`.
 
 ## Minimum supported Rust version
 

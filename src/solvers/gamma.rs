@@ -64,6 +64,7 @@ impl Regressor for GammaRegressor {
 }
 
 /// A fitted Gamma GLM model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug)]
 pub struct FittedGamma {
     inner: FittedTweedie,

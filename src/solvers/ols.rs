@@ -928,6 +928,22 @@ impl LazyFactor {
     }
 }
 
+/// Serialized as the resolved inverse (computed now if it was deferred), so
+/// a loaded model has its intervals without the training data (#321).
+#[cfg(feature = "serde")]
+impl serde::Serialize for LazyFactor {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        crate::serde_impl::opt_mat::serialize(&self.get().cloned(), s)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for LazyFactor {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        crate::serde_impl::opt_mat::deserialize(d).map(Self::ready)
+    }
+}
+
 /// Gram matrix of the non-aliased columns of `x`, with a leading column of
 /// ones when `augmented`, without materialising the reduced design.
 pub(crate) fn reduced_gram(x: &Mat<f64>, aliased: &[bool], augmented: bool) -> Mat<f64> {
@@ -954,6 +970,7 @@ pub(crate) fn reduced_gram(x: &Mat<f64>, aliased: &[bool], augmented: bool) -> M
 }
 
 /// A fitted OLS regression model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedOls {
     options: RegressionOptions,

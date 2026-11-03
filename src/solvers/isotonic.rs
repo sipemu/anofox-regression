@@ -60,6 +60,7 @@ pub struct IsotonicRegressor {
 }
 
 /// How to handle predictions outside the training range.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[non_exhaustive]
 pub enum OutOfBounds {
@@ -335,13 +336,16 @@ impl Regressor for IsotonicRegressor {
 }
 
 /// A fitted Isotonic Regression model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedIsotonic {
     /// Whether the fit is increasing or decreasing
     increasing: bool,
     /// X thresholds for the step function
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     x_thresholds: Col<f64>,
     /// Y values at each threshold
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     y_values: Col<f64>,
     /// Regression result
     result: RegressionResult,

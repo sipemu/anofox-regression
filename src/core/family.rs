@@ -208,13 +208,16 @@ pub(crate) fn glm_null_deviance<F: GlmFamily + ?Sized>(
 /// | 3 | Inverse-Gaussian |
 ///
 /// Values of var_power between 0 and 1 are not allowed (no valid distribution).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct TweedieFamily {
     /// Power of the variance function: V(μ) = μ^var_power
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub var_power: f64,
     /// Power of the link function (Box-Cox): g(μ) = μ^link_power for link_power != 0
     /// For link_power = 0, the link is log: g(μ) = log(μ)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub link_power: f64,
 }
 

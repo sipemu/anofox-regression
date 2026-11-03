@@ -573,13 +573,16 @@ impl Regressor for HuberRegressor {
 }
 
 /// A fitted Huber M-estimator regression model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedHuber {
     /// Regression result with fit statistics.
     result: RegressionResult,
     /// Estimated scale (sigma) from MAD.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     scale: f64,
     /// Huber threshold parameter used during fitting.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     epsilon: f64,
     /// Boolean mask: true if |r_i| > epsilon * scale (outlier).
     outlier_mask: Vec<bool>,

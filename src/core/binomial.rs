@@ -38,6 +38,7 @@ use super::link::BinomialLink;
 /// d(y, μ) = 2[y·log(y/μ) + (1-y)·log((1-y)/(1-μ))]
 ///
 /// with appropriate handling for y = 0 or y = 1.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct BinomialFamily {

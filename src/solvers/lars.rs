@@ -48,6 +48,7 @@ use faer::{Col, Mat};
 
 /// LARS variant: plain LARS (greedy forward stagewise approximation) or
 /// the Lasso modification.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum LarsMethod {
@@ -603,6 +604,7 @@ fn lars_path(
 }
 
 /// A fitted LARS / LassoLars model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedLars {
     result: RegressionResult,
@@ -615,6 +617,7 @@ pub struct FittedLars {
     x_mean: Vec<f64>,
     x_norm: Vec<f64>,
     #[allow(dead_code)]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     y_mean: f64,
     method: LarsMethod,
     #[allow(dead_code)]

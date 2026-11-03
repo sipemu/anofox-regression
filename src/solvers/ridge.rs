@@ -780,12 +780,14 @@ impl Augmentable for AsLinear<'_> {
 }
 
 /// A fitted Ridge regression model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedRidge {
     options: RegressionOptions,
     result: RegressionResult,
     /// Variance factor `M` (ridge sandwich, or `(X'X)⁻¹` for λ = 0), full
     /// dimension, augmented if with_intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     variance_factor: Option<Mat<f64>>,
 }
 
