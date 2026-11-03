@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-03
+
+scikit-learn parity requested by anofox-ml (#305–#311): a LassoLars fix,
+multinomial and L1 / elastic-net logistic regression, GLM prior weights, a
+public B-spline basis, sklearn's joint Huber scale and an L1-penalized
+quantile regression. Additive; existing defaults are unchanged.
+
 ### Fixed
 
 - **LassoLars drop rule (#305).** With `LarsMethod::Lasso`, a variable whose coefficient crossed zero was re-admitted at the next step with its old sign, so after the first drop the path was plain LAR. The step after a drop now moves along the reduced active set without adding a variable (Efron et al. 2004, §3.1), and the step length is capped at `C / A`. Path, knots and `alpha` fits match `sklearn.linear_model.lars_path(method="lasso")` / `LassoLars` to 1e-10.
