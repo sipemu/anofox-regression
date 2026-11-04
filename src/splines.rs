@@ -337,6 +337,7 @@ fn place_knots(
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rcs {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     knots: Vec<f64>,
     norm: RcsNorm,
 }
@@ -504,6 +505,7 @@ impl RcsRestated {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lsp {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     knots: Vec<f64>,
 }
 

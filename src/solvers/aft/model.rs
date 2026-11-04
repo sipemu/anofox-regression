@@ -80,23 +80,31 @@ impl Default for AftOptions {
 }
 
 /// Core results of an AFT fit.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct AftFitResult {
     /// Coefficients on the log-time scale, excluding the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub coefficients: Vec<f64>,
     /// Intercept on the log-time scale (`None` without one).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept: Option<f64>,
     /// The scale parameter `sigma` (1.0 and not estimated for `exponential`).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub scale: f64,
     /// Maximised log-likelihood.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub log_likelihood: f64,
     /// Log-likelihood of the intercept-only model, for a likelihood-ratio pseudo-R2.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub null_log_likelihood: f64,
     /// `2k − 2 logLik`, with `k` the coefficients plus the scale when it is
     /// estimated (`AIC(survreg)`).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub aic: f64,
     /// `k log(n) − 2 logLik`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub bic: f64,
     /// Number of observations.
     pub n_observations: usize,
@@ -113,6 +121,8 @@ pub struct AftFitResult {
 }
 
 /// An AFT fit plus optional inference.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "AftResultWire"))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct AftResult {
@@ -132,37 +142,81 @@ impl HasModelInfo for AftResult {
 }
 
 /// Model description of an AFT fit with survival-time distribution `dist`.
+/// [`AftResult`] on the wire: `model_info` (static strings) is rebuilt from
+/// the distribution name on load.
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+struct AftResultWire {
+    core: AftFitResult,
+    inference: Option<AftInference>,
+    model_info: ModelInfoWire,
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+struct ModelInfoWire {
+    family: Option<String>,
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<AftResultWire> for AftResult {
+    type Error = String;
+    fn try_from(w: AftResultWire) -> Result<Self, String> {
+        let name = w.model_info.family.unwrap_or_default();
+        let dist = AftDistribution::from_name(&name)
+            .ok_or_else(|| format!("unknown AFT distribution {name:?}"))?;
+        Ok(Self {
+            core: w.core,
+            inference: w.inference,
+            model_info: aft_model_info(dist),
+        })
+    }
+}
+
 pub(crate) fn aft_model_info(dist: AftDistribution) -> ModelInfo {
     ModelInfo::new("aft", Some(dist.as_str()), "log")
 }
 
 /// Curvature-based inference for an AFT fit.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct AftInference {
     /// Per-coefficient values, excluding the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub std_errors: Vec<f64>,
     /// Wald z-statistics `β / SE`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub z_values: Vec<f64>,
     /// Two-sided normal p-values.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub p_values: Vec<f64>,
     /// Lower Wald confidence bounds.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub ci_lower: Vec<f64>,
     /// Upper Wald confidence bounds.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub ci_upper: Vec<f64>,
     /// Level of the confidence intervals.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub confidence_level: f64,
     /// Standard error of the intercept (`None` without an intercept).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_std_error: Option<f64>,
     /// Wald z-statistic of the intercept (`None` without an intercept).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_z_value: Option<f64>,
     /// Two-sided p-value of the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_p_value: Option<f64>,
     /// Lower confidence bound of the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_ci_lower: Option<f64>,
     /// Upper confidence bound of the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_ci_upper: Option<f64>,
     /// Standard error of `log sigma`; `None` when the scale is fixed.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub log_scale_std_error: Option<f64>,
     /// The full covariance of the fitted parameters at the mode, `None` when inference
     /// was not requested.
@@ -178,6 +232,7 @@ pub struct AftInference {
     /// a linear combination, a delta-method standard error -- would otherwise have to
     /// rebuild this matrix from `AftDistribution`'s derivatives, re-differentiating a
     /// likelihood this function has already differentiated.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     pub vcov: Option<Mat<f64>>,
     /// The penalised observed information at the mode -- the inverse of [`Self::vcov`]
     /// -- in the same parameter order, `None` when inference was not requested.
@@ -191,6 +246,7 @@ pub struct AftInference {
     /// "Penalised" is the operative word: it includes the contribution of any
     /// [`PriorSpec`] supplied, so it is the curvature of the log *posterior* at the
     /// mode rather than of the log likelihood.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     pub information: Option<Mat<f64>>,
 }
 

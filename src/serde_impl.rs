@@ -188,3 +188,48 @@ pub(crate) mod opt_mat {
             .transpose()
     }
 }
+
+/// `Vec<f64>` (NaN-safe).
+pub(crate) mod floats {
+    use super::*;
+    pub(crate) fn serialize<S: Serializer>(v: &[f64], s: S) -> Result<S::Ok, S::Error> {
+        Floats::new(v.iter().copied()).serialize(s)
+    }
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<f64>, D::Error> {
+        Floats::deserialize(d)?.values()
+    }
+}
+
+/// `Option<Vec<f64>>` (NaN-safe).
+pub(crate) mod opt_floats {
+    use super::*;
+    pub(crate) fn serialize<S: Serializer>(v: &Option<Vec<f64>>, s: S) -> Result<S::Ok, S::Error> {
+        v.as_ref()
+            .map(|v| Floats::new(v.iter().copied()))
+            .serialize(s)
+    }
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<Option<Vec<f64>>, D::Error> {
+        Option::<Floats>::deserialize(d)?
+            .map(Floats::values)
+            .transpose()
+    }
+}
+
+/// `Vec<Vec<f64>>` (NaN-safe).
+pub(crate) mod nested_floats {
+    use super::*;
+    pub(crate) fn serialize<S: Serializer>(v: &[Vec<f64>], s: S) -> Result<S::Ok, S::Error> {
+        v.iter()
+            .map(|r| Floats::new(r.iter().copied()))
+            .collect::<Vec<_>>()
+            .serialize(s)
+    }
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<f64>>, D::Error> {
+        Vec::<Floats>::deserialize(d)?
+            .into_iter()
+            .map(Floats::values)
+            .collect()
+    }
+}

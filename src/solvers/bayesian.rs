@@ -527,6 +527,7 @@ pub struct FittedBayesianRidge {
     lambda: f64,
     #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     sigma: Mat<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     x_mean: Vec<f64>,
     n_iter: usize,
     converged: bool,
@@ -840,10 +841,12 @@ pub struct FittedArd {
     result: RegressionResult,
     #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     alpha: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     lambdas: Vec<f64>,
     #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     sigma: Mat<f64>,
     kept: Vec<usize>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     x_mean: Vec<f64>,
     n_iter: usize,
     converged: bool,

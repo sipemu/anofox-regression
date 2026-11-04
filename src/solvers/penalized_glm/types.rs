@@ -480,20 +480,27 @@ impl Default for LogisticOptions {
 }
 
 /// Result from GLM fitting - uses deviance-based metrics instead of R²
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct GlmFitResult {
     /// Regression coefficients (excluding intercept)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub coefficients: Vec<f64>,
     /// Intercept term (if fitted with intercept)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept: Option<f64>,
     /// Null deviance (deviance of intercept-only model)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub null_deviance: f64,
     /// Residual deviance (deviance of fitted model)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub residual_deviance: f64,
     /// Pseudo R-squared (1 - residual_deviance/null_deviance)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub pseudo_r_squared: f64,
     /// AIC (Akaike Information Criterion)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub aic: f64,
     /// Number of observations used
     pub n_observations: usize,
@@ -504,34 +511,47 @@ pub struct GlmFitResult {
     /// Whether the algorithm converged
     pub converged: bool,
     /// Dispersion parameter (for NegBinomial, Tweedie)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub dispersion: Option<f64>,
 }
 
 /// GLM inference results
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct GlmInferenceResult {
     /// Standard errors of coefficients
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub std_errors: Vec<f64>,
     /// z-statistics for coefficients (Wald test)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub z_values: Vec<f64>,
     /// p-values for coefficients
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub p_values: Vec<f64>,
     /// Lower bound of confidence intervals
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub ci_lower: Vec<f64>,
     /// Upper bound of confidence intervals
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub ci_upper: Vec<f64>,
     /// Confidence level used (e.g., 0.95)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub confidence_level: f64,
     /// Standard error of the intercept (`None` without an intercept).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_std_error: Option<f64>,
     /// Wald z-statistic of the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_z_value: Option<f64>,
     /// Two-sided p-value of the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_p_value: Option<f64>,
     /// Lower confidence bound of the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_ci_lower: Option<f64>,
     /// Upper confidence bound of the intercept.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     pub intercept_ci_upper: Option<f64>,
     /// The full covariance of the fitted parameters at the mode, `None` when
     /// inference was not requested.
@@ -541,6 +561,7 @@ pub struct GlmInferenceResult {
     /// rank deficiency; a matrix cannot follow that convention, because removing the
     /// intercept row would discard the intercept/slope covariance that is most of the
     /// reason to want the matrix. [`Self::matrix_parameters`] says what each row is.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     pub vcov: Option<Mat<f64>>,
     /// The penalised observed information at the mode — the inverse of [`Self::vcov`]
     /// — in the same order, `None` when inference was not requested.
@@ -548,6 +569,7 @@ pub struct GlmInferenceResult {
     /// Reported alongside the covariance because they answer different questions:
     /// `vcov` is what a report reads, the information is what a sampler factorises to
     /// draw from the Laplace approximation.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     pub information: Option<Mat<f64>>,
     /// What each row and column of [`Self::vcov`] and [`Self::information`] refers to:
     /// `None` for the intercept, `Some(j)` for feature `j` of the *original* design.

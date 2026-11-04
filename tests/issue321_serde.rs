@@ -328,3 +328,171 @@ fn spline_bases_round_trip() {
         assert_eq!(g, lsp);
     }
 }
+
+// ---- #322: the remaining fitted models ----
+
+#[test]
+fn linear_family_models_round_trip() {
+    let (xm, xn) = (x(), new_x());
+    let bls = BlsRegressor::builder().build().fit(&xm, &y()).unwrap();
+    check_regressor(&bls, &xn);
+    let pls = PlsRegressor::builder()
+        .n_components(2)
+        .build()
+        .fit(&xm, &y())
+        .unwrap();
+    check_regressor(&pls, &xn);
+    let rls = RlsRegressor::builder().build().fit(&xm, &y()).unwrap();
+    check_regressor(&rls, &xn);
+    let ts = TheilSenRegressor::builder().build().fit(&xm, &y()).unwrap();
+    check_regressor(&ts, &xn);
+    let ransac = RansacRegressor::builder()
+        .residual_threshold(1.0)
+        .random_state(42)
+        .build()
+        .fit(&xm, &y())
+        .unwrap();
+    check_regressor(&ransac, &xn);
+    for g in round_trips(&ransac) {
+        assert_eq!(g.inlier_mask(), ransac.inlier_mask());
+    }
+    let pa = PassiveAggressiveRegressor::builder()
+        .build()
+        .fit(&xm, &y())
+        .unwrap();
+    check_regressor(&pa, &xn);
+    let x1 = Mat::from_fn(N, 1, |i, _| i as f64 / 4.0);
+    let ps = PSplineRegressor::new().fit(&x1, &y()).unwrap();
+    check_regressor(&ps, &Mat::from_fn(6, 1, |i, _| i as f64 * 2.0 - 1.0));
+    let alm = AlmRegressor::builder().build().fit(&xm, &y()).unwrap();
+    check_regressor(&alm, &xn);
+    let dynamic = LmDynamicRegressor::builder()
+        .build()
+        .fit(&xm, &y())
+        .unwrap();
+    check_regressor(&dynamic, &xn);
+}
+
+#[test]
+fn ordinal_glmm_gls_aft_penalized_round_trip() {
+    let (xm, xn) = (x(), new_x());
+    let levels = Col::from_fn(N, |i| {
+        ((y()[i] + ((i * 7) % 5) as f64 * 0.6) * 0.6)
+            .floor()
+            .clamp(0.0, 3.0)
+    });
+    let ord = OrdinalRegressor::builder()
+        .build()
+        .fit(&xm, &levels)
+        .unwrap();
+    for g in round_trips(&ord) {
+        let (a, b) = (
+            ord.category_probabilities(&xn),
+            g.category_probabilities(&xn),
+        );
+        assert_eq!(format!("{a:?}"), format!("{b:?}"));
+        same(&ord.predict_mean(&xn), &g.predict_mean(&xn), "ordinal mean");
+    }
+    let cr = ContinuationRatioRegressor::builder()
+        .build()
+        .fit(&xm, &levels)
+        .unwrap();
+    for g in round_trips(&cr) {
+        let (a, b) = (
+            cr.category_probabilities(&xn),
+            g.category_probabilities(&xn),
+        );
+        assert_eq!(format!("{a:?}"), format!("{b:?}"));
+    }
+    let group: Vec<usize> = (0..N).map(|i| i / 8).collect();
+    let glmm = GlmmRegressor::gaussian()
+        .build()
+        .fit(&xm, &y(), &group)
+        .unwrap();
+    for g in round_trips(&glmm) {
+        same(
+            &glmm.predict_fixed(&xn),
+            &g.predict_fixed(&xn),
+            "glmm fixed",
+        );
+        assert_eq!(
+            format!("{:?}", glmm.random_cov()),
+            format!("{:?}", g.random_cov())
+        );
+    }
+    let time: Vec<f64> = (0..N).map(|i| (i % 8) as f64).collect();
+    let gls = gls::GlsRegressor::builder()
+        .correlation(gls::GlsCorrelation::ContinuousAr1)
+        .build()
+        .fit(&xm, &y(), &group, Some(&time))
+        .unwrap();
+    for g in round_trips(&gls) {
+        let (a, b) = (gls.predict_with_se(&xn), g.predict_with_se(&xn));
+        same(&a.0, &b.0, "gls fit");
+        same(&a.1, &b.1, "gls se");
+    }
+    let t = Col::from_fn(N, |i| {
+        (0.3 + 0.2 * x()[(i, 0)]).exp() * (1.0 + (i % 5) as f64 * 0.3)
+    });
+    let event: Vec<bool> = (0..N).map(|i| i % 6 != 0).collect();
+    let aft = aft::AftRegressor::builder()
+        .compute_inference(true)
+        .build()
+        .fit(&xm, &t, &event)
+        .unwrap();
+    for g in round_trips(&aft) {
+        same(
+            &aft.predict_median(&xn),
+            &g.predict_median(&xn),
+            "aft median",
+        );
+        same(
+            &aft.predict_survival(&xn, 1.5),
+            &g.predict_survival(&xn, 1.5),
+            "aft surv",
+        );
+    }
+    let pglm = penalized_glm::PenalizedGlmRegressor::builder()
+        .family(penalized_glm::PenalizedGlmFamily::poisson())
+        .lambda(0.1)
+        .compute_inference(true)
+        .build()
+        .fit(&xm, &counts())
+        .unwrap();
+    for g in round_trips(&pglm) {
+        same(&pglm.predict(&xn), &g.predict(&xn), "penalized glm");
+        assert_eq!(
+            format!("{:?}", pglm.std_errors()),
+            format!("{:?}", g.std_errors())
+        );
+    }
+    // An unknown AFT distribution name is rejected.
+    let json = serde_json::to_string(&aft).unwrap();
+    let bad = json.replacen("\"family\":\"weibull\"", "\"family\":\"gompertz\"", 1);
+    assert_ne!(bad, json);
+    assert!(serde_json::from_str::<aft::FittedAft>(&bad).is_err());
+}
+
+#[test]
+fn survival_results_round_trip() {
+    use anofox_regression::survival::cox::{coxph, CoxInput, CoxOptions};
+    use anofox_regression::survival::{kaplan_meier, SurvfitOptions};
+    let time: Vec<f64> = (0..N)
+        .map(|i| 1.0 + ((i * 7) % 13) as f64 + 0.5 * x()[(i, 0)])
+        .collect();
+    let event: Vec<bool> = (0..N).map(|i| i % 5 != 0).collect();
+    let km = kaplan_meier(&time, &event, &SurvfitOptions::default()).unwrap();
+    for g in round_trips(&km) {
+        assert_eq!(format!("{g:?}"), format!("{km:?}"));
+        assert_eq!(g.survival_at(6.0), km.survival_at(6.0));
+    }
+    let cox = coxph(&x(), &CoxInput::new(&time, &event), &CoxOptions::default()).unwrap();
+    for g in round_trips(&cox) {
+        assert_eq!(g.concordance(), cox.concordance());
+        let (a, b) = (
+            cox.predict_survival(&[0.1, 0.2, 0.3], None).unwrap(),
+            g.predict_survival(&[0.1, 0.2, 0.3], None).unwrap(),
+        );
+        assert_eq!(format!("{a:?}"), format!("{b:?}"));
+    }
+}

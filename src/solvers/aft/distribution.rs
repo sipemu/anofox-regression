@@ -13,6 +13,7 @@ use std::f64::consts::PI;
 
 /// The error distribution of an AFT model, named after the distribution induced
 /// on `T` rather than on `W`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AftDistribution {

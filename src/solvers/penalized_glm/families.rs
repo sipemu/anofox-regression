@@ -33,6 +33,8 @@ use crate::core::{
 use statrs::function::gamma::ln_gamma;
 
 /// Combined GLM result with optional inference.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(from = "GlmResultWire"))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct GlmResult {
@@ -44,10 +46,13 @@ pub struct GlmResult {
     pub inference: Option<GlmInferenceResult>,
     /// Log-likelihood of the family at the fitted means (with the estimated
     /// nuisance parameter for Gamma / Tweedie / Negative Binomial).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub log_likelihood: f64,
     /// Bayesian information criterion.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub bic: f64,
     /// Fitted means over the rows that were used ([`Self::valid_rows`]).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub fitted_values: Vec<f64>,
     /// Indices into the input rows that were used (rows with a non-finite value
     /// in `y`, a feature or the offset are dropped).
@@ -70,6 +75,45 @@ pub struct GlmResult {
     /// the coefficients are a posterior mode rather than the maximum-likelihood
     /// estimate.
     pub penalized: bool,
+}
+
+/// [`GlmResult`] on the wire: `model_info` (static strings) is rebuilt from
+/// the family on load.
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+struct GlmResultWire {
+    core: GlmFitResult,
+    inference: Option<GlmInferenceResult>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
+    log_likelihood: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
+    bic: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
+    fitted_values: Vec<f64>,
+    valid_rows: Vec<usize>,
+    family: PenalizedGlmFamily,
+    dispersion_rule: DispersionRule,
+    offset_column: Option<usize>,
+    penalized: bool,
+}
+
+#[cfg(feature = "serde")]
+impl From<GlmResultWire> for GlmResult {
+    fn from(w: GlmResultWire) -> Self {
+        Self {
+            core: w.core,
+            inference: w.inference,
+            log_likelihood: w.log_likelihood,
+            bic: w.bic,
+            fitted_values: w.fitted_values,
+            valid_rows: w.valid_rows,
+            model_info: w.family.model_info(),
+            family: w.family,
+            dispersion_rule: w.dispersion_rule,
+            offset_column: w.offset_column,
+            penalized: w.penalized,
+        }
+    }
 }
 
 impl GlmResult {

@@ -100,6 +100,7 @@ use statrs::distribution::{ContinuousCDF, Normal};
 ///   `quantile` type 7) for every coefficient and the intercept, deterministic
 ///   given `random_state`. No test statistic.
 /// - `Auto`: `Exact` where it applies, `Bootstrap` otherwise.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum TheilSenCiMethod {
@@ -1133,6 +1134,7 @@ fn build_fitted_from_full(
 }
 
 /// A fitted Theil–Sen model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedTheilSen {
     result: RegressionResult,

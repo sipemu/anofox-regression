@@ -608,13 +608,17 @@ fn lars_path(
 #[derive(Debug, Clone)]
 pub struct FittedLars {
     result: RegressionResult,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     alphas: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     coefs_path: Vec<Vec<f64>>,
     active: Vec<usize>,
     /// Column means used to undo centering when generating the path on the
     /// original predictor scale. Kept for future prediction-interval support.
     #[allow(dead_code)]
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     x_mean: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     x_norm: Vec<f64>,
     #[allow(dead_code)]
     #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]

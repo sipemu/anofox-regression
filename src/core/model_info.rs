@@ -19,6 +19,7 @@
 //!   `"sqrt"`, …). Linear models report `"identity"`.
 
 /// Static description of a fitted model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct ModelInfo {

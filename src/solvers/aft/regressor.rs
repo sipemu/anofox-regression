@@ -121,9 +121,11 @@ impl AftRegressorBuilder {
 }
 
 /// A fitted [`AftRegressor`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedAft {
     distribution: AftDistribution,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     coefficients: Col<f64>,
     result: AftResult,
 }

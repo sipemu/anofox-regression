@@ -508,6 +508,7 @@ impl PlsRegressor {
 }
 
 /// A fitted PLS regression model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedPls {
     /// Number of components used
@@ -518,20 +519,28 @@ pub struct FittedPls {
     /// Regression result
     result: RegressionResult,
     /// Mean of X columns (for centering new data)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     x_means: Col<f64>,
     /// Mean of y (for centering)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     y_mean: f64,
     /// Standard deviations of X columns (if scaled)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     x_scales: Option<Col<f64>>,
     /// Total sum of squares of the (centred / scaled) X used in the fit
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     x_total_ss: f64,
     /// Weight matrix W (p x n_components)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     weights: Mat<f64>,
     /// X-loadings matrix P (p x n_components)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     x_loadings: Mat<f64>,
     /// Y-loadings vector Q (n_components)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     y_loadings: Col<f64>,
     /// Score matrix T (n x n_components)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     scores: Mat<f64>,
 }
 

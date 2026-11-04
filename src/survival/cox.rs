@@ -40,6 +40,7 @@ use faer::Mat;
 use statrs::distribution::{ChiSquared, ContinuousCDF, Normal};
 
 /// Handling of tied event times.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum Ties {
@@ -51,6 +52,7 @@ pub enum Ties {
 }
 
 /// Options of [`coxph`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct CoxOptions {
@@ -59,10 +61,13 @@ pub struct CoxOptions {
     /// Maximum Newton iterations (coxph: 20).
     pub max_iter: usize,
     /// Convergence: `|1 − ℓ_old/ℓ_new| ≤ eps` (coxph: 1e-9).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub eps: f64,
     /// Ridge penalty `λ/2 Σβ²` (0 = none).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub ridge: f64,
     /// Confidence level of predicted survival curves.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub conf_level: f64,
     /// Merge near-equal times as R's `Surv(..., timefix = TRUE)`.
     pub timefix: bool,
@@ -143,14 +148,21 @@ impl<'a> CoxInput<'a> {
 }
 
 /// Data of a fit, owned, with centred covariates.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 struct Data {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     x: Mat<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     means: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     stop: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_floats"))]
     entry: Option<Vec<f64>>,
     event: Vec<bool>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     w: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     off: Vec<f64>,
     strata: Vec<usize>,
     /// Per stratum: rows sorted by stop (descending) and by entry (descending).
@@ -415,6 +427,7 @@ fn quad(v: &[f64], m: &Mat<f64>) -> f64 {
 }
 
 /// Time transformation of the proportional-hazards test ([`CoxFit::cox_zph`]).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum ZphTransform {
@@ -430,18 +443,22 @@ pub enum ZphTransform {
 }
 
 /// One row of the proportional-hazards test.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct ZphTest {
     /// Score χ².
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub chisq: f64,
     /// Degrees of freedom.
     pub df: usize,
     /// p-value.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub p_value: f64,
 }
 
 /// Result of [`CoxFit::cox_zph`] (`survival::cox.zph`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct CoxZph {
@@ -451,33 +468,45 @@ pub struct CoxZph {
     pub global: ZphTest,
     /// Transformed time of each event row (order of
     /// [`CoxFit::schoenfeld_residuals`]).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub x: Vec<f64>,
     /// Untransformed time of each event row.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub time: Vec<f64>,
     /// Scaled Schoenfeld residuals (`events × p`), for plotting β(t).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     pub y: Mat<f64>,
 }
 
 /// A fitted Cox model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct CoxFit {
     /// Coefficients.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub coefficients: Vec<f64>,
     /// Covariance (inverse of the (penalised) information).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     pub var: Mat<f64>,
     /// Standard errors.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub std_errors: Vec<f64>,
     /// Wald z statistics.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub z: Vec<f64>,
     /// Two-sided p-values.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub p_values: Vec<f64>,
     /// Log partial likelihood at β = 0 and at the estimate (`loglik` of coxph).
     pub loglik: (f64, f64),
     /// Likelihood-ratio χ² `2(ℓ̂ − ℓ₀)`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub lr_test: f64,
     /// Wald χ² `β̂ᵀ V⁻¹ β̂`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub wald_test: f64,
     /// Score χ² at β = 0.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub score_test: f64,
     /// Degrees of freedom of the tests.
     pub df: usize,
@@ -490,7 +519,9 @@ pub struct CoxFit {
     /// Whether the iteration converged.
     pub converged: bool,
     ties: Ties,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     ridge: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     conf_level: f64,
     data: Data,
 }
@@ -575,22 +606,30 @@ pub fn coxph(
 }
 
 /// A predicted survival curve of a Cox model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct CoxSurvCurve {
     /// Distinct times of the stratum (events and censorings).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub time: Vec<f64>,
     /// Number at risk.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub n_risk: Vec<f64>,
     /// Cumulative hazard for the covariates.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub cumhaz: Vec<f64>,
     /// Survival `exp(−H)`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub surv: Vec<f64>,
     /// Standard error of the cumulative hazard.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub std_err: Vec<f64>,
     /// Lower confidence limit (log scale).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub lower: Vec<f64>,
     /// Upper confidence limit.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub upper: Vec<f64>,
 }
 
