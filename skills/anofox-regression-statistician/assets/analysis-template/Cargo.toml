@@ -1,0 +1,12 @@
+[package]
+name = "analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anofox-regression = "0.11"
+faer = "0.23"      # must match the faer major used by anofox-regression
+csv = "1"
+
+# Standalone project (also when kept inside another workspace).
+[workspace]

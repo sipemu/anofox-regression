@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: demand-forecast-cv
+expected_outcome: |
+  Uses time-ordered (rolling origin) validation, explains random k-fold is optimistic for time series, reports rolling MAPE, compares with a naive benchmark, no leakage in lag features.
+context:
+  scaffold_script: place-files.sh

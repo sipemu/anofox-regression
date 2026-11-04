@@ -36,6 +36,16 @@
 - **Coverage Minimum**: 95%
 - **SATD Tolerance**: 0
 
+## Statistician skill
+
+`skills/anofox-regression-statistician/` documents this crate for agents.
+When a PR changes the public API (new or renamed items, options, defaults,
+behaviour that the skill describes), update `references/rust_api.md` (and
+`SKILL.md` if the workflow or its gap list changes) in the same PR. Release
+PRs bump the version in the reference header after reviewing the CHANGELOG
+section against the skill. CI enforces names, version and that the template
+builds (`skills/README.md`).
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

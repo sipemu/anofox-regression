@@ -1,0 +1,15 @@
+# Names in the statistician skill that are not anofox-regression items
+# (scripts/skill_api_check.py). One or more names per line, each with a reason.
+
+Box, Col, ColRef, Default, Err, Fn, FnMut, From, Mat, Ok, Option, Self, Send, Some, String, Sync, Vec  # Rust std / faer types and traits
+as_ref, chain, collect, copied, exp, filter, flat_map, into, iter, last, map, map_or, ok, ok_or, once, partition_point, remove, unwrap, zip  # Rust std methods
+from_fn, faer  # faer API
+Serialize, Deserialize  # serde traits (feature `serde`)
+md, rs, sh  # file extensions in paths
+Frame, read_csv, missingness  # analysis template's data.rs
+XxxOptions, XxxRegressor, Estimator, opt  # placeholders in generic patterns
+Bottom, Checks, Limitations, Methods, Question, Reproducibility, Results, The, It, As, Diagnostics  # report headings and prose
+NaN, Dxy, Emax, Intercept, Slope, Predict, Nagelkerke, Rubin, Konis, Bell, McCaffrey, Iso, Surv  # statistics, author and R names in prose
+GroupKFold, LeaveOneGroupOut, StratifiedKFold, StratifiedGroupKFold, TimeSeriesSplit, SplineTransformer  # scikit-learn classes
+lm, lrm, orm, cph, rq, nb, rms, glmnet, multinom, pava, control, type, distance, only, more, omit, resample, setup, predab, ordinaly, xmean, zph  # R functions and R dot-name parts
+ols_eigen_cindex  # olsrr function

@@ -175,6 +175,36 @@ jobs:
       - name: Check parity
         run: python3 scripts/js_parity.py
 
+  skill:
+    name: Statistician skill
+    runs-on: ubuntu-latest
+    # skills/anofox-regression-statistician documents the crate for agents.
+    # Every API name it uses must exist, its reference must name the current
+    # crate version, and its analysis template must build and run against
+    # this commit (scripts/skill_api_check.py, skills/README.md).
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-03-10
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            skills/anofox-regression-statistician/assets/analysis-template
+      - name: Rust API (rustdoc JSON, public and private items)
+        run: |
+          cargo +nightly-2026-03-10 rustdoc --lib --all-features --target-dir target/skill-pub -- -Z unstable-options --output-format json
+          cargo +nightly-2026-03-10 rustdoc --lib --all-features --target-dir target/skill -- -Z unstable-options --output-format json --document-private-items
+      - name: Check the skill's API names and version
+        run: python3 scripts/skill_api_check.py
+      - name: Build and run the analysis template against this commit
+        working-directory: skills/anofox-regression-statistician/assets/analysis-template
+        env:
+          RAYON_NUM_THREADS: "1"
+        run: cargo +stable run --release --config 'patch.crates-io.anofox-regression.path="../../../.."'
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
@@ -201,7 +231,7 @@ jobs:
     name: Publish to crates.io
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [test, clippy, fmt, docs, msrv, duckdb-toolchain, package, deny]
+    needs: [test, clippy, fmt, docs, msrv, duckdb-toolchain, package, deny, skill]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
