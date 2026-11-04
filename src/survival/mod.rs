@@ -49,6 +49,7 @@ pub enum SurvivalError {
 }
 
 /// Confidence interval of the survival curve (`conf.type` of `survfit`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum ConfType {
@@ -62,6 +63,7 @@ pub enum ConfType {
 }
 
 /// Cumulative hazard estimator (`ctype` of `survfit`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum HazardType {
@@ -73,10 +75,12 @@ pub enum HazardType {
 }
 
 /// Options of [`survfit`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct SurvfitOptions {
     /// Confidence level of the intervals (default 0.95).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub conf_level: f64,
     /// Interval type (default [`ConfType::Log`]).
     pub conf_type: ConfType,
@@ -229,6 +233,7 @@ fn timefix(
 }
 
 /// One survival curve (one stratum), at every distinct stop time.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct SurvCurve {
     /// Stratum code (`None` without strata).
@@ -236,68 +241,92 @@ pub struct SurvCurve {
     /// Number of rows.
     pub records: usize,
     /// Distinct event / censoring times.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub time: Vec<f64>,
     /// Number (sum of weights) at risk just before each time.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub n_risk: Vec<f64>,
     /// Events at each time.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub n_event: Vec<f64>,
     /// Censorings at each time.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub n_censor: Vec<f64>,
     /// Kaplan–Meier survival.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub surv: Vec<f64>,
     /// Standard error of `−log S`: Greenwood (`std.err` of `survfit` with
     /// `robust = FALSE`) or, with the robust variance, the
     /// infinitesimal-jackknife SE of `S` divided by `S` (R reports the SE of
     /// `S` itself then, `logse = FALSE`, and converts it the same way for
     /// the confidence limits).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub std_err: Vec<f64>,
     /// Lower confidence limit of `S`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub lower: Vec<f64>,
     /// Upper confidence limit of `S`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub upper: Vec<f64>,
     /// Cumulative hazard.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub cumhaz: Vec<f64>,
     /// Standard error of the cumulative hazard (Greenwood-type or
     /// infinitesimal jackknife).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub std_chaz: Vec<f64>,
     /// Smallest entry / stop time (start of the curve for the restricted mean).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     min_time: f64,
 }
 
 /// A survival-time quantile with its confidence limits.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct SurvQuantile {
     /// Estimate (NaN if the curve does not reach the level).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub estimate: f64,
     /// Lower confidence limit: the first time the lower confidence curve
     /// reaches the level (as `survfit`).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub lower: f64,
     /// Upper confidence limit.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub upper: f64,
 }
 
 /// The `summary(survfit)$table` row of a curve.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct SurvSummary {
     /// Rows used.
     pub records: usize,
     /// Largest number at risk.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub n_max: f64,
     /// Number at risk at the first time.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub n_start: f64,
     /// Total events.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub events: f64,
     /// Restricted mean survival time.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub rmean: f64,
     /// Its standard error.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub se_rmean: f64,
     /// Median survival.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub median: f64,
     /// Lower confidence limit of the median.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub median_lower: f64,
     /// Upper confidence limit of the median.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub median_upper: f64,
 }
 
@@ -717,6 +746,7 @@ fn conf_limits(p: f64, se: f64, z: f64, kind: ConfType) -> (f64, f64) {
 }
 
 /// Result of [`survdiff`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct SurvDiff {
@@ -725,16 +755,21 @@ pub struct SurvDiff {
     /// Rows per group.
     pub n: Vec<usize>,
     /// (Weighted) observed events per group.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub observed: Vec<f64>,
     /// (Weighted) expected events per group.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub expected: Vec<f64>,
     /// Covariance of `observed − expected`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     pub variance: Mat<f64>,
     /// χ² statistic.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub chisq: f64,
     /// Degrees of freedom (groups with expected events, minus one).
     pub df: usize,
     /// p-value.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub p_value: f64,
 }
 

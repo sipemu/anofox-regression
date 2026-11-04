@@ -99,6 +99,7 @@ impl Default for EngineOptions {
 /// enters the IRLS weights through the variance function `mu + mu^2 / theta`;
 /// multiplying the covariance by it again would inflate every standard error by
 /// `sqrt(theta)`. [`DispersionRule::covariance_scale`] keeps the two separate.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum DispersionRule {

@@ -389,6 +389,7 @@ impl SplitMix64 {
 }
 
 /// A fitted RANSAC model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedRansac {
     result: RegressionResult,
@@ -396,6 +397,7 @@ pub struct FittedRansac {
     ols: FittedOls,
     inlier_mask: Vec<bool>,
     n_trials: usize,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     residual_threshold: f64,
 }
 

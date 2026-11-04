@@ -19,6 +19,7 @@ use crate::diagnostics::{check_binary_separation, SeparationCheck};
 use crate::diagnostics::{Augment, ResidualType};
 
 /// Response family (and link) fitted by [`PenalizedGlmRegressor`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum PenalizedGlmFamily {
@@ -395,11 +396,14 @@ impl PenalizedGlmRegressorBuilder {
 }
 
 /// A fitted [`PenalizedGlmRegressor`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedPenalizedGlm {
     family: PenalizedGlmFamily,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     coefficients: Col<f64>,
     result: GlmResult,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     accuracy: Option<f64>,
     separation: SeparationCheck,
 }

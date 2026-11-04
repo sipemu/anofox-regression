@@ -28,6 +28,7 @@ use std::f64::consts::PI;
 
 /// The link (cumulative distribution `F`) of a cumulative link model, named
 /// as the `family` of `rms::orm`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum OrdinalLink {
@@ -242,11 +243,16 @@ enum OrdinalPenalty {
 
 /// The observed information `[[A, B], [Bᵀ, D]]` at the estimate: `A` the
 /// tridiagonal intercept block, `B` intercepts × slopes, `D` the slopes.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 struct Information {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     a_diag: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     a_off: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     b: Mat<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     d: Mat<f64>,
 }
 
@@ -348,22 +354,33 @@ impl<'a> InformationFactor<'a> {
 }
 
 /// A fitted cumulative link model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedOrdinal {
     link: OrdinalLink,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     levels: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     counts: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     intercepts: Col<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     coefficients: Col<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     log_likelihood: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     penalized_log_likelihood: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     null_log_likelihood: f64,
     iterations: usize,
     converged: bool,
     n_observations: usize,
     information: Information,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     weights: Option<Col<f64>>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_col"))]
     offset: Option<Col<f64>>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     penalty: Option<Mat<f64>>,
 }
 

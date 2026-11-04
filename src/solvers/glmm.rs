@@ -1092,29 +1092,42 @@ fn check_slope_columns(slopes: &[usize], ncols: usize) -> Result<(), RegressionE
 }
 
 /// A fitted GLMM with a random intercept and optional random slopes.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FittedGlmm {
     with_intercept: bool,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     fixed_effects: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     std_errors: Vec<f64>,
     /// Covariance of the fixed effects `σ² M⁻¹` (`p × p`).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     vcov: Vec<Vec<f64>>,
     /// Satterthwaite degrees of freedom of the fixed effects (Gaussian fits
     /// built with [`satterthwaite`](GlmmRegressorBuilder::satterthwaite)).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_floats"))]
     satterthwaite_df: Option<Vec<f64>>,
     /// Random-effects BLUPs, `n_groups × q` (row-major per group).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     re_matrix: Vec<Vec<f64>>,
     /// Conditional standard errors of the BLUPs, `n_groups × q`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     re_se: Vec<Vec<f64>>,
     /// Random intercept BLUP per group (component 0), for the scalar accessor.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     re_intercept: Vec<f64>,
     n_groups: usize,
     q: usize,
     /// `T[0][0]` — for a random intercept this is the ratio θ = σ_b/σ.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     theta0: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     sigma: f64,
     /// Random-effects covariance Σ (`q × q`).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     cov: Vec<Vec<f64>>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     deviance: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     log_likelihood: f64,
     reml: bool,
     converged: bool,
@@ -1126,6 +1139,7 @@ pub struct FittedGlmm {
     /// Per-factor covariance and full BLUP matrices (multi-factor path).
     factor_details: Vec<FactorDetail>,
     /// Negative-binomial size θ (fixed or estimated); `None` otherwise.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     nb_theta: Option<f64>,
     /// Response family of the fit (Gaussian for the LMM path).
     kind: ResponseKind,
@@ -1137,11 +1151,16 @@ pub struct FittedGlmm {
 }
 
 /// Per-observation quantities of the training data (response scale).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default)]
 struct Observations {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     y: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     fitted: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     fitted_population: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pearson: Vec<f64>,
 }
 
@@ -1203,14 +1222,17 @@ pub struct GlmmInference {
 
 /// Per-factor summary for a crossed / nested fit: one random intercept per
 /// factor, each with its own variance component.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct FactorSummary {
     /// Number of levels of this grouping factor.
     pub n_levels: usize,
     /// Random-intercept standard deviation σ_f for this factor.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub sd: f64,
     /// Random-intercept BLUP per level (0-based).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     pub blups: Vec<f64>,
 }
 
@@ -1793,6 +1815,7 @@ impl FittedGlmm {
 // ============================================================ builder =======
 
 /// Which response family a [`GlmmRegressorBuilder`] targets.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy)]
 enum ResponseKind {
     Gaussian,
@@ -2490,11 +2513,15 @@ struct MultiSpec {
 }
 
 /// Per-factor random-effect covariance and BLUPs (`n_levels × q_f`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 struct FactorDetail {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     cov: Vec<Vec<f64>>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     re: Vec<Vec<f64>>,
     /// Conditional standard errors of `re`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     se: Vec<Vec<f64>>,
 }
 

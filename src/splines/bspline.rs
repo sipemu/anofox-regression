@@ -72,6 +72,7 @@ pub enum SplineExtrapolation {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct BSpline {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     base_knots: Vec<f64>,
     degree: usize,
     extrapolation: SplineExtrapolation,

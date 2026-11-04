@@ -125,8 +125,10 @@ impl ContinuationRatioRegressorBuilder {
 }
 
 /// A fitted continuation-ratio model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug)]
 pub struct FittedContinuationRatio {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     levels: Vec<f64>,
     n_features: usize,
     cohort_specific: Vec<usize>,

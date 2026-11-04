@@ -335,10 +335,13 @@ impl SplitMix64 {
 }
 
 /// A fitted Passive-Aggressive model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedPassiveAggressive {
     result: RegressionResult,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     weights: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     intercept: f64,
     with_intercept: bool,
     n_iter: usize,

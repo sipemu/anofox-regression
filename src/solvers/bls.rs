@@ -463,6 +463,7 @@ impl BlsRegressor {
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedBls {
     result: RegressionResult,

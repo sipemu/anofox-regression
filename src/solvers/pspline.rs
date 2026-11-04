@@ -207,15 +207,22 @@ impl Regressor for PSplineRegressor {
 }
 
 /// A fitted P-spline smoother.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedPSpline {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     knots: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     beta: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::nested_floats"))]
     chol_l: Vec<Vec<f64>>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     sigma2: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     edf: f64,
     n: usize,
     p: usize,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     lambda: f64,
     result: RegressionResult,
 }

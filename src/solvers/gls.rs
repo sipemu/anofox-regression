@@ -1125,19 +1125,24 @@ fn normalize(groups: &[Vec<usize>], factors: &[Mat<f64>], pearson: &Col<f64>) ->
 // ================================================================== results ==
 
 /// A point estimate with its confidence limits.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct Interval {
     /// Lower limit.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub lower: f64,
     /// Estimate.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub estimate: f64,
     /// Upper limit.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     pub upper: f64,
 }
 
 /// Approximate intervals of the variance–covariance parameters
 /// (`intervals(fit, which = "var-cov")`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct VarCovIntervals {
@@ -1162,24 +1167,40 @@ pub struct VariogramBin {
 }
 
 /// A fitted [`GlsRegressor`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedGls {
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     coefficients: Col<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     std_errors: Col<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     vcov: Mat<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     sigma: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     log_likelihood: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     aic: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     bic: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     correlation_params: Vec<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     variance_params: Vec<f64>,
     intervals: Option<VarCovIntervals>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     fitted: Col<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     residuals: Col<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     pearson: Col<f64>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::col"))]
     normalized: Col<f64>,
     groups: Vec<Vec<usize>>,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     df_residual: f64,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     confidence_level: f64,
     with_intercept: bool,
     n_params: usize,

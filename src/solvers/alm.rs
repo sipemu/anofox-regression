@@ -73,6 +73,7 @@ fn met_stopping_rule(t: &Termination) -> bool {
 /// The loss function determines how the model measures fit quality during
 /// the iterative optimization process. Different loss functions provide
 /// different trade-offs between efficiency and robustness.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[non_exhaustive]
 pub enum AlmLoss {
@@ -121,6 +122,7 @@ impl AlmLoss {
 }
 
 /// Distribution families supported by the ALM.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[non_exhaustive]
 pub enum AlmDistribution {
@@ -369,6 +371,7 @@ impl AlmDistribution {
 }
 
 /// Link functions for relating the linear predictor to the mean.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum LinkFunction {
@@ -3090,16 +3093,20 @@ impl Regressor for AlmRegressor {
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedAlm {
     #[allow(dead_code)]
     options: RegressionOptions,
     distribution: AlmDistribution,
     link: LinkFunction,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     extra_parameter: Option<f64>,
     loss: AlmLoss,
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::float"))]
     scale: f64,
     /// Coefficient covariance (intercept first), with `compute_inference`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     vcov: Option<Mat<f64>>,
     result: RegressionResult,
     /// Whether the fit met its stopping rules (see [`IterativeFit`]).

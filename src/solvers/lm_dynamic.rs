@@ -105,6 +105,7 @@ impl InformationCriterion {
 }
 
 /// Specification for a candidate model.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CandidateModel {
@@ -702,6 +703,7 @@ fn choose_span(weights: &Mat<f64>, ic_means: &[f64]) -> f64 {
 }
 
 /// Result from fitting lmDynamic.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedLmDynamic {
     #[allow(dead_code)]
@@ -712,23 +714,30 @@ pub struct FittedLmDynamic {
     /// Per-observation coefficients (n_obs x n_coefs matrix)
     /// If with_intercept: column 0 = intercept, columns 1..p+1 = feature coefficients
     /// If no intercept: columns 0..p = feature coefficients
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     dynamic_coefficients: Mat<f64>,
     /// Model weights for each observation (n_obs x n_models matrix)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     model_weights: Mat<f64>,
     /// Smoothed weights if LOWESS was applied
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_mat"))]
     smoothed_weights: Option<Mat<f64>>,
     /// Candidate model specifications
     model_specs: Vec<CandidateModel>,
     /// Pointwise IC values (n_obs x n_models matrix)
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     pointwise_ic: Mat<f64>,
     /// Mean pointwise IC of each candidate model.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
     ic_means: Vec<f64>,
     /// LOWESS span used (`None` without smoothing).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::opt_float"))]
     span: Option<f64>,
     /// Number of original features
     #[allow(dead_code)]
     n_features: usize,
     /// Original X matrix for interval computation
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     original_x: Mat<f64>,
     /// Whether model has intercept
     has_intercept: bool,

@@ -26,6 +26,7 @@
 use faer::{Col, Mat};
 
 /// Result of quasi-separation detection.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct SeparationCheck {
@@ -40,6 +41,7 @@ pub struct SeparationCheck {
 }
 
 /// Type of separation detected for a predictor.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SeparationType {

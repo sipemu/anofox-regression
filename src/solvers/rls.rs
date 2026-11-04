@@ -341,10 +341,12 @@ impl RlsRegressor {
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FittedRls {
     options: RegressionOptions,
     /// The P matrix (inverse covariance estimate) after fitting.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
     p_matrix: Mat<f64>,
     result: RegressionResult,
 }
