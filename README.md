@@ -5,6 +5,7 @@
 [![Documentation](https://docs.rs/anofox-regression/badge.svg)](https://docs.rs/anofox-regression)
 [![codecov](https://codecov.io/gh/sipemu/anofox-regression/branch/main/graph/badge.svg)](https://codecov.io/gh/sipemu/anofox-regression)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Claude Code skill](https://img.shields.io/badge/Claude_Code-statistician_skill-D97757)](./skills/README.md)
 
 > **Need to run this on 10GB of data?** Use our [DuckDB extension](https://github.com/DataZooDE/anofox-statistics)
 >
