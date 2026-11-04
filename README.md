@@ -136,7 +136,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-anofox-regression = "0.10"
+anofox-regression = "0.11"
 ```
 
 The minimum supported Rust version is 1.87. The optional `parallel` feature runs
