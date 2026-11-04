@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-04
+
+Model persistence (#321, #322): an optional `serde` feature serializes every
+fitted model, the survival results and the spline bases, so a fitted model can
+be stored (JSON, MessagePack, …) and used for prediction and inference after
+loading. Off by default; nothing changes without it.
+
 ### Added
 
 - **Optional `serde` feature (#321).** `Serialize` / `Deserialize` for `FittedOls`, `FittedWls`, `FittedRidge`, `FittedElasticNet`, `FittedHuber`, `FittedQuantile`, `FittedIsotonic`, the GLM fits (`FittedPoisson`, `FittedBinomial`, `FittedTweedie`, `FittedGamma`, `FittedNegativeBinomial`, `FittedLogistic`), `FittedBayesianRidge`, `FittedArd`, `FittedLars`, `FittedMultinomialLogistic`, the spline bases (`BSpline`, `Rcs`, `Lsp`) and what they contain (`RegressionResult`, `RegressionOptions`, `NaInfo`, the families and enums). A loaded model predicts, gives intervals and inference bit-identically: OLS stores its resolved `(XᵀX)⁻¹`. faer's own `serde` feature is not used (`Col` / `Mat` have their own encoding: arrays and `{nrows, ncols, data}`), and NaN / ±∞ are the strings `"NaN"` / `"inf"` / `"-inf"`, so JSON round trips are exact (read with serde_json's `float_roundtrip`). Format evolution is described in `STABILITY.md`. Off by default; no new dependency without it.
