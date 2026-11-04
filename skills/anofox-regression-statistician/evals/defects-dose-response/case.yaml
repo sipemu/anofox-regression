@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: defects-dose-response
+expected_outcome: |
+  Uses units_produced as exposure (count model with offset or defect rate), models the U-shaped temperature effect (spline/quadratic), identifies the defect-rate minimum near 200 C, and explains why a straight line is misleading.
+context:
+  scaffold_script: place-files.sh

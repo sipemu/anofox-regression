@@ -64,3 +64,8 @@ docs should explain.
 Keep a pull request to one topic, reference the issue, and add an entry to
 the `Unreleased` section of `CHANGELOG.md`, marking behaviour changes. See
 [STABILITY.md](STABILITY.md) for what counts as a breaking change.
+
+A change to the public API also updates the statistician skill in
+`skills/anofox-regression-statistician/` (its API reference, and `SKILL.md`
+when the workflow changes); the JS bindings follow the same rule
+(`scripts/js_parity.py`). CI checks both; see [skills/README.md](skills/README.md).

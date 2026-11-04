@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: bp-longitudinal
+expected_outcome: |
+  Uses all visits with a model accounting for within-patient correlation (mixed model / GLS / cluster-robust), estimates arm x time effect (about -1.2 mmHg/month; month-6 difference roughly -6 mmHg, CI excluding 0), discusses dropout and why the month-6 complete-case t-test is inefficient/biased.
+context:
+  scaffold_script: place-files.sh

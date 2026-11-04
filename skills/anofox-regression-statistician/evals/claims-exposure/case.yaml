@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: claims-exposure
+expected_outcome: |
+  Count model with log(exposure_years) offset; checks overdispersion; reports claim-rate ratios: young ~2.2 (1.5-3.1) vs middle, senior ~1.4, sports ~1.9 (1.35-2.7) vs sedan, suv ~1.4; expresses as claim rates per policy-year.
+context:
+  scaffold_script: place-files.sh

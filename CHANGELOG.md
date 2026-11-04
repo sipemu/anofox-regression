@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The statistician skill lives in the repository (`skills/`).** The Claude Code skill `anofox-regression-statistician` (workflow, API reference, reporting standard, analysis template, evals) is updated for 0.11: its API reference covers the RMS toolkit added in 0.6–0.11 (splines, design, anova, LR / score tests, effects, validation, accuracy, pentrace, survival and Cox, ordinal, GLS, multinomial, transforms, data reduction, imputation, `serde`) and corrects the facts that changed (unified option names, `NaAction` applied, Poisson SEs, error types). The analysis template uses the crate's own `ModelSpec`, `anova`, `contrast`, `lrm_stats` and `validate_lrm` / `calibrate_lrm` instead of hand-written helpers; its estimates equal R `rms`. A CI job (`Statistician skill`, required for publishing) checks every API name the skill uses against the crate, that its reference names the current version, and that the template builds and runs (`scripts/skill_api_check.py`, `skills/README.md`).
+
 ## [0.11.0] - 2026-11-04
 
 Model persistence (#321, #322): an optional `serde` feature serializes every
