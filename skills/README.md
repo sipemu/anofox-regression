@@ -45,11 +45,20 @@ cd skills/anofox-regression-statistician/assets/analysis-template && \
     --config 'patch.crates-io.anofox-regression.path="../../../.."'
 ```
 
+**Known limitation (#327):** `claude plugin eval` runs each case in a sandbox
+with no network and no read access to `~/.cargo` / `~/.rustup`. The scaffold
+vendors the crates (`prepare-offline.sh`, `_offline-cargo.sh`), but the agent
+still finds no Rust toolchain, so the cases cannot build Rust yet and score
+near zero for that reason alone. Until that is solved, check the skill by
+hand on one of the prompts (`evals/*/prompt.md`) in a normal session.
+
 Run the evals after larger changes (each case is a full agent run; delete the
 template's `target/` first, the eval runner rejects its hard links):
 
 ```bash
-claude plugin eval skills/anofox-regression-statistician [--case <name>] -j 3
+skills/anofox-regression-statistician/evals/prepare-offline.sh   # vendors crates (the sandbox has no network)
+claude plugin eval skills/anofox-regression-statistician --runs 1 --ablation none -j 3 \
+    --scaffold --trust-plugin --no-publish --allow-tools Bash Write Edit
 ```
 
 ## Installing
