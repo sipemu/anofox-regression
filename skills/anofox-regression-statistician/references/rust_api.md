@@ -983,8 +983,8 @@ model (oracles: Hmisc, rms and survival, 1e-12). **The argument order is not con
 | `rcorr_cens` | `(x, &time, &event: &[bool])` — **larger x = longer survival** (pass `-lp` for a hazard score) | `CensoredConcordance{c, dxy, sd, n, missing, uncensored, relevant_pairs, concordant, uncertain}`. `Hmisc::rcorr.cens` |
 | `brier_score` | `(y, p, Option<w>)` → `f64` | |
 | `gini_md` | `(&lp)` → the g-index | `Hmisc::GiniMd` |
-| `lrm_stats` | `(y01, lp_with_intercept, Option<w>, df)` | `LrmStats{obs, sum_weights, model_lr, df, p_value, c, dxy, gamma, tau_a, r2 (Nagelkerke), r2_measures, brier, g, gr, gp}`. the `rms::lrm` stats vector |
-| `val_prob` | `(p, y01)` | `ValProb{dxy, c, r2, d, d_chisq, d_p, u, u_chisq, u_p, q, brier, intercept, slope, emax, e90, eavg, s_z, s_p}`. `rms::val.prob` (external validation) |
+| `lrm_stats` | `(y01, lp_with_intercept, Option<w>, df)` | `LrmStats{obs, sum_weights, model_lr, df, p_value, c, dxy, gamma, tau_a, r2 (Nagelkerke), r2_measures, effective_sample_size, brier, g, gr, gp}`. the `rms::lrm` stats vector (`effective_sample_size` = the ess of rms's `R2(ess)` labels, since 0.11.1) |
+| `val_prob` | `(p, y01)` | `ValProb{dxy, c, r2, d, d_chisq, d_p, u, u_chisq, u_p, q, brier, intercept, slope, emax, e90, eavg, s_z, s_p}`. `rms::val.prob` (external validation); p of exactly 0 / 1 handled as rms (p = 0 with y = 1 gives `u = ∞`, `q = −∞`) since 0.11.1 |
 | `r2_measures` | `(lr, p, n, Option<ess>)` | `R2Measures{r2, r2_adj, r2_ess, r2_adj_ess}`. `Hmisc::R2Measures`. `effective_sample_size(n, &freqs)` |
 | `nagelkerke_r2` | `(lr, null_deviance, n)` | |
 

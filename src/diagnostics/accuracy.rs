@@ -495,6 +495,10 @@ pub struct LrmStats {
     pub r2: f64,
     /// `R2Measures` with the effective sample size `3 n₁ n₀ / n`.
     pub r2_measures: R2Measures,
+    /// Effective sample size used by `r2_measures`: [`effective_sample_size`]
+    /// of the (weighted) class counts, `n (1 − P₀³ − P₁³) = 3 n₁ n₀ / n`, the
+    /// number in rms's `R2(ess)` / `R2(p,ess)` labels.
+    pub effective_sample_size: f64,
     /// Brier score.
     pub brier: f64,
     /// g-index (Gini mean difference of the linear predictor).
@@ -561,6 +565,7 @@ pub fn lrm_stats(
     let prob: Vec<f64> = lp.iter().map(|&v| plogis(v)).collect();
     let conc = concordance(lp, y, weights)?;
     let g = gini_md(lp);
+    let ess = effective_sample_size(sw, &[sw - sw1, sw1]);
     Ok(LrmStats {
         obs: n,
         sum_weights: sw,
@@ -572,12 +577,8 @@ pub fn lrm_stats(
         gamma: conc.gamma(),
         tau_a: conc.tau_a(),
         r2: nagelkerke_r2(model_lr, null_dev, sw),
-        r2_measures: r2_measures(
-            model_lr,
-            df,
-            sw,
-            Some(effective_sample_size(sw, &[sw - sw1, sw1])),
-        ),
+        r2_measures: r2_measures(model_lr, df, sw, Some(ess)),
+        effective_sample_size: ess,
         brier: brier_score(y, &prob, weights)?,
         g,
         gr: g.exp(),
@@ -668,8 +669,8 @@ pub fn val_prob(p: &[f64], y: &[f64]) -> Result<ValProb, AccuracyError> {
         let ybar = y.iter().sum::<f64>() / n;
         let intc = (ybar / (1.0 - ybar)).ln();
         let d = -1.0 / n;
-        let l01 = binomial_deviance(&y, &logit, &one);
-        let lcal = binomial_deviance(&y, &vec![intc; y.len()], &one);
+        let l01 = val_prob_l01(&y, &logit);
+        let lcal = val_prob_l01(&y, &vec![intc; y.len()]);
         let u_chisq = l01 - lcal;
         let u = (u_chisq - 1.0) / n;
         let e = (first - ybar).abs();
@@ -701,8 +702,9 @@ pub fn val_prob(p: &[f64], y: &[f64]) -> Result<ValProb, AccuracyError> {
     let n = yf.len() as f64;
     let ybar = yf.iter().sum::<f64>() / n;
     let null_dev = binomial_deviance(&yf, &vec![(ybar / (1.0 - ybar)).ln(); yf.len()], &one);
-    let l01 = binomial_deviance(&yf, &lf, &one);
-    let lr = null_dev - l01;
+    let lr = null_dev - binomial_deviance(&yf, &lf, &one);
+    // L01 of `U` is over all rows (as rms), not only the finite logits.
+    let l01 = val_prob_l01(&y, &logit);
     let conc = concordance(&lf, &yf, None)?;
     let (a, b, recal_dev) = logistic_recalibration(&lf, &yf);
     let u_chisq = l01 - recal_dev;
@@ -748,6 +750,20 @@ pub fn val_prob(p: &[f64], y: &[f64]) -> Result<ValProb, AccuracyError> {
         s_z: spi.0,
         s_p: spi.1,
     })
+}
+
+/// Deviance `-2 Σ (y·logit − log(1 + e^logit))` of the uncalibrated
+/// predictions over all rows, with R's arithmetic and `na.rm = TRUE` as
+/// `rms::val.prob` computes `L01`: a term with `p = 0` and `y = 1` is `−∞`
+/// (so `L01 = ∞`), while `p = 1` and `p = 0` / `1` with `y = 0` give `NaN`
+/// terms (`∞ − ∞`, `0 · ∞`) that are dropped.
+fn val_prob_l01(y: &[f64], logit: &[f64]) -> f64 {
+    -2.0 * y
+        .iter()
+        .zip(logit)
+        .map(|(&y, &l)| y * l - log1pexp(l))
+        .filter(|t| !t.is_nan())
+        .sum::<f64>()
 }
 
 /// Spiegelhalter's z and its two-sided p-value.

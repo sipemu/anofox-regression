@@ -18,13 +18,14 @@ use anofox_regression::diagnostics::{
     classify_condition_number, compute_leverage, compute_leverage_with_aliased,
     condition_diagnostic, condition_number, cooks_distance, detect_separation, deviance_residuals,
     dffits, estimate_dispersion_deviance, estimate_dispersion_pearson,
-    externally_studentized_residuals, generalized_vif, high_leverage_points, high_vif_predictors,
-    influential_cooks, influential_dffits, pearson_chi_squared, pearson_residuals,
-    residual_outliers, response_residuals, standardized_deviance_residuals,
+    externally_studentized_residuals, generalized_vif, generalized_vif_terms, high_leverage_points,
+    high_vif_predictors, influential_cooks, influential_dffits, pearson_chi_squared,
+    pearson_residuals, residual_outliers, response_residuals, standardized_deviance_residuals,
     standardized_pearson_residuals, standardized_residuals, studentized_residuals,
     variance_decomposition_proportions, variance_inflation_factor, white_test, working_residuals,
-    AddedVariable, Augment, ConditionDiagnostic, ConditionSeverity, HeteroskedasticityTest,
-    LinearSeparation, PartialResiduals, Press, ResidualType, SeparationCheck, SeparationType,
+    AddedVariable, Augment, ConditionDiagnostic, ConditionSeverity, GvifTerm,
+    HeteroskedasticityTest, LinearSeparation, PartialResiduals, Press, ResidualType,
+    SeparationCheck, SeparationType,
 };
 use faer::Col;
 use wasm_bindgen::prelude::*;
@@ -72,6 +73,7 @@ impl_to_js!(LrmStats {
     tau_a,
     r2,
     r2_measures,
+    effective_sample_size,
     brier,
     g,
     gr,
@@ -105,6 +107,11 @@ impl_to_js!(ConditionDiagnostic {
     scaled_condition_number,
     severity,
     warning
+});
+impl_to_js!(GvifTerm {
+    gvif,
+    df,
+    adjusted_gvif
 });
 impl_to_js!(HeteroskedasticityTest {
     statistic,
@@ -341,6 +348,19 @@ pub fn generalized_vif_js(
 ) -> Result<Vec<f64>, JsError> {
     let sizes: Vec<usize> = group_sizes.iter().map(|&s| s as usize).collect();
     Ok(generalized_vif(&to_mat(x, n_rows, n_cols)?, &sizes))
+}
+
+/// GVIF, df and `GVIF^(1/(2·df))` (`adjusted_gvif`) of each column group, as
+/// the columns of `car::vif`.
+#[wasm_bindgen(js_name = generalizedVifTerms)]
+pub fn generalized_vif_terms_js(
+    x: &[f64],
+    n_rows: usize,
+    n_cols: usize,
+    group_sizes: &[u32],
+) -> Result<JsValue, JsError> {
+    let sizes: Vec<usize> = group_sizes.iter().map(|&s| s as usize).collect();
+    Ok(generalized_vif_terms(&to_mat(x, n_rows, n_cols)?, &sizes).to_js())
 }
 
 /// Indices of the predictors whose VIF exceeds `threshold`.
