@@ -107,4 +107,7 @@ pub use residuals::{
     externally_studentized_residuals, residual_outliers, standardized_residuals,
     studentized_residuals,
 };
-pub use vif::{generalized_vif, high_vif_predictors, variance_inflation_factor};
+pub use vif::{
+    generalized_vif, generalized_vif_terms, high_vif_predictors, variance_inflation_factor,
+    GvifTerm,
+};

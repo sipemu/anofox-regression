@@ -1,6 +1,6 @@
 # anofox-regression (Rust) — compact API reference
 
-Crate `anofox-regression` **0.11.0** (MIT, MSRV 1.87). Every name here was checked against the 0.11.0
+Crate `anofox-regression` **0.11.1** (MIT, MSRV 1.87). Every name here was checked against the 0.11.1
 source. The snippets were built and run on 0.11.0 with faer 0.23.
 
 ## Contents
@@ -43,7 +43,7 @@ source. The snippets were built and run on 0.11.0 with faer 0.23.
 
 ```toml
 [dependencies]
-anofox-regression = "0.11"         # 0.11.0 at time of writing
+anofox-regression = "0.11"         # 0.11.1 at time of writing
 faer = "0.23"                      # MUST match the crate's faer (also re-exported as anofox_regression::faer)
 ```
 - Optional features (all off by default): `parallel` (rayon; adds `validation::predab_resample_par`
@@ -535,7 +535,7 @@ flag.
 
 | Need | Function (module) | Notes |
 |---|---|---|
-| VIF | `variance_inflation_factor(&x) -> Col`, `generalized_vif(&x, &group_sizes) -> Vec`, `high_vif_predictors(&vif, thr)` | GVIF is Fox–Monette `det` form since #196 (= car::vif); report `GVIF^(1/(2·df))` |
+| VIF | `variance_inflation_factor(&x) -> Col`, `generalized_vif(&x, &group_sizes) -> Vec`, `generalized_vif_terms(&x, &group_sizes) -> Vec<GvifTerm { gvif, df, adjusted_gvif }>`, `high_vif_predictors(&vif, thr)` | GVIF is Fox–Monette `det` form since #196 (= car::vif); report `adjusted_gvif` = `GVIF^(1/(2·df))`. Since 0.11.1 aliased columns (constant, exactly collinear, n ≤ p) give `∞` for the terms involved only (car::vif errors); undefined (empty group, sizes ≠ ncol, no rows) is `NaN` |
 | Condition number | `condition_number(&x, with_intercept)` (unscaled `kappa`, ∞ if singular), `condition_diagnostic(..) -> ConditionDiagnostic{condition_number, condition_number_xtx, singular_values, condition_indices, scaled_condition_number, severity, warning}`, `classify_condition_number`, `variance_decomposition_proportions` | Indices are BKW (unit-length columns, #207); severity from `scaled_condition_number`: <30 WellConditioned, <100 Moderate, <1000 High, else Severe |
 | Leverage | `compute_leverage(&x, with_intercept)`, `compute_leverage_with_aliased`, `high_leverage_points(&h, n_params, thr)` | hatvalues |
 | Influence | `cooks_distance(&resid, &h, mse, n_params)`, `dffits(..)`, `influential_cooks(&d, thr)`, `influential_dffits` | No DFBETAS/covratio for linear models or GLMs (Cox has `dfbeta`/`dfbetas`, §14). Prefer `augment()` |
@@ -983,8 +983,8 @@ model (oracles: Hmisc, rms and survival, 1e-12). **The argument order is not con
 | `rcorr_cens` | `(x, &time, &event: &[bool])` — **larger x = longer survival** (pass `-lp` for a hazard score) | `CensoredConcordance{c, dxy, sd, n, missing, uncensored, relevant_pairs, concordant, uncertain}`. `Hmisc::rcorr.cens` |
 | `brier_score` | `(y, p, Option<w>)` → `f64` | |
 | `gini_md` | `(&lp)` → the g-index | `Hmisc::GiniMd` |
-| `lrm_stats` | `(y01, lp_with_intercept, Option<w>, df)` | `LrmStats{obs, sum_weights, model_lr, df, p_value, c, dxy, gamma, tau_a, r2 (Nagelkerke), r2_measures, brier, g, gr, gp}`. the `rms::lrm` stats vector |
-| `val_prob` | `(p, y01)` | `ValProb{dxy, c, r2, d, d_chisq, d_p, u, u_chisq, u_p, q, brier, intercept, slope, emax, e90, eavg, s_z, s_p}`. `rms::val.prob` (external validation) |
+| `lrm_stats` | `(y01, lp_with_intercept, Option<w>, df)` | `LrmStats{obs, sum_weights, model_lr, df, p_value, c, dxy, gamma, tau_a, r2 (Nagelkerke), r2_measures, effective_sample_size, brier, g, gr, gp}`. the `rms::lrm` stats vector (`effective_sample_size` = the ess of rms's `R2(ess)` labels, since 0.11.1) |
+| `val_prob` | `(p, y01)` | `ValProb{dxy, c, r2, d, d_chisq, d_p, u, u_chisq, u_p, q, brier, intercept, slope, emax, e90, eavg, s_z, s_p}`. `rms::val.prob` (external validation); p of exactly 0 / 1 handled as rms (p = 0 with y = 1 gives `u = ∞`, `q = −∞`) since 0.11.1 |
 | `r2_measures` | `(lr, p, n, Option<ess>)` | `R2Measures{r2, r2_adj, r2_ess, r2_adj_ess}`. `Hmisc::R2Measures`. `effective_sample_size(n, &freqs)` |
 | `nagelkerke_r2` | `(lr, null_deviance, n)` | |
 

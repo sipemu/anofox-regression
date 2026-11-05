@@ -195,6 +195,10 @@ describe('diagnostics', () => {
     const g = design([R.GVIF_WT, d(R.GVIF_CYL, 6), d(R.GVIF_CYL, 8), R.GVIF_HP, d(R.GVIF_GEAR, 4), d(R.GVIF_GEAR, 5)]);
     const gvif = wasm.generalizedVif(g.x, n, 6, new Uint32Array([1, 2, 1, 2]));
     allNear(gvif, R.GVIF_GVIF, 1e-9, 'GVIF');
+    const terms = wasm.generalizedVifTerms(g.x, n, 6, new Uint32Array([1, 2, 1, 2]));
+    allNear(terms.map((t: { gvif: number }) => t.gvif), R.GVIF_GVIF, 1e-9, 'GVIF terms');
+    allNear(terms.map((t: { adjustedGvif: number }) => t.adjustedGvif), R.GVIF_GVIF_ADJ, 1e-9, 'GVIF^(1/(2 df))');
+    expect(terms.map((t: { df: number }) => t.df)).toEqual([1, 2, 1, 2]);
 
     const cd = wasm.conditionDiagnostic(x, n, 4, true);
     near(cd.conditionNumber, wasm.conditionNumber(x, n, 4, true), 1e-12, 'kappa');

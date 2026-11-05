@@ -10,7 +10,10 @@ suppressMessages({ library(Hmisc); library(rms); library(survival) })
 emit <- function(name, v) {
   cat("#[rustfmt::skip]\n")
   cat(sprintf("const %s: [f64; %d] = [\n    ", name, length(v)))
-  cat(paste(sprintf("%.17e", as.numeric(v)), collapse = ", "))
+  num <- as.numeric(v)
+  txt <- ifelse(is.infinite(num), ifelse(num > 0, "f64::INFINITY", "f64::NEG_INFINITY"),
+                sprintf("%.17e", num))
+  cat(paste(txt, collapse = ", "))
   cat("\n];\n")
 }
 scalar <- function(name, v) cat(sprintf("const %s: f64 = %.17e;\n", name, as.numeric(v)))
@@ -72,3 +75,21 @@ v <- val.prob(pv, y, pl = FALSE)
 emit("VALPROB", v)
 cat(sprintf("const VALPROB_NAMES: [&str; %d] = [%s];\n", length(v),
             paste(sprintf("\"%s\"", names(v)), collapse = ", ")))
+
+# Effective sample size behind the R2(ess) columns of lrm: R2Measures(...,
+# sumwty) uses n (1 - sum(P_k^3)) of the (weighted) class counts.
+ess <- function(cnt) sum(cnt) * (1 - sum((cnt / sum(cnt))^3))
+scalar("LRM_ESS", ess(table(y)))
+scalar("LRMW_ESS", ess(tapply(w, y, sum)))
+
+# val.prob with probabilities of exactly 0 / 1. L01 is summed over all rows
+# with na.rm = TRUE: p = 0 with y = 1 gives L01 = Inf (U = Inf, Q = -Inf);
+# p = 1 with y = 1 and p = 0 / 1 with y = 0 give NaN terms that are dropped.
+ones <- which(y == 1); zeros <- which(y == 0)
+emit("VALPROB_EDGE_IDX", c(ones[1], ones[2], zeros[1], zeros[2]) - 1)
+pe <- pv; pe[ones[1]] <- 1; pe[ones[2]] <- 0
+emit("VALPROB_EDGE_INF", suppressWarnings(val.prob(pe, y, pl = FALSE)))
+pe <- pv; pe[ones[1]] <- 1; pe[zeros[1]] <- 0; pe[zeros[2]] <- 1
+emit("VALPROB_EDGE_FIN", suppressWarnings(val.prob(pe, y, pl = FALSE)))
+# Constant p = 1: every L01 term is NaN, so L01 = 0.
+emit("VALPROB_CONST_ONE", val.prob(rep(1, n), y, pl = FALSE))

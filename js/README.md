@@ -400,6 +400,7 @@ concordance(x, y, w?); somers2(p, y, w?); rcorrCens(x, time, event); brierScore(
 lrmStats(y, lp, w?, df); valProb(p, y); giniMd(x); r2Measures(lr, p, n, ess?); nagelkerkeR2(...);
 effectiveSampleSize(n, freqs);
 varianceInflationFactor(x, nRows, nCols); generalizedVif(x, nRows, nCols, groupSizes);
+generalizedVifTerms(x, nRows, nCols, groupSizes);  // [{ gvif, df, adjustedGvif }]
 conditionNumber / conditionDiagnostic / varianceDecompositionProportions(x, nRows, nCols, withIntercept);
 computeLeverage(x, nRows, nCols, withIntercept); cooksDistance(res, lev, mse, p); dffits(...);
 standardizedResiduals / studentizedResiduals / externallyStudentizedResiduals(...);

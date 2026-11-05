@@ -74,6 +74,7 @@ fn lrm_stats_match_rms() {
     close("g", s.g, LRM_G, 1e-12);
     close("gr", s.gr, LRM_GR, 1e-12);
     close("gp", s.gp, LRM_GP, 1e-12);
+    close("ess", s.effective_sample_size, LRM_ESS, 1e-12);
     close("GiniMd", gini_md(&LP), GINI_LP, 1e-12);
 }
 
@@ -87,6 +88,7 @@ fn weighted_lrm_stats_match_rms() {
     close("Tau-a", s.tau_a, LRMW_TAU_A, 1e-12);
     close("R2", s.r2, LRMW_R2, 1e-9);
     close("Brier", s.brier, LRMW_BRIER, 1e-12);
+    close("ess", s.effective_sample_size, LRMW_ESS, 1e-12);
     let m = s.r2_measures;
     let got = [m.r2, m.r2_adj, m.r2_ess.unwrap(), m.r2_adj_ess.unwrap()];
     for k in 0..4 {
@@ -142,10 +144,8 @@ fn r2_measures_match_hmisc() {
     assert!(m.r2_ess.is_none());
 }
 
-#[test]
-fn val_prob_matches_rms() {
-    let v = val_prob(&PV, &Y).unwrap();
-    let got = [
+fn val_prob_vector(v: &anofox_regression::diagnostics::accuracy::ValProb) -> [f64; 18] {
+    [
         v.dxy,
         v.c,
         v.r2,
@@ -164,7 +164,34 @@ fn val_prob_matches_rms() {
         v.eavg,
         v.s_z,
         v.s_p,
-    ];
+    ]
+}
+
+/// Equal, or the same infinity.
+fn close_or_inf(name: &str, a: f64, b: f64, tol: f64) {
+    if b.is_infinite() {
+        assert_eq!(a, b, "{name}");
+    } else {
+        close(name, a, b, tol);
+    }
+}
+
+fn check_val_prob(p: &[f64], want: &[f64]) {
+    let got = val_prob_vector(&val_prob(p, &Y).unwrap());
+    for (k, (a, b)) in got.iter().zip(want).enumerate() {
+        let tol = if VALPROB_NAMES[k].ends_with(":p") {
+            1e-6
+        } else {
+            1e-8
+        };
+        close_or_inf(VALPROB_NAMES[k], *a, *b, tol);
+    }
+}
+
+#[test]
+fn val_prob_matches_rms() {
+    let v = val_prob(&PV, &Y).unwrap();
+    let got = val_prob_vector(&v);
     for (k, (a, b)) in got.iter().zip(VALPROB.iter()).enumerate() {
         let tol = if VALPROB_NAMES[k].ends_with(":p") {
             1e-6
@@ -173,4 +200,41 @@ fn val_prob_matches_rms() {
         };
         close(VALPROB_NAMES[k], *a, *b, tol);
     }
+}
+
+/// `L01` is summed over all rows as in rms: `p = 0` with `y = 1` makes
+/// `U = ∞`, `U:p = 0`, `Q = −∞`; the other 0 / 1 cases drop out.
+#[test]
+fn val_prob_with_probabilities_of_zero_and_one_matches_rms() {
+    let idx: Vec<usize> = VALPROB_EDGE_IDX.iter().map(|&i| i as usize).collect();
+    let (one1, one2, zero1, zero2) = (idx[0], idx[1], idx[2], idx[3]);
+    assert!(Y[one1] == 1.0 && Y[one2] == 1.0 && Y[zero1] == 0.0 && Y[zero2] == 0.0);
+
+    let mut p = PV.to_vec();
+    p[one1] = 1.0;
+    p[one2] = 0.0;
+    check_val_prob(&p, &VALPROB_EDGE_INF);
+    let v = val_prob(&p, &Y).unwrap();
+    assert!(v.u == f64::INFINITY && v.u_p == 0.0 && v.q == f64::NEG_INFINITY);
+
+    let mut p = PV.to_vec();
+    p[one1] = 1.0;
+    p[zero1] = 0.0;
+    p[zero2] = 1.0;
+    check_val_prob(&p, &VALPROB_EDGE_FIN);
+}
+
+/// Constant `p = 1`: every `L01` term is `NaN` in R and dropped (`L01 = 0`).
+/// rms's constant-`p` vector has one value too many (a stray 0 before
+/// `Eavg`), so only `Dxy` .. `Intercept` and Spiegelhalter's test (its last
+/// two values) are compared.
+#[test]
+fn val_prob_constant_one_matches_rms() {
+    let got = val_prob_vector(&val_prob(&vec![1.0; Y.len()], &Y).unwrap());
+    let want = &VALPROB_CONST_ONE;
+    for k in 0..12 {
+        close_or_inf(VALPROB_NAMES[k], got[k], want[k], 1e-8);
+    }
+    close_or_inf("S:z", got[16], want[17], 1e-8);
+    close_or_inf("S:p", got[17], want[18], 1e-6);
 }
