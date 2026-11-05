@@ -1,6 +1,6 @@
 # anofox-regression (Rust) — compact API reference
 
-Crate `anofox-regression` **0.11.0** (MIT, MSRV 1.87). Every name here was checked against the 0.11.0
+Crate `anofox-regression` **0.11.1** (MIT, MSRV 1.87). Every name here was checked against the 0.11.1
 source. The snippets were built and run on 0.11.0 with faer 0.23.
 
 ## Contents
@@ -43,7 +43,7 @@ source. The snippets were built and run on 0.11.0 with faer 0.23.
 
 ```toml
 [dependencies]
-anofox-regression = "0.11"         # 0.11.0 at time of writing
+anofox-regression = "0.11"         # 0.11.1 at time of writing
 faer = "0.23"                      # MUST match the crate's faer (also re-exported as anofox_regression::faer)
 ```
 - Optional features (all off by default): `parallel` (rayon; adds `validation::predab_resample_par`
@@ -535,7 +535,7 @@ flag.
 
 | Need | Function (module) | Notes |
 |---|---|---|
-| VIF | `variance_inflation_factor(&x) -> Col`, `generalized_vif(&x, &group_sizes) -> Vec`, `high_vif_predictors(&vif, thr)` | GVIF is Fox–Monette `det` form since #196 (= car::vif); report `GVIF^(1/(2·df))` |
+| VIF | `variance_inflation_factor(&x) -> Col`, `generalized_vif(&x, &group_sizes) -> Vec`, `generalized_vif_terms(&x, &group_sizes) -> Vec<GvifTerm { gvif, df, adjusted_gvif }>`, `high_vif_predictors(&vif, thr)` | GVIF is Fox–Monette `det` form since #196 (= car::vif); report `adjusted_gvif` = `GVIF^(1/(2·df))`. Since 0.11.1 aliased columns (constant, exactly collinear, n ≤ p) give `∞` for the terms involved only (car::vif errors); undefined (empty group, sizes ≠ ncol, no rows) is `NaN` |
 | Condition number | `condition_number(&x, with_intercept)` (unscaled `kappa`, ∞ if singular), `condition_diagnostic(..) -> ConditionDiagnostic{condition_number, condition_number_xtx, singular_values, condition_indices, scaled_condition_number, severity, warning}`, `classify_condition_number`, `variance_decomposition_proportions` | Indices are BKW (unit-length columns, #207); severity from `scaled_condition_number`: <30 WellConditioned, <100 Moderate, <1000 High, else Severe |
 | Leverage | `compute_leverage(&x, with_intercept)`, `compute_leverage_with_aliased`, `high_leverage_points(&h, n_params, thr)` | hatvalues |
 | Influence | `cooks_distance(&resid, &h, mse, n_params)`, `dffits(..)`, `influential_cooks(&d, thr)`, `influential_dffits` | No DFBETAS/covratio for linear models or GLMs (Cox has `dfbeta`/`dfbetas`, §14). Prefer `augment()` |

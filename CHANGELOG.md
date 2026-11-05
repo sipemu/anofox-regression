@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-05
+
+### Fixed
+
+- **`variance_inflation_factor` no longer returns a silent 1 for undefined VIFs.** With fewer than 3 rows, and whenever the auxiliary regression failed (e.g. fewer rows than columns), every VIF was 1. A column that is exactly a linear combination of the intercept and the other columns now gets `∞`, as perfect collinearity already did: a constant column, every column when n ≤ p (a 2×2 or 4×5 design), and the columns of an exact linear dependency. Columns outside the dependency keep their finite VIF (equal to `car::vif` on the design without the aliased columns; `car::vif` itself stops with "aliased coefficients"). No rows give `NaN`; a single non-constant predictor still gets 1. VIF is now computed by the same rank-revealing projection as the GVIF, so it equals `generalized_vif` with single-column groups.
+- **`generalized_vif` with a constant (or otherwise aliased) column no longer gives `∞` for every term.** The correlation matrix divided by a zero standard deviation and its determinant was `NaN`. Now only the terms involved in the dependency get `∞`; the others get their GVIF on the span of the remaining columns (equal to `car::vif` without the aliased column). Undefined GVIFs are `NaN` instead of 1: an empty group, `group_sizes` that do not sum to the number of columns, or no rows.
+
 ### Added
 
+- **`diagnostics::generalized_vif_terms(&x, &group_sizes) -> Vec<GvifTerm>`.** `GvifTerm { gvif, df, adjusted_gvif }` holds the `GVIF`, `Df` and `GVIF^(1/(2*Df))` columns of `car::vif`, so callers need not compute the adjusted GVIF themselves (`∞` / `NaN` when the GVIF is). Serializable with the `serde` feature.
 - **The statistician skill lives in the repository (`skills/`).** The Claude Code skill `anofox-regression-statistician` (workflow, API reference, reporting standard, analysis template, evals) is updated for 0.11: its API reference covers the RMS toolkit added in 0.6–0.11 (splines, design, anova, LR / score tests, effects, validation, accuracy, pentrace, survival and Cox, ordinal, GLS, multinomial, transforms, data reduction, imputation, `serde`) and corrects the facts that changed (unified option names, `NaAction` applied, Poisson SEs, error types). The analysis template uses the crate's own `ModelSpec`, `anova`, `contrast`, `lrm_stats` and `validate_lrm` / `calibrate_lrm` instead of hand-written helpers; its estimates equal R `rms`. A CI job (`Statistician skill`, required for publishing) checks every API name the skill uses against the crate, that its reference names the current version, and that the template builds and runs (`scripts/skill_api_check.py`, `skills/README.md`).
 
 ## [0.11.0] - 2026-11-04

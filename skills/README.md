@@ -23,7 +23,7 @@ CI (`Statistician skill` job, required for publishing) fails when:
    crate items, e.g. R or sklearn functions, go in `api-allowlist.txt` with a
    reason);
 2. `references/rust_api.md` does not state the current crate `major.minor`
-   in its header (`**0.11.0**`): every release bump fails until the skill
+   in its header (`**0.11.1**`): every release bump fails until the skill
    has been reviewed for that release;
 3. the analysis template does not build and run against the commit.
 

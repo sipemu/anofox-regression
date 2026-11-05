@@ -294,13 +294,13 @@ fn test_vif_single_predictor() {
 
 #[test]
 fn test_vif_too_few_observations() {
-    // With n < 3, should return VIF = 1 for all predictors
+    // With n <= p every column is exactly explained by the others: VIF = inf
     let x = Mat::from_fn(2, 3, |i, j| (i + j) as f64);
     let vif = variance_inflation_factor(&x);
     for j in 0..vif.nrows() {
         assert!(
-            (vif[j] - 1.0).abs() < 1e-10,
-            "VIF should be 1.0 with few observations"
+            vif[j].is_infinite(),
+            "VIF should be inf with too few observations"
         );
     }
 }
@@ -329,8 +329,8 @@ fn test_generalized_vif_mismatched_sizes() {
     let x = Mat::from_fn(50, 3, |i, j| (i + j) as f64);
     // Group sizes don't sum to p=3
     let gvif = generalized_vif(&x, &[1, 1]); // sum is 2, not 3
-                                             // Should return default values
     assert_eq!(gvif.len(), 2);
+    assert!(gvif.iter().all(|v| v.is_nan()), "undefined GVIF is NaN");
 }
 
 #[test]
@@ -339,10 +339,7 @@ fn test_generalized_vif_empty_group() {
     // Include an empty group
     let gvif = generalized_vif(&x, &[1, 0, 2]);
     assert_eq!(gvif.len(), 3);
-    assert!(
-        (gvif[1] - 1.0).abs() < 1e-10,
-        "Empty group should have GVIF = 1.0"
-    );
+    assert!(gvif[1].is_nan(), "Empty group should have GVIF = NaN");
 }
 
 #[test]
