@@ -422,10 +422,28 @@ impl ModelSpec {
     }
 
     /// Design (no intercept column) of the data, one column slice per
-    /// predictor; main effects in predictor order, then the interactions.
+    /// predictor; main effects in predictor order, then the interactions. A
+    /// value of a categorical predictor that is not one of its levels
+    /// (including NaN) is [`DesignError::UnknownLevel`], as in [`Self::row`];
+    /// a wrong number of columns is [`DesignError::Invalid`].
     pub fn design(&self, columns: &[&[f64]]) -> Result<Design, DesignError> {
+        if columns.len() != self.predictors.len() {
+            return Err(DesignError::Invalid(format!(
+                "expected {} predictor columns, got {}",
+                self.predictors.len(),
+                columns.len()
+            )));
+        }
         let mut d = Design::new();
         for (p, x) in self.predictors.iter().zip(columns) {
+            if let PredictorKind::Categorical(levels) = &p.kind {
+                if let Some(&value) = x.iter().find(|v| !levels.contains(v)) {
+                    return Err(DesignError::UnknownLevel {
+                        predictor: p.name.clone(),
+                        value,
+                    });
+                }
+            }
             d.add(&p.name, p.basis(x))?;
         }
         for &(a, b, r) in &self.interactions {
@@ -753,8 +771,11 @@ impl ModelSpec {
                 .cloned()
                 .flatten()
                 .unwrap_or_else(|| p.default_ticks(nint));
-            if let Some(e) = ticks.iter().find_map(|&v| p.check_value(v).err()) {
-                return Err(DesignError::Invalid(e.to_string()));
+            if let Some(&value) = ticks.iter().find(|&&v| p.check_value(v).is_err()) {
+                return Err(DesignError::UnknownLevel {
+                    predictor: p.name.clone(),
+                    value,
+                });
             }
             let basis = p.basis(&ticks);
             let m = basis.n_columns();

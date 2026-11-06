@@ -116,7 +116,8 @@ pub use theil_sen::{
     FittedTheilSen, TheilSenCiMethod, TheilSenRegressor, TheilSenRegressorBuilder,
 };
 pub use traits::{
-    FittedRegressor, GroupedRegressor, IterativeFit, RegressionError, Regressor, SurvivalRegressor,
+    DegenerateData, FittedRegressor, GroupedRegressor, IterativeFit, RegressionError, Regressor,
+    SurvivalRegressor,
 };
 pub use tweedie::{FittedTweedie, TweedieRegressor};
 pub use wls::{FittedWls, WlsRegressor, WlsRegressorBuilder};

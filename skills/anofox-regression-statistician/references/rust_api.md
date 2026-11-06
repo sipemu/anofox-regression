@@ -1,6 +1,6 @@
 # anofox-regression (Rust) — compact API reference
 
-Crate `anofox-regression` **0.12.0** (MIT, MSRV 1.87). Every name here was checked against the 0.12.0
+Crate `anofox-regression` **0.12.1** (MIT, MSRV 1.87). Every name here was checked against the 0.12.1
 source. The snippets were built and run on 0.12.0 with faer 0.23.
 
 ## Contents
@@ -43,7 +43,7 @@ source. The snippets were built and run on 0.12.0 with faer 0.23.
 
 ```toml
 [dependencies]
-anofox-regression = "0.12"         # 0.12.0 at time of writing
+anofox-regression = "0.12"         # 0.12.1 at time of writing
 faer = "0.23"                      # MUST match the crate's faer (also re-exported as anofox_regression::faer)
 ```
 - Optional features (all off by default): `parallel` (rayon; adds `validation::predab_resample_par`
@@ -858,7 +858,7 @@ let g = heuristic_shrinkage(m.statistic, m.df as f64);    // 0.75 → expect ~25
 |---|---|---|
 | OLS / WLS | `fit.cluster_vcov(&x, &[&codes], &ClusterOptions::cr1())?`, or `lm_cluster_vcov(&x, &resid, Option<&w>, with_intercept, &aliased, clusters, &opts)` | `ClusterType::{HC0, HC1, HC2 (Bell–McCaffrey CR2), HC3}`. HC2 and HC3 are for linear models only |
 | any GLM family | `glm_cluster_vcov(&family, &x, with_intercept, &y, &mu, Option<&prior_w>, clusters, &opts)` | `mu` = fitted means (`result().fitted_values`) |
-| AFT | `fitted_aft.cluster_vcov(&x, &time, &event, clusters, &opts)`; `FittedAft::from_result(fit_aft(..)?)` (0.12) turns a `fit_aft` result into the fitted model | `survreg(cluster=)` with `robcov()` |
+| AFT | `fitted_aft.cluster_vcov(&x, &time, &event, clusters, &opts)`; `FittedAft::from_result(fit_aft(..)?)` (0.12) turns a `fit_aft` result into the fitted model; `FittedAft::from_parts(dist, intercept, coefs, scale, Option<&vcov>)` / `AftResult::from_parts(..)` (0.12.1) rebuild a stored model | `survreg(cluster=)` with `robcov()` |
 | Cox | `cox_fit.robust_vcov(&clusters)` | `coxph(cluster=)` |
 | ordinal (lrm/orm) | `fitted_ordinal.cluster_vcov(&x, &y, clusters, &opts)` | `rms::robcov(orm)` with `robcov()` |
 | anything | `cluster_sandwich(&bread, &scores, clusters, &opts)` | bread = inverse information (k×k); scores n×k |
@@ -915,7 +915,7 @@ Fit on `design.matrix()`. **Every effect method takes the full `beta` and `vcov`
 | `spec.predict_grid(&beta, &v, intercept, k, Option<Vec<f64>>, crit, level)` | `(values, Vec<ContrastEstimate>)` on the **linear-predictor scale** (with the intercept); the default grid is 200 points between the prediction limits (the levels for a categorical predictor, 0.12). Apply `plogis`/`exp` yourself |
 | `spec.predict_grid_simultaneous(..)` | `(values, est, crit_value)`, a simultaneous band (`Predict(conf.type="simultaneous")`) |
 | `effects::simultaneous_critical(&rows, &v, crit, level)` | the multcomp single-step max-\|t\| critical value for any set of contrast rows. It is deterministic (Halton): within ~2e-4 of a tight mvtnorm average (R itself is ±1e-3). It costs about 10⁸ ops for 50 rows of rank 15 |
-| `spec.row(&[(k, v)], intercept)?` | the design row for a setting, for your own `cᵀβ` |
+| `spec.row(&[(k, v)], intercept)?` | the design row for a setting, for your own `cᵀβ`; `spec.design(..)` rejects a non-level categorical value with `DesignError::UnknownLevel{predictor, value}` (0.12.1) |
 | `spec.add_predictor(name, kind, Limits::new(low_effect, adjust_to, high_effect, low_prediction, high_prediction, low, high), distinct)?`, `spec.categorical_with_levels(name, &levels)?` (0.12) | rebuild a stored spec without its data (kind / limits / distinct from `predictors()`), or fix a factor's levels independently of the data subset (adjusted to the first level) |
 | `spec.nomogram(&beta, intercept, &lp, &[Option<Vec<f64>>], maxscale, nint)?` | `Nomogram{axes: Vec<NomogramAxis{name, values, xbeta, points}>, scale, intercept, total_points, lp_at, lp_points}`, `.points_to_lp(t)`, `.lp_to_points(lp)`, `.function_axis(\|l\| plogis, nint) -> (ticks, positions)`. **Main effects only** (`DesignError::Invalid` otherwise). `lp` = the fit's linear predictors |
 
@@ -1270,6 +1270,9 @@ Store / rebuild (0.12): `Areg::from_parts(fit.x_bases(), fit.x_coefficients.clon
 fit.y_coefficients.clone(), fit.y_range())?` with `AregBasis::{Linear, Spline{knots}, Categorical{levels}}`; the rebuilt
 model transforms, predicts and back-transforms new rows as the fit. `box_cox_inverse` is `NaN` where `λz + 1 ≤ 0`
 (no y > 0 maps there; it returned a value before 0.12).
+Typed errors (0.12.1): degenerate data are `RegressionError::Degenerate(DegenerateData::{ConstantResponse, TooFewLevels,
+ConstantColumn, SimilarityNotComputable, NonPositiveResponse, TooFewObservedValues})` (reduction, `box_cox`), spline basis
+failures `RegressionError::Spline(SplineError::..)` (`areg`, `redun`, `transcan`).
 Oracles: `r_validation_transform.rs`, `r_validation_areg.rs`.
 ```rust
 use anofox_regression::transform::{areg, box_cox, box_cox_inverse, box_cox_transform, smearing_estimate,

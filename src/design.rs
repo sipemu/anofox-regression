@@ -55,6 +55,15 @@ pub enum DesignError {
     /// The two factors of an interaction are the same term.
     #[error("an interaction needs two different terms")]
     SelfInteraction,
+    /// A value of a categorical predictor is not one of its levels (it
+    /// would be coded as the reference level).
+    #[error("{value} is not a level of the categorical predictor `{predictor}`")]
+    UnknownLevel {
+        /// The predictor.
+        predictor: String,
+        /// The value.
+        value: f64,
+    },
     /// Other invalid input.
     #[error("{0}")]
     Invalid(String),
