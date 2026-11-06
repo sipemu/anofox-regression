@@ -90,4 +90,39 @@ describe('fromParts', () => {
     const fw = w.fit(vector(x), N, 2, vector(y));
     expect(fw.hcVcov(vector(x), N, 'hc1').length).toBe(3);
   });
+
+  it('areg', () => {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let i = 0; i < N; i++) {
+      xs.push(x[2 * i], i % 3);
+      ys.push(Math.exp(0.5 * x[2 * i] + 0.3 * (i % 3) + 0.2 * (u[i] - 0.5)));
+    }
+    const f = wasm.areg(vector(xs), N, 2, vector(ys), { xTypes: ['s', 'c'] });
+    const r = f.getResult();
+    const [lo, hi] = f.yRange();
+    const g = wasm.Areg.fromParts(f.xBases(), vector(r.xCoefficients), f.yBasis(), vector(r.yCoefficients), lo, hi);
+    const xn = vector([-1, 0, 0.5, 2, 1.5, 1]);
+    expect(Array.from(g.predict(xn, 3))).toEqual(Array.from(f.predict(xn, 3)));
+    const lp = f.predict(xn, 3);
+    expect(g.inverseY(lp)).toEqual(f.inverseY(lp));
+  });
+
+  it('ModelSpec from stored limits and levels', () => {
+    const s = new wasm.ModelSpec();
+    s.linear('x', vector(x.filter((_, i) => i % 2 === 0)));
+    s.categorical('g', vector(yOrd));
+    const r = new wasm.ModelSpec();
+    for (const p of s.predictors()) {
+      r.addPredictor(p.name, p.kind, p.levels ? vector(p.levels) : undefined, p.limits, p.distinct ? vector(p.distinct) : undefined);
+    }
+    const beta = vector([0.1, 0.5, 0.2, -0.3, 0.4]);
+    const vcov = vector(Array.from({ length: 25 }, (_, k) => (k % 6 === 0 ? 0.1 : 0.01)));
+    expect(r.summary(beta, vcov, true)).toEqual(s.summary(beta, vcov, true));
+    expect(r.contrast(beta, vcov, true, { g: 3 }, { g: 0 })).toEqual(s.contrast(beta, vcov, true, { g: 3 }, { g: 0 }));
+    expect(() => s.contrast(beta, vcov, true, { g: 7 }, { g: 0 })).toThrow();
+    const t = new wasm.ModelSpec();
+    t.categoricalWithLevels('g', vector([2, 0, 1]));
+    expect(Array.from(t.row({ g: 2 }, false))).toEqual([0, 1]);
+  });
 });

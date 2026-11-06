@@ -123,6 +123,19 @@ fn rows_of(v: JsValue, what: &str) -> Result<Vec<Vec<f64>>, JsError> {
     })
 }
 
+/// Stored `datadist` limits as a JS object.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LimitsJs {
+    low_effect: Option<f64>,
+    adjust_to: f64,
+    high_effect: Option<f64>,
+    low_prediction: f64,
+    high_prediction: f64,
+    low: f64,
+    high: f64,
+}
+
 // ---------------------------------------------------------- ModelSpec ----
 
 /// Model specification with `datadist`-style limits: predictors (linear,
@@ -175,7 +188,7 @@ impl ModelSpec {
     }
 
     fn check_beta(&self, beta: &[f64], intercept: bool) -> Result<(), JsError> {
-        let want = self.inner.row(&[], intercept).len();
+        let want = self.inner.row(&[], intercept).map_err(fit_error)?.len();
         if beta.len() != want {
             return Err(JsError::new(&format!(
                 "Expected {} coefficients, got {}",
@@ -218,6 +231,69 @@ impl ModelSpec {
     #[wasm_bindgen]
     pub fn categorical(&mut self, name: &str, x: &[f64]) -> usize {
         self.inner.categorical(name, x)
+    }
+
+    /// Categorical predictor with the given levels (the first is the
+    /// reference and the adjust-to level); returns its index.
+    #[wasm_bindgen(js_name = categoricalWithLevels)]
+    pub fn categorical_with_levels(
+        &mut self,
+        name: &str,
+        levels: &[f64],
+    ) -> Result<usize, JsError> {
+        self.inner
+            .categorical_with_levels(name, levels)
+            .map_err(fit_error)
+    }
+
+    /// Add a predictor with stored limits, e.g. from `predictors()` of an
+    /// earlier specification: `kind` is "linear", "rcs", "lsp" or
+    /// "categorical", `params` the knots (rcs / lsp) or levels
+    /// (categorical), `limits` `{ lowEffect, adjustTo, highEffect,
+    /// lowPrediction, highPrediction, low, high }` (null effect values for a
+    /// categorical predictor are NaN) and `distinct` the nomogram ticks.
+    /// Returns its index.
+    #[wasm_bindgen(js_name = addPredictor)]
+    pub fn add_predictor(
+        &mut self,
+        name: &str,
+        kind: &str,
+        params: Option<Vec<f64>>,
+        limits: JsValue,
+        distinct: Option<Vec<f64>>,
+    ) -> Result<usize, JsError> {
+        let p = params.unwrap_or_default();
+        let spline_err = |e: anofox_regression::splines::SplineError| JsError::new(&e.to_string());
+        let kind = match kind {
+            "linear" => PredictorKind::Linear,
+            "rcs" => {
+                PredictorKind::Rcs(anofox_regression::splines::Rcs::new(&p).map_err(spline_err)?)
+            }
+            "lsp" => {
+                PredictorKind::Lsp(anofox_regression::splines::Lsp::new(&p).map_err(spline_err)?)
+            }
+            "categorical" => PredictorKind::Categorical(p),
+            other => {
+                return Err(JsError::new(&format!(
+                    "Unknown kind '{other}': expected linear, rcs, lsp or categorical"
+                )))
+            }
+        };
+        let l: LimitsJs = serde_wasm_bindgen::from_value(limits)
+            .map_err(|e| JsError::new(&format!("limits: {e}")))?;
+        let nan = |v: Option<f64>| v.unwrap_or(f64::NAN);
+        let limits = Limits::new(
+            nan(l.low_effect),
+            l.adjust_to,
+            nan(l.high_effect),
+            l.low_prediction,
+            l.high_prediction,
+            l.low,
+            l.high,
+        );
+        self.inner
+            .add_predictor(name, kind, limits, distinct)
+            .map_err(fit_error)
     }
 
     /// Full tensor-product interaction `a * b`.
@@ -266,7 +342,9 @@ impl ModelSpec {
     /// Design row for a setting, with a leading 1 when `intercept`.
     #[wasm_bindgen]
     pub fn row(&self, setting: JsValue, intercept: bool) -> Result<Vec<f64>, JsError> {
-        Ok(self.inner.row(&self.setting(setting)?, intercept))
+        self.inner
+            .row(&self.setting(setting)?, intercept)
+            .map_err(fit_error)
     }
 
     /// Contrast `row(a) − row(b)` (`contrast.rms(fit, a, b)`): `{ estimate,
@@ -296,6 +374,7 @@ impl ModelSpec {
                 crit,
                 level,
             )
+            .map_err(fit_error)?
             .to_js())
     }
 
@@ -330,6 +409,7 @@ impl ModelSpec {
                 crit,
                 level,
             )
+            .map_err(fit_error)?
             .to_js())
     }
 
@@ -374,7 +454,8 @@ impl ModelSpec {
         let (crit, level) = parse_crit(options)?;
         let (v, est) = self
             .inner
-            .predict_grid(&beta, &vcov, intercept, k, values, crit, level);
+            .predict_grid(&beta, &vcov, intercept, k, values, crit, level)
+            .map_err(fit_error)?;
         Ok(object(&[("values", v.to_js()), ("estimates", est.to_js())]))
     }
 
@@ -398,7 +479,8 @@ impl ModelSpec {
         let (crit, level) = parse_crit(options)?;
         let (v, est, c) = self
             .inner
-            .predict_grid_simultaneous(&beta, &vcov, intercept, k, values, crit, level);
+            .predict_grid_simultaneous(&beta, &vcov, intercept, k, values, crit, level)
+            .map_err(fit_error)?;
         Ok(object(&[
             ("values", v.to_js()),
             ("estimates", est.to_js()),

@@ -26,7 +26,7 @@
 mod areg;
 
 pub(crate) use areg::canonical;
-pub use areg::{areg, Areg, AregBootstrap, AregOptions, AregType};
+pub use areg::{areg, Areg, AregBasis, AregBootstrap, AregOptions, AregType};
 
 use crate::numeric::quantile::quantile7;
 use crate::solvers::RegressionError;
@@ -43,11 +43,20 @@ pub fn box_cox_transform(y: f64, lambda: f64) -> f64 {
 }
 
 /// The inverse Box–Cox transform `(λz + 1)^{1/λ}`, `exp z` at `λ = 0`.
+///
+/// `(y^λ − 1)/λ` maps `y > 0` onto `λz + 1 > 0`, so `z` with `λz + 1 ≤ 0`
+/// (e.g. `z < −1/λ` for `λ > 0`) is the transform of no `y` and gives `NaN`
+/// (as `forecast::InvBoxCox` does for `λ < 0`; for `λ > 0` it extends the
+/// power by sign, which is not an inverse on `y > 0`).
 pub fn box_cox_inverse(z: f64, lambda: f64) -> f64 {
     if lambda == 0.0 {
-        z.exp()
+        return z.exp();
+    }
+    let base = lambda * z + 1.0;
+    if base > 0.0 {
+        base.powf(1.0 / lambda)
     } else {
-        (lambda * z + 1.0).powf(1.0 / lambda)
+        f64::NAN
     }
 }
 

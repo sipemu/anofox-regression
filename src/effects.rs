@@ -22,6 +22,7 @@
 
 use crate::design::{Design, DesignError};
 use crate::numeric::quantile::quantile7;
+use crate::solvers::RegressionError;
 use crate::splines::{Basis, Lsp, Rcs};
 use faer::{Col, Mat};
 use statrs::distribution::{ChiSquared, ContinuousCDF, FisherSnedecor, Normal, StudentsT};
@@ -47,6 +48,31 @@ pub struct Limits {
 }
 
 impl Limits {
+    /// Limits from stored values, in the order of the rows of a `datadist`
+    /// `limits` table (`Low:effect`, `Adjust to`, `High:effect`,
+    /// `Low:prediction`, `High:prediction`, `Low`, `High`). For a
+    /// categorical predictor the effect values are unused (`NaN`) and
+    /// `adjust_to` must be one of its levels ([`ModelSpec::add_predictor`]).
+    pub fn new(
+        low_effect: f64,
+        adjust_to: f64,
+        high_effect: f64,
+        low_prediction: f64,
+        high_prediction: f64,
+        low: f64,
+        high: f64,
+    ) -> Self {
+        Self {
+            low_effect,
+            adjust_to,
+            high_effect,
+            low_prediction,
+            high_prediction,
+            low,
+            high,
+        }
+    }
+
     /// `datadist` limits of a numeric predictor: quartiles for the effect,
     /// the median to adjust to, the `10/max(n, 200)` quantiles for
     /// predictions (with rms's rules for fewer than 4 distinct values).
@@ -120,6 +146,20 @@ pub struct Predictor {
 }
 
 impl Predictor {
+    /// `Err` naming `v` when this is a categorical predictor and `v` is not
+    /// one of its levels (it would be coded as the reference level).
+    fn check_value(&self, v: f64) -> Result<(), RegressionError> {
+        match &self.kind {
+            PredictorKind::Categorical(levels) if !levels.contains(&v) => {
+                Err(RegressionError::InvalidInput(format!(
+                    "{v} is not a level of the categorical predictor `{}` (levels {levels:?})",
+                    self.name
+                )))
+            }
+            _ => Ok(()),
+        }
+    }
+
     fn basis(&self, x: &[f64]) -> Basis {
         match &self.kind {
             PredictorKind::Linear => Basis::linear(x, &self.name),
@@ -244,6 +284,82 @@ impl ModelSpec {
         self.push(name, kind, Limits::numeric(x), distinct)
     }
 
+    /// Add a predictor with stored limits (and, for nomogram ticks, its
+    /// distinct values), e.g. to rebuild a specification saved from an
+    /// earlier one ([`Self::predictors`]) without its data: a specification
+    /// rebuilt from the `kind`, `limits` and `distinct` of every predictor
+    /// (and the same interactions) gives the same rows, summaries, contrasts
+    /// and grids. Returns the predictor's index.
+    ///
+    /// The limits must be finite, except the effect values of a categorical
+    /// predictor; a categorical predictor needs finite, strictly increasing
+    /// levels and an `adjust_to` that is one of them.
+    pub fn add_predictor(
+        &mut self,
+        name: &str,
+        kind: PredictorKind,
+        limits: Limits,
+        distinct: Option<Vec<f64>>,
+    ) -> Result<usize, RegressionError> {
+        let l = limits;
+        let bad = |reason: String| RegressionError::invalid_parameter("limits", reason);
+        let shared = [
+            l.adjust_to,
+            l.low_prediction,
+            l.high_prediction,
+            l.low,
+            l.high,
+        ];
+        if let PredictorKind::Categorical(levels) = &kind {
+            if levels.is_empty()
+                || levels.iter().any(|v| !v.is_finite())
+                || levels.windows(2).any(|w| w[0] >= w[1])
+            {
+                return Err(RegressionError::invalid_parameter(
+                    "levels",
+                    format!("`{name}`: levels must be finite and strictly increasing"),
+                ));
+            }
+            if !levels.contains(&l.adjust_to) {
+                return Err(bad(format!(
+                    "`{name}`: adjust_to {} is not one of the levels {levels:?}",
+                    l.adjust_to
+                )));
+            }
+        } else if shared
+            .iter()
+            .chain(&[l.low_effect, l.high_effect])
+            .any(|v| !v.is_finite())
+        {
+            return Err(bad(format!("`{name}`: limits must be finite")));
+        }
+        if shared.iter().any(|v| !v.is_finite()) {
+            return Err(bad(format!("`{name}`: limits must be finite")));
+        }
+        Ok(self.push(name, kind, limits, distinct))
+    }
+
+    /// Categorical predictor with given levels (treatment contrasts with the
+    /// first level as the reference), so that the coding does not depend on
+    /// which levels the data at hand contain. It is adjusted to the first
+    /// level; to adjust to another (`datadist`'s mode), use
+    /// [`Self::add_predictor`] with stored [`Limits`].
+    pub fn categorical_with_levels(
+        &mut self,
+        name: &str,
+        levels: &[f64],
+    ) -> Result<usize, RegressionError> {
+        let mut sorted = levels.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        sorted.dedup();
+        let (lo, hi) = (
+            sorted.first().copied().unwrap_or(f64::NAN),
+            sorted.last().copied().unwrap_or(f64::NAN),
+        );
+        let limits = Limits::new(f64::NAN, lo, f64::NAN, lo, hi, lo, hi);
+        self.add_predictor(name, PredictorKind::Categorical(sorted), limits, None)
+    }
+
     /// Linear predictor; limits from its data `x`.
     pub fn linear(&mut self, name: &str, x: &[f64]) -> usize {
         self.push_numeric(name, PredictorKind::Linear, x)
@@ -323,8 +439,21 @@ impl ModelSpec {
     }
 
     /// Design row for a setting: given predictor values, others at their
-    /// adjust-to values; a leading 1 when `intercept`.
-    pub fn row(&self, setting: &[(usize, f64)], intercept: bool) -> Vec<f64> {
+    /// adjust-to values; a leading 1 when `intercept`. A value of a
+    /// categorical predictor that is not one of its levels is an error
+    /// ([`RegressionError::InvalidInput`] naming it), as is a predictor index
+    /// out of range.
+    pub fn row(
+        &self,
+        setting: &[(usize, f64)],
+        intercept: bool,
+    ) -> Result<Vec<f64>, RegressionError> {
+        if let Some(&(k, _)) = setting.iter().find(|s| s.0 >= self.predictors.len()) {
+            return Err(RegressionError::InvalidInput(format!(
+                "no predictor {k} (the specification has {})",
+                self.predictors.len()
+            )));
+        }
         let values: Vec<f64> = (0..self.predictors.len())
             .map(|k| {
                 setting
@@ -334,6 +463,9 @@ impl ModelSpec {
                     .map_or(self.predictors[k].limits.adjust_to, |s| s.1)
             })
             .collect();
+        for (p, &v) in self.predictors.iter().zip(&values) {
+            p.check_value(v)?;
+        }
         let cols: Vec<Vec<f64>> = values.iter().map(|&v| vec![v]).collect();
         let refs: Vec<&[f64]> = cols.iter().map(Vec::as_slice).collect();
         let m = self.design(&refs).expect("valid specification").matrix();
@@ -342,7 +474,7 @@ impl ModelSpec {
             row.push(1.0);
         }
         row.extend((0..m.ncols()).map(|j| m[(0, j)]));
-        row
+        Ok(row)
     }
 
     fn estimate(
@@ -370,7 +502,8 @@ impl ModelSpec {
         }
     }
 
-    /// Contrast `row(a) − row(b)` (`contrast.rms(fit, a, b)`).
+    /// Contrast `row(a) − row(b)` (`contrast.rms(fit, a, b)`); errors as
+    /// [`Self::row`].
     #[allow(clippy::too_many_arguments)]
     pub fn contrast(
         &self,
@@ -381,14 +514,15 @@ impl ModelSpec {
         b: &[(usize, f64)],
         crit: Critical,
         level: f64,
-    ) -> ContrastEstimate {
-        let (ra, rb) = (self.row(a, intercept), self.row(b, intercept));
+    ) -> Result<ContrastEstimate, RegressionError> {
+        let (ra, rb) = (self.row(a, intercept)?, self.row(b, intercept)?);
         let c: Vec<f64> = ra.iter().zip(&rb).map(|(x, y)| x - y).collect();
-        Self::estimate(&c, beta, vcov, crit, level)
+        Ok(Self::estimate(&c, beta, vcov, crit, level))
     }
 
     /// Double-difference contrast `(row(a) − row(b)) − (row(a2) − row(b2))`
-    /// (`contrast.rms(fit, a, b, a2, b2)`), e.g. an interaction effect.
+    /// (`contrast.rms(fit, a, b, a2, b2)`), e.g. an interaction effect;
+    /// errors as [`Self::row`].
     #[allow(clippy::too_many_arguments)]
     pub fn double_contrast(
         &self,
@@ -401,12 +535,15 @@ impl ModelSpec {
         b2: &[(usize, f64)],
         crit: Critical,
         level: f64,
-    ) -> ContrastEstimate {
-        let rows = [a, b, a2, b2].map(|s| self.row(s, intercept));
+    ) -> Result<ContrastEstimate, RegressionError> {
+        let mut rows = Vec::with_capacity(4);
+        for s in [a, b, a2, b2] {
+            rows.push(self.row(s, intercept)?);
+        }
         let c: Vec<f64> = (0..rows[0].len())
             .map(|j| rows[0][j] - rows[1][j] - rows[2][j] + rows[3][j])
             .collect();
-        Self::estimate(&c, beta, vcov, crit, level)
+        Ok(Self::estimate(&c, beta, vcov, crit, level))
     }
 
     /// `summary.rms`: for each numeric predictor the effect of going from
@@ -439,15 +576,18 @@ impl ModelSpec {
                 _ => vec![(p.name.clone(), p.limits.low_effect, p.limits.high_effect)],
             };
             for (label, low, high) in pairs {
-                let effect = self.contrast(
-                    beta,
-                    vcov,
-                    intercept,
-                    &[(k, high)],
-                    &[(k, low)],
-                    crit,
-                    level,
-                );
+                // levels and adjust-to values are valid by construction
+                let effect = self
+                    .contrast(
+                        beta,
+                        vcov,
+                        intercept,
+                        &[(k, high)],
+                        &[(k, low)],
+                        crit,
+                        level,
+                    )
+                    .expect("summary settings are levels of the predictors");
                 out.push(EffectRow {
                     label,
                     predictor: k,
@@ -462,8 +602,9 @@ impl ModelSpec {
 
     /// `Predict(fit, x)`: the linear predictor (with the intercept, when
     /// fitted) over `values` of predictor `k` (default: 200 points between
-    /// its prediction limits), others at their adjust-to values, with
-    /// pointwise confidence limits. Returns `(values, estimates)`.
+    /// its prediction limits, the levels for a categorical predictor),
+    /// others at their adjust-to values, with pointwise confidence limits.
+    /// Returns `(values, estimates)`; errors as [`Self::row`].
     #[allow(clippy::too_many_arguments)]
     pub fn predict_grid(
         &self,
@@ -474,9 +615,18 @@ impl ModelSpec {
         values: Option<Vec<f64>>,
         crit: Critical,
         level: f64,
-    ) -> (Vec<f64>, Vec<ContrastEstimate>) {
+    ) -> Result<(Vec<f64>, Vec<ContrastEstimate>), RegressionError> {
+        let p = self.predictors.get(k).ok_or_else(|| {
+            RegressionError::InvalidInput(format!(
+                "no predictor {k} (the specification has {})",
+                self.predictors.len()
+            ))
+        })?;
         let values = values.unwrap_or_else(|| {
-            let l = self.predictors[k].limits;
+            if let PredictorKind::Categorical(levels) = &p.kind {
+                return levels.clone();
+            }
+            let l = p.limits;
             let by = (l.high_prediction - l.low_prediction) / 199.0;
             (0..200)
                 .map(|i| {
@@ -490,9 +640,12 @@ impl ModelSpec {
         });
         let est = values
             .iter()
-            .map(|&v| Self::estimate(&self.row(&[(k, v)], intercept), beta, vcov, crit, level))
-            .collect();
-        (values, est)
+            .map(|&v| {
+                self.row(&[(k, v)], intercept)
+                    .map(|r| Self::estimate(&r, beta, vcov, crit, level))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((values, est))
     }
 }
 
@@ -600,6 +753,9 @@ impl ModelSpec {
                 .cloned()
                 .flatten()
                 .unwrap_or_else(|| p.default_ticks(nint));
+            if let Some(e) = ticks.iter().find_map(|&v| p.check_value(v).err()) {
+                return Err(DesignError::Invalid(e.to_string()));
+            }
             let basis = p.basis(&ticks);
             let m = basis.n_columns();
             if start + m > beta.nrows() {
@@ -838,7 +994,7 @@ impl ModelSpec {
     /// [`ModelSpec::predict_grid`] with simultaneous confidence bands over
     /// the grid (`Predict(conf.type = "simultaneous")`): the limits use the
     /// critical value of [`simultaneous_critical`] for all grid rows, which
-    /// is returned too.
+    /// is returned too. Errors as [`Self::row`].
     #[allow(clippy::too_many_arguments)]
     pub fn predict_grid_simultaneous(
         &self,
@@ -849,18 +1005,18 @@ impl ModelSpec {
         values: Option<Vec<f64>>,
         crit: Critical,
         level: f64,
-    ) -> (Vec<f64>, Vec<ContrastEstimate>, f64) {
-        let (values, mut est) = self.predict_grid(beta, vcov, intercept, k, values, crit, level);
+    ) -> Result<(Vec<f64>, Vec<ContrastEstimate>, f64), RegressionError> {
+        let (values, mut est) = self.predict_grid(beta, vcov, intercept, k, values, crit, level)?;
         let rows: Vec<Vec<f64>> = values
             .iter()
             .map(|&v| self.row(&[(k, v)], intercept))
-            .collect();
+            .collect::<Result<_, _>>()?;
         let c = simultaneous_critical(&rows, vcov, crit, level);
         for e in &mut est {
             e.lower = e.estimate - c * e.se;
             e.upper = e.estimate + c * e.se;
         }
-        (values, est, c)
+        Ok((values, est, c))
     }
 }
 
@@ -873,8 +1029,12 @@ mod tests {
         let mut s = ModelSpec::new();
         let g = s.categorical("g", &[1.0, 2.0, 2.0, 3.0, 2.0]);
         assert_eq!(s.predictors()[g].limits.adjust_to, 2.0);
-        assert_eq!(s.row(&[], true), vec![1.0, 1.0, 0.0]);
-        assert_eq!(s.row(&[(g, 3.0)], false), vec![0.0, 1.0]);
+        assert_eq!(s.row(&[], true).unwrap(), vec![1.0, 1.0, 0.0]);
+        assert_eq!(s.row(&[(g, 3.0)], false).unwrap(), vec![0.0, 1.0]);
+        // a value that is no level is an error, not the reference level
+        let err = s.row(&[(g, 4.0)], false).unwrap_err().to_string();
+        assert!(err.contains('4') && err.contains("`g`"), "{err}");
+        assert!(s.row(&[(5, 1.0)], false).is_err());
     }
 
     #[test]

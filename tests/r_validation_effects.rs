@@ -4,7 +4,7 @@
 //!
 //! Reference values come from `tests/r_scripts/generate_effects_validation.R`.
 
-use anofox_regression::effects::{Critical, ModelSpec};
+use anofox_regression::effects::{Critical, Limits, ModelSpec, PredictorKind};
 use anofox_regression::splines::{Lsp, Rcs};
 use faer::{Col, Mat};
 
@@ -70,15 +70,17 @@ fn check(
             1e-9,
         );
     }
-    let c = s.contrast(
-        &beta,
-        &v,
-        true,
-        &[(0, 60.0), (1, 2.0)],
-        &[(0, 45.0), (1, 2.0)],
-        crit,
-        0.95,
-    );
+    let c = s
+        .contrast(
+            &beta,
+            &v,
+            true,
+            &[(0, 60.0), (1, 2.0)],
+            &[(0, 45.0), (1, 2.0)],
+            crit,
+            0.95,
+        )
+        .unwrap();
     for (name, a, b) in [
         ("est", c.estimate, contrast[0]),
         ("se", c.se, contrast[1]),
@@ -88,17 +90,19 @@ fn check(
     ] {
         close(&format!("{id} contrast {name}"), a, b, 1e-6);
     }
-    let d = s.double_contrast(
-        &beta,
-        &v,
-        true,
-        &[(0, 60.0), (1, 8.0)],
-        &[(0, 45.0), (1, 8.0)],
-        &[(0, 60.0), (1, 2.0)],
-        &[(0, 45.0), (1, 2.0)],
-        crit,
-        0.95,
-    );
+    let d = s
+        .double_contrast(
+            &beta,
+            &v,
+            true,
+            &[(0, 60.0), (1, 8.0)],
+            &[(0, 45.0), (1, 8.0)],
+            &[(0, 60.0), (1, 2.0)],
+            &[(0, 45.0), (1, 2.0)],
+            crit,
+            0.95,
+        )
+        .unwrap();
     for (name, a, b) in [
         ("est", d.estimate, double[0]),
         ("se", d.se, double[1]),
@@ -108,7 +112,9 @@ fn check(
         close(&format!("{id} double {name}"), a, b, 1e-9);
     }
     close(&format!("{id} double p"), d.p_value, double[4], 1e-6);
-    let g = s.contrast(&beta, &v, true, &[(2, 3.0)], &[(2, 2.0)], crit, 0.95);
+    let g = s
+        .contrast(&beta, &v, true, &[(2, 3.0)], &[(2, 2.0)], crit, 0.95)
+        .unwrap();
     for (name, a, b) in [
         ("est", g.estimate, cg[0]),
         ("se", g.se, cg[1]),
@@ -117,7 +123,9 @@ fn check(
     ] {
         close(&format!("{id} contrast g {name}"), a, b, 1e-9);
     }
-    let (vals, est) = s.predict_grid(&beta, &v, true, 0, None, crit, 0.95);
+    let (vals, est) = s
+        .predict_grid(&beta, &v, true, 0, None, crit, 0.95)
+        .unwrap();
     for i in 0..px.len() {
         close(&format!("{id} grid x[{i}]"), vals[i], px[i], 1e-12);
         close(&format!("{id} yhat[{i}]"), est[i].estimate, py[i], 1e-9);
@@ -275,15 +283,17 @@ fn linear_spline_and_restricted_interaction_match_rms() {
                 1e-9,
             );
         }
-        let c = s.contrast(
-            &beta,
-            &v,
-            true,
-            &[(0, 60.0), (1, 7.0)],
-            &[(0, 45.0), (1, 2.0)],
-            crit,
-            0.95,
-        );
+        let c = s
+            .contrast(
+                &beta,
+                &v,
+                true,
+                &[(0, 60.0), (1, 7.0)],
+                &[(0, 45.0), (1, 2.0)],
+                crit,
+                0.95,
+            )
+            .unwrap();
         for (name, a, b) in [
             ("est", c.estimate, contrast[0]),
             ("se", c.se, contrast[1]),
@@ -292,7 +302,9 @@ fn linear_spline_and_restricted_interaction_match_rms() {
         ] {
             close(&format!("{id} contrast {name}"), a, b, 1e-9);
         }
-        let (vals, est) = s.predict_grid(&beta, &v, true, 1, None, crit, 0.95);
+        let (vals, est) = s
+            .predict_grid(&beta, &v, true, 1, None, crit, 0.95)
+            .unwrap();
         for i in 0..px.len() {
             close(&format!("{id} grid x2[{i}]"), vals[i], px[i], 1e-12);
             close(&format!("{id} yhat[{i}]"), est[i].estimate, py[i], 1e-9);
@@ -300,4 +312,113 @@ fn linear_spline_and_restricted_interaction_match_rms() {
             close(&format!("{id} upper[{i}]"), est[i].upper, pu[i], 1e-8);
         }
     }
+}
+
+/// 0.12: a specification rebuilt from stored kinds, limits and levels gives
+/// the same rows, summary, contrasts and grids as the data-built one, and a
+/// value that is no level of a categorical predictor is an error.
+#[test]
+fn spec_rebuilt_from_stored_limits_matches() {
+    let s = spec(&OLS_KNOTS);
+    let mut r = ModelSpec::new();
+    for p in s.predictors() {
+        let l = p.limits;
+        let stored = Limits::new(
+            l.low_effect,
+            l.adjust_to,
+            l.high_effect,
+            l.low_prediction,
+            l.high_prediction,
+            l.low,
+            l.high,
+        );
+        r.add_predictor(&p.name, p.kind.clone(), stored, p.distinct.clone())
+            .unwrap();
+    }
+    r.interaction(0, 1);
+    // (the categorical's effect limits are NaN, so compare the parts)
+    for (a, b) in r.predictors().iter().zip(s.predictors()) {
+        assert_eq!(
+            (&a.name, &a.kind, &a.distinct),
+            (&b.name, &b.kind, &b.distinct)
+        );
+    }
+    assert_eq!(
+        r.row(&[(0, 50.0)], true).unwrap(),
+        s.row(&[(0, 50.0)], true).unwrap()
+    );
+    let k = OLS_COEF.len();
+    let beta = Col::from_fn(k, |j| OLS_COEF[j]);
+    let v = Mat::from_fn(k, k, |a, b| OLS_VCOV[a * k + b]);
+    let crit = Critical::StudentT(100.0);
+    assert_eq!(
+        r.summary(&beta, &v, true, crit, 0.95),
+        s.summary(&beta, &v, true, crit, 0.95)
+    );
+    let (a, b) = ([(0, 60.0), (2, 3.0)], [(0, 45.0), (2, 1.0)]);
+    assert_eq!(
+        r.contrast(&beta, &v, true, &a, &b, crit, 0.95).unwrap(),
+        s.contrast(&beta, &v, true, &a, &b, crit, 0.95).unwrap()
+    );
+    for k in 0..3 {
+        assert_eq!(
+            r.predict_grid(&beta, &v, true, k, None, crit, 0.95)
+                .unwrap(),
+            s.predict_grid(&beta, &v, true, k, None, crit, 0.95)
+                .unwrap()
+        );
+    }
+
+    // levels given explicitly: the coding does not depend on the data subset
+    let mut subset = ModelSpec::new();
+    let g = subset
+        .categorical_with_levels("g", &[3.0, 1.0, 2.0])
+        .unwrap();
+    assert_eq!(
+        subset.predictors()[g].kind,
+        PredictorKind::Categorical(vec![1.0, 2.0, 3.0])
+    );
+    assert_eq!(subset.row(&[(g, 3.0)], true).unwrap(), vec![1.0, 0.0, 1.0]);
+    assert_eq!(subset.row(&[], false).unwrap(), vec![0.0, 0.0]);
+
+    // a value that is not a level is an error naming it
+    let err = s
+        .contrast(&beta, &v, true, &[(2, 7.0)], &[(2, 1.0)], crit, 0.95)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains('7') && err.contains("`g`"), "{err}");
+    assert!(s.row(&[(2, 2.5)], true).is_err());
+    assert!(s
+        .predict_grid(&beta, &v, true, 2, Some(vec![1.0, 9.0]), crit, 0.95)
+        .is_err());
+
+    // invalid stored limits / levels
+    let mut bad = ModelSpec::new();
+    let cat = PredictorKind::Categorical(vec![1.0, 2.0]);
+    let nan = f64::NAN;
+    assert!(bad
+        .add_predictor(
+            "g",
+            cat.clone(),
+            Limits::new(nan, 5.0, nan, 1.0, 2.0, 1.0, 2.0),
+            None
+        )
+        .is_err());
+    assert!(bad
+        .add_predictor(
+            "g",
+            PredictorKind::Categorical(vec![2.0, 1.0]),
+            Limits::new(nan, 1.0, nan, 1.0, 2.0, 1.0, 2.0),
+            None
+        )
+        .is_err());
+    assert!(bad
+        .add_predictor(
+            "x",
+            PredictorKind::Linear,
+            Limits::new(nan, 1.0, 2.0, 0.0, 3.0, 0.0, 3.0),
+            None
+        )
+        .is_err());
+    assert!(bad.categorical_with_levels("e", &[]).is_err());
 }

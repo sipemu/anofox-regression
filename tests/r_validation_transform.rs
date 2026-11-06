@@ -139,3 +139,40 @@ fn transforms_round_trip_and_reject_bad_input() {
     y[0] = -1.0;
     assert!(box_cox(&x, &y, &BoxCoxOptions::default()).is_err());
 }
+
+/// `box_cox_inverse` is the inverse on `y > 0`: `NaN` where `λz + 1 ≤ 0`.
+/// Reference: R `ifelse(l * z + 1 > 0, (l * z + 1)^(1 / l), NaN)` for
+/// `z = c(-3, -1, 0, 0.7, 2.5)` (forecast::InvBoxCox agrees for `λ < 0`).
+#[test]
+fn box_cox_inverse_is_nan_outside_the_range_of_the_transform() {
+    let z = [-3.0, -1.0, 0.0, 0.7, 2.5];
+    let cases: [(f64, [f64; 5]); 3] = [
+        (0.5, [f64::NAN, 0.25, 1.0, 1.8225000000000002, 5.0625]),
+        (
+            -0.5,
+            [0.16, 0.44444444444444442, 1.0, 2.3668639053254434, f64::NAN],
+        ),
+        (
+            2.0,
+            [
+                f64::NAN,
+                f64::NAN,
+                1.0,
+                1.5491933384829668,
+                2.4494897427831779,
+            ],
+        ),
+    ];
+    for (lam, want) in cases {
+        for (zi, w) in z.iter().zip(want) {
+            let got = box_cox_inverse(*zi, lam);
+            if w.is_nan() {
+                assert!(got.is_nan(), "z = {zi}, lambda = {lam}: {got}");
+            } else {
+                close("box-cox inverse", got, w, 1e-14);
+            }
+        }
+    }
+    // the boundary λz + 1 = 0 is not reached by any y > 0
+    assert!(box_cox_inverse(-2.0, 0.5).is_nan());
+}

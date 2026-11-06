@@ -22,6 +22,8 @@ change**.
   - `FittedOrdinal::from_parts(link, levels, intercepts, coefficients, &vcov)` (inverts the dense `vcov`, O(k³)), and the compact `FittedOrdinal::information() -> OrdinalInformation { intercept_diagonal, intercept_off_diagonal, cross, slopes }` with `FittedOrdinal::from_information(link, levels, intercepts, coefficients, information)` (O(k·p) storage, exact) for a continuous response. Means with SEs, quantile CIs, `cluster_vcov` work on the rebuilt model.
   - `FittedContinuationRatio::from_parts(levels, n_features, &cohort_specific, &coefficients, Option<&vcov>)` and `FittedContinuationRatio::cohort_specific()`.
   - `FittedPSpline::from_parts(knots, coefficients, &covariance, sigma2, edf, n_observations)` with the new accessors `knots()`, `coefficients()`, `covariance()` (the Bayesian posterior covariance `σ² (BᵀB + λDᵀD)⁻¹`, mgcv's `Vp`) and `n_observations()`.
+  - `transform::Areg::from_parts(x_bases, x_coefficients, y_basis, y_coefficients, y_range)` with the new `AregBasis::{Linear, Spline { knots }, Categorical { levels }}` and the accessors `Areg::x_bases()`, `y_basis()`, `y_range()`: `transform_y`, `predict` and `inverse_y` of the rebuilt model equal the fit's (`bootstrap` needs the original fit). JS `Areg.fromParts`, `xBases()`, `yBasis()`, `yRange()`.
+  - `effects`: `Limits::new(low_effect, adjust_to, high_effect, low_prediction, high_prediction, low, high)` (the rows of a `datadist` limits table), `ModelSpec::add_predictor(name, kind, limits, distinct)` and `ModelSpec::categorical_with_levels(name, &levels)` (coding independent of the levels present in the data at hand, adjusted to the first level). A spec rebuilt from the stored kinds, limits and levels gives the same rows, `summary`, `contrast` and `predict_grid`. JS `ModelSpec.addPredictor`, `categoricalWithLevels`.
   - Inputs are validated (shapes, finiteness, ordering, positive definiteness; an ordinal `vcov` whose inverse is not tridiagonal in the intercepts is rejected). Fit statistics (log-likelihoods, AIC, λ, counts) are not part of a model and are `NaN` after a rebuild.
   - JS: `FittedMultinomialLogistic.fromParts`, `FittedOrdinal.fromParts` / `fromInformation` / `information()`, `FittedContinuationRatio.fromParts` / `cohortSpecific()`, `FittedPSpline.fromParts` / `knots()` / `coefficients()` / `covariance()` / `nObservations()`.
 - **`FittedOrdinal::z_values()` / `p_values()`.** Wald z of the slopes and two-sided normal p-values (orm's `Wald Z`); JS `getResult().zValues` / `pValues`.
@@ -32,11 +34,15 @@ change**.
 
 ### Fixed
 
+- **`transform::box_cox_inverse(z, λ)` returned a value where `λz + 1 ≤ 0`** (e.g. `z = −3, λ = 0.5` gave 0.25), although no `y > 0` maps there. It is now `NaN` (**behaviour change**); `forecast::InvBoxCox` gives `NA` there for `λ < 0`.
+
 - **`splines::rcs_default_knots` / `rcs_default_knots_with` panicked on a constant column** (slice `xu[1..0]`). Fewer than 5 distinct values (no 3 interior knots) is now `SplineError::TooFewUniqueKnots`, as `rcspline.eval` stops.
 - **`PSplineRegressor` left `log_likelihood`, `aic`, `aicc` and `bic` at 0.** They are now the Gaussian log-likelihood at `σ̂² = RSS / n` with `edf + 1` degrees of freedom, equal to mgcv's `logLik.gam`, `AIC` and `BIC` (1e-10 at a fixed λ, 1e-6 with GCV); `aicc` adds the usual small-sample term with that d.f. (**behaviour change**: the fields were 0). JS `getResult()` has `logLikelihood`, `aic`, `aicc`, `bic`.
 - **`FittedAft::cluster_vcov` with priors used the reported covariance as the bread**, which for `VcovType::Sandwich` / `Naive` is not the inverse of the penalized information. It now uses the penalized information, like `AftResult::cluster_vcov` (**behaviour change** for penalized fits with a non-Laplace `vcov_type`; unpenalized fits are unchanged).
 
 ### Changed
+
+- **`effects::ModelSpec::row`, `contrast`, `double_contrast`, `predict_grid` and `predict_grid_simultaneous` return `Result<_, RegressionError>`** (**breaking**). A value of a categorical predictor that is not one of its levels used to be coded silently as the reference level; it is now `RegressionError::InvalidInput` naming the value and the predictor (so is a predictor index out of range, and a nomogram tick that is not a level is a `DesignError`). `summary` is unchanged. The default `predict_grid` values of a categorical predictor are its levels (they were 200 points between the lowest and highest level, all but the levels coded as the reference). JS `row`, `contrast`, … throw on such a value.
 
 - **GLS data problems are `RegressionError::Gls(..)` instead of `RegressionError::InvalidInput(..)`** (**behaviour change**): compound symmetry without a group of two or more rows, an unstructured correlation with fewer than two distinct times, AR(1) with non-integer times, a zero / non-finite varPower covariate, a failed variance–covariance optimisation, and `variogram` without within-group pairs. Which inputs are rejected is unchanged.
 

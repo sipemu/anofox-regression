@@ -1,7 +1,7 @@
 # anofox-regression (Rust) — compact API reference
 
 Crate `anofox-regression` **0.12.0** (MIT, MSRV 1.87). Every name here was checked against the 0.12.0
-source. The snippets were built and run on 0.11.0 with faer 0.23.
+source. The snippets were built and run on 0.12.0 with faer 0.23.
 
 ## Contents
 1. [Cargo setup, types, prelude](#1-cargo-setup-types-prelude)
@@ -43,7 +43,7 @@ source. The snippets were built and run on 0.11.0 with faer 0.23.
 
 ```toml
 [dependencies]
-anofox-regression = "0.11"         # 0.11.1 at time of writing
+anofox-regression = "0.12"         # 0.12.0 at time of writing
 faer = "0.23"                      # MUST match the crate's faer (also re-exported as anofox_regression::faer)
 ```
 - Optional features (all off by default): `parallel` (rayon; adds `validation::predab_resample_par`
@@ -910,12 +910,13 @@ Fit on `design.matrix()`. **Every effect method takes the full `beta` and `vcov`
 | Method | Returns |
 |---|---|
 | `spec.summary(&beta, &v, intercept, crit, level)` | `Vec<EffectRow{label, predictor, low, high, effect: ContrastEstimate}>`: the IQR effect of each numeric predictor, and every level vs the adjust-to level of a factor (label `"grp - 0:2"`). Take `exp()` of the estimate and limits for OR/HR. `summary.rms` |
-| `spec.contrast(&beta, &v, intercept, &[(k, va)], &[(k, vb)], crit, level)` | `ContrastEstimate{estimate, se, lower, upper, statistic, p_value}`. Unlisted predictors are held at adjust-to |
+| `spec.contrast(&beta, &v, intercept, &[(k, va)], &[(k, vb)], crit, level)?` | `Result<ContrastEstimate{estimate, se, lower, upper, statistic, p_value}>` (0.12: `row`, `contrast`, `double_contrast`, `predict_grid*` return `Result`; a value that is not a level of a categorical predictor is `InvalidInput`, it used to be coded as the reference). Unlisted predictors are held at adjust-to |
 | `spec.double_contrast(.., a, b, a2, b2, ..)` | `(a−b)−(a2−b2)`: an interaction effect |
-| `spec.predict_grid(&beta, &v, intercept, k, Option<Vec<f64>>, crit, level)` | `(values, Vec<ContrastEstimate>)` on the **linear-predictor scale** (with the intercept); the default grid is 200 points between the prediction limits. Apply `plogis`/`exp` yourself |
+| `spec.predict_grid(&beta, &v, intercept, k, Option<Vec<f64>>, crit, level)` | `(values, Vec<ContrastEstimate>)` on the **linear-predictor scale** (with the intercept); the default grid is 200 points between the prediction limits (the levels for a categorical predictor, 0.12). Apply `plogis`/`exp` yourself |
 | `spec.predict_grid_simultaneous(..)` | `(values, est, crit_value)`, a simultaneous band (`Predict(conf.type="simultaneous")`) |
 | `effects::simultaneous_critical(&rows, &v, crit, level)` | the multcomp single-step max-\|t\| critical value for any set of contrast rows. It is deterministic (Halton): within ~2e-4 of a tight mvtnorm average (R itself is ±1e-3). It costs about 10⁸ ops for 50 rows of rank 15 |
-| `spec.row(&[(k, v)], intercept)` | the design row for a setting, for your own `cᵀβ` |
+| `spec.row(&[(k, v)], intercept)?` | the design row for a setting, for your own `cᵀβ` |
+| `spec.add_predictor(name, kind, Limits::new(low_effect, adjust_to, high_effect, low_prediction, high_prediction, low, high), distinct)?`, `spec.categorical_with_levels(name, &levels)?` (0.12) | rebuild a stored spec without its data (kind / limits / distinct from `predictors()`), or fix a factor's levels independently of the data subset (adjusted to the first level) |
 | `spec.nomogram(&beta, intercept, &lp, &[Option<Vec<f64>>], maxscale, nint)?` | `Nomogram{axes: Vec<NomogramAxis{name, values, xbeta, points}>, scale, intercept, total_points, lp_at, lp_points}`, `.points_to_lp(t)`, `.lp_to_points(lp)`, `.function_axis(\|l\| plogis, nint) -> (ticks, positions)`. **Main effects only** (`DesignError::Invalid` otherwise). `lp` = the fit's linear predictors |
 
 ```rust
@@ -930,8 +931,8 @@ let r = fit.result();
 let beta = full_beta(r.intercept.unwrap(), &r.coefficients);
 let v = fit.vcov().unwrap();                               // intercept first, as ModelSpec expects
 for e in spec.summary(&beta, &v, true, Critical::Normal, 0.95) { println!("{} OR {:.3}", e.label, e.effect.estimate.exp()); }
-let c = spec.contrast(&beta, &v, true, &[(age, 70.0)], &[(age, 40.0)], Critical::Normal, 0.95);
-let (_, band, crit) = spec.predict_grid_simultaneous(&beta, &v, true, age, Some(vec![35.0, 45.0, 55.0, 65.0, 75.0]), Critical::Normal, 0.95);
+let c = spec.contrast(&beta, &v, true, &[(age, 70.0)], &[(age, 40.0)], Critical::Normal, 0.95)?;
+let (_, band, crit) = spec.predict_grid_simultaneous(&beta, &v, true, age, Some(vec![35.0, 45.0, 55.0, 65.0, 75.0]), Critical::Normal, 0.95)?;
 let nom = spec.nomogram(&beta, true, &lp, &[None, None, None], 100.0, 5)?;
 let (risk, pos) = nom.function_axis(|l| 1.0 / (1.0 + (-l).exp()), 5);
 ```
@@ -1265,6 +1266,10 @@ transformed_x` (centred), `linear_predictors, residuals, mad: Option, med: Optio
 `transform_y(&y)`, `predict(&x_new) -> Vec` (on the **transformed-y** scale), `inverse_y(&t) -> Option<Vec>` (back to
 the y scale; `None` if the transform is not monotone), `bootstrap(&indices: &[Vec<usize>]) -> AregBootstrap{r2_optimism,
 r2_corrected, mad_optimism, mad_corrected, med_optimism, med_corrected}` (you supply the resample row indices).
+Store / rebuild (0.12): `Areg::from_parts(fit.x_bases(), fit.x_coefficients.clone(), fit.y_basis(),
+fit.y_coefficients.clone(), fit.y_range())?` with `AregBasis::{Linear, Spline{knots}, Categorical{levels}}`; the rebuilt
+model transforms, predicts and back-transforms new rows as the fit. `box_cox_inverse` is `NaN` where `λz + 1 ≤ 0`
+(no y > 0 maps there; it returned a value before 0.12).
 Oracles: `r_validation_transform.rs`, `r_validation_areg.rs`.
 ```rust
 use anofox_regression::transform::{areg, box_cox, box_cox_inverse, box_cox_transform, smearing_estimate,

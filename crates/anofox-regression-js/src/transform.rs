@@ -5,7 +5,8 @@
 
 use anofox_regression::transform::{
     areg as rust_areg, box_cox, box_cox_inverse, box_cox_transform, smearing_estimate,
-    Areg as RustAreg, AregBootstrap, AregOptions, AregType, BoxCoxOptions, BoxCoxProfile, Smearing,
+    Areg as RustAreg, AregBasis, AregBootstrap, AregOptions, AregType, BoxCoxOptions,
+    BoxCoxProfile, Smearing,
 };
 use faer::Col;
 use js_sys::Function;
@@ -169,8 +170,103 @@ pub struct Areg {
     inner: RustAreg,
 }
 
+/// A basis as `{ kind: "linear" | "spline" | "categorical", knots?, levels? }`.
+#[derive(serde::Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AregBasisJs {
+    kind: String,
+    knots: Option<Vec<f64>>,
+    levels: Option<Vec<f64>>,
+}
+
+impl AregBasisJs {
+    fn from_rust(b: &AregBasis) -> Self {
+        let (kind, knots, levels) = match b {
+            AregBasis::Spline { knots } => ("spline", Some(knots.clone()), None),
+            AregBasis::Categorical { levels } => ("categorical", None, Some(levels.clone())),
+            _ => ("linear", None, None),
+        };
+        Self {
+            kind: kind.to_string(),
+            knots,
+            levels,
+        }
+    }
+
+    fn to_rust(&self) -> Result<AregBasis, JsError> {
+        match self.kind.as_str() {
+            "linear" => Ok(AregBasis::Linear),
+            "spline" => Ok(AregBasis::Spline {
+                knots: self.knots.clone().unwrap_or_default(),
+            }),
+            "categorical" => Ok(AregBasis::Categorical {
+                levels: self.levels.clone().unwrap_or_default(),
+            }),
+            other => Err(JsError::new(&format!(
+                "Unknown basis '{other}': expected linear, spline or categorical"
+            ))),
+        }
+    }
+}
+
 #[wasm_bindgen]
 impl Areg {
+    /// Rebuild a fitted model from `xBases()`, `getResult().xCoefficients`,
+    /// `yBasis()`, `getResult().yCoefficients` and `yRange()` of an earlier
+    /// fit; it transforms, predicts and back-transforms as that fit.
+    #[wasm_bindgen(js_name = fromParts)]
+    pub fn from_parts(
+        x_bases: JsValue,
+        x_coefficients: Vec<f64>,
+        y_basis: JsValue,
+        y_coefficients: Vec<f64>,
+        y_min: f64,
+        y_max: f64,
+    ) -> Result<Areg, JsError> {
+        let xb: Vec<AregBasisJs> = serde_wasm_bindgen::from_value(x_bases)
+            .map_err(|e| JsError::new(&format!("xBases: {e}")))?;
+        let yb: AregBasisJs = serde_wasm_bindgen::from_value(y_basis)
+            .map_err(|e| JsError::new(&format!("yBasis: {e}")))?;
+        let x_bases = xb
+            .iter()
+            .map(AregBasisJs::to_rust)
+            .collect::<Result<Vec<_>, _>>()?;
+        let inner = RustAreg::from_parts(
+            x_bases,
+            faer::Col::from_fn(x_coefficients.len(), |j| x_coefficients[j]),
+            yb.to_rust()?,
+            faer::Col::from_fn(y_coefficients.len(), |j| y_coefficients[j]),
+            (y_min, y_max),
+        )
+        .map_err(fit_error)?;
+        Ok(Self { inner })
+    }
+
+    /// The basis of each predictor: `[{ kind, knots?, levels? }]`.
+    #[wasm_bindgen(js_name = xBases)]
+    pub fn x_bases(&self) -> Result<JsValue, JsError> {
+        let b: Vec<AregBasisJs> = self
+            .inner
+            .x_bases()
+            .iter()
+            .map(AregBasisJs::from_rust)
+            .collect();
+        crate::regressors::to_js(&b)
+    }
+
+    /// The basis of the response: `{ kind, knots?, levels? }`.
+    #[wasm_bindgen(js_name = yBasis)]
+    pub fn y_basis(&self) -> Result<JsValue, JsError> {
+        crate::regressors::to_js(&AregBasisJs::from_rust(&self.inner.y_basis()))
+    }
+
+    /// `[min, max]` of the fitted response.
+    #[wasm_bindgen(js_name = yRange)]
+    pub fn y_range(&self) -> Vec<f64> {
+        let (lo, hi) = self.inner.y_range();
+        vec![lo, hi]
+    }
+
     /// `{ xCoefficients, yCoefficients, rSquared, xDf, yDf, transformedY,
     /// transformedX, linearPredictors, residuals, mad?, med? }`.
     #[wasm_bindgen(js_name = getResult)]

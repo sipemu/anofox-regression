@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lim = &spec.predictors()[a].limits;
     let (q1, q3) = (lim.low_effect, lim.high_effect);
     for (code, label) in [(0.0, "female"), (1.0, "male")] {
-        let c = spec.contrast(&beta, &vcov, true, &[(a, q3), (s, code)], &[(a, q1), (s, code)], Critical::Normal, 0.95);
+        let c = spec.contrast(&beta, &vcov, true, &[(a, q3), (s, code)], &[(a, q1), (s, code)], Critical::Normal, 0.95)?;
         println!(
             "OR age {q1:.0}→{q3:.0} ({label}): {:.2} [{:.2}, {:.2}]",
             c.estimate.exp(), c.lower.exp(), c.upper.exp()

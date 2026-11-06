@@ -93,6 +93,71 @@ fn expansion(z: &[f64], kind: AregType, nk: usize) -> Result<Expansion, Regressi
     }
 }
 
+/// The basis of one variable of a fitted [`Areg`] (its stored form): what
+/// [`Areg::x_bases`] / [`Areg::y_basis`] return and [`Areg::from_parts`]
+/// takes.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum AregBasis {
+    /// Untransformed (one column).
+    Linear,
+    /// Restricted cubic spline with these knots (`k − 1` columns,
+    /// `rcspline.eval` with `norm = 2`).
+    Spline {
+        /// The knots (`xparms` / `yparms`).
+        knots: Vec<f64>,
+    },
+    /// Dummy columns for every level but the first (`levels.len() − 1`
+    /// columns); a value that is no level codes as the first.
+    Categorical {
+        /// The distinct values, increasing.
+        levels: Vec<f64>,
+    },
+}
+
+impl AregBasis {
+    fn to_expansion(&self) -> Result<Expansion, RegressionError> {
+        match self {
+            Self::Linear => Ok(Expansion::Linear),
+            Self::Spline { knots } => Rcs::new(knots)
+                .map(Expansion::Spline)
+                .map_err(|e| RegressionError::invalid_parameter("knots", e.to_string())),
+            Self::Categorical { levels } => {
+                if levels.len() < 2
+                    || levels.iter().any(|v| !v.is_finite())
+                    || levels.windows(2).any(|w| w[0] >= w[1])
+                {
+                    return Err(RegressionError::invalid_parameter(
+                        "levels",
+                        "needs two or more finite, strictly increasing levels",
+                    ));
+                }
+                Ok(Expansion::Categorical(levels.clone()))
+            }
+        }
+    }
+
+    fn from_expansion(e: &Expansion) -> Self {
+        match e {
+            Expansion::Linear => Self::Linear,
+            Expansion::Spline(rcs) => Self::Spline {
+                knots: rcs.knots().to_vec(),
+            },
+            Expansion::Categorical(levels) => Self::Categorical {
+                levels: levels.clone(),
+            },
+        }
+    }
+
+    fn n_columns(e: &Expansion) -> usize {
+        match e {
+            Expansion::Linear => 1,
+            Expansion::Spline(rcs) => rcs.knots().len() - 1,
+            Expansion::Categorical(levels) => levels.len() - 1,
+        }
+    }
+}
+
 /// A fitted [`areg`] model.
 #[derive(Debug, Clone)]
 pub struct Areg {
@@ -561,6 +626,109 @@ impl BranchInverse {
 }
 
 impl Areg {
+    /// Rebuild a fitted model from its parts — [`Self::x_bases`],
+    /// [`Self::x_coefficients`], [`Self::y_basis`], [`Self::y_coefficients`]
+    /// and [`Self::y_range`] of an earlier fit — so a stored model transforms
+    /// and predicts new rows: [`Self::transform_y`], [`Self::predict`] and
+    /// [`Self::inverse_y`] equal those of the original fit.
+    ///
+    /// `x_coefficients` is the intercept followed by one coefficient per
+    /// basis column of the predictors in order, `y_coefficients` the same for
+    /// the response (`[0, 1]` for a linear response). `y_range` is the
+    /// `(min, max)` of the fitted response, over which [`Self::inverse_y`]
+    /// tabulates the transformation (only used for a spline response). The
+    /// fit statistics and per-row results (`r_squared`, `transformed_y`,
+    /// `residuals`, `mad`, …) are not part of the model: they are `NaN`,
+    /// empty or `None`, and [`Self::bootstrap`] needs the original fit.
+    pub fn from_parts(
+        x_bases: Vec<AregBasis>,
+        x_coefficients: Col<f64>,
+        y_basis: AregBasis,
+        y_coefficients: Col<f64>,
+        y_range: (f64, f64),
+    ) -> Result<Self, RegressionError> {
+        let x_expansions = x_bases
+            .iter()
+            .map(AregBasis::to_expansion)
+            .collect::<Result<Vec<_>, _>>()?;
+        let y_expansion = y_basis.to_expansion()?;
+        let x_df: Vec<usize> = x_expansions.iter().map(AregBasis::n_columns).collect();
+        let y_df = AregBasis::n_columns(&y_expansion);
+        let total: usize = x_df.iter().sum();
+        if x_coefficients.nrows() != total + 1 || y_coefficients.nrows() != y_df + 1 {
+            return Err(RegressionError::invalid_parameter(
+                "coefficients",
+                format!(
+                    "the bases need {} x and {} y coefficients (intercept first), got {} and {}",
+                    total + 1,
+                    y_df + 1,
+                    x_coefficients.nrows(),
+                    y_coefficients.nrows()
+                ),
+            ));
+        }
+        if x_coefficients
+            .iter()
+            .chain(y_coefficients.iter())
+            .any(|c| !c.is_finite())
+        {
+            return Err(RegressionError::invalid_parameter(
+                "coefficients",
+                "must be finite",
+            ));
+        }
+        let (lo, hi) = y_range;
+        if matches!(y_expansion, Expansion::Spline(_))
+            && !(lo.is_finite() && hi.is_finite() && lo < hi)
+        {
+            return Err(RegressionError::invalid_parameter(
+                "y_range",
+                "must be finite with min < max for a spline response",
+            ));
+        }
+        let p = x_df.len();
+        Ok(Self {
+            x_coefficients,
+            y_coefficients,
+            r_squared: f64::NAN,
+            x_df,
+            y_df,
+            transformed_y: Col::zeros(0),
+            transformed_x: Mat::zeros(0, p),
+            linear_predictors: Col::zeros(0),
+            residuals: Col::zeros(0),
+            mad: None,
+            med: None,
+            x_expansions,
+            y_expansion,
+            x_design: Mat::zeros(0, total),
+            y_design: Mat::zeros(0, y_df),
+            y: vec![lo, hi],
+        })
+    }
+
+    /// The basis of each predictor (its stored form, for
+    /// [`Self::from_parts`]).
+    pub fn x_bases(&self) -> Vec<AregBasis> {
+        self.x_expansions
+            .iter()
+            .map(AregBasis::from_expansion)
+            .collect()
+    }
+
+    /// The basis of the response (for [`Self::from_parts`]).
+    pub fn y_basis(&self) -> AregBasis {
+        AregBasis::from_expansion(&self.y_expansion)
+    }
+
+    /// `(min, max)` of the fitted response, the range [`Self::inverse_y`]
+    /// tabulates.
+    pub fn y_range(&self) -> (f64, f64) {
+        let lo = self.y.iter().copied().fold(f64::INFINITY, f64::min);
+        let hi = self.y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        (lo, hi)
+    }
+
     /// Knots of the response spline (`yparms`), `None` for a linear response.
     pub fn y_knots(&self) -> Option<&[f64]> {
         match &self.y_expansion {
@@ -612,8 +780,7 @@ impl Areg {
     /// The `y` transformation with coefficients `coef` on 1000 points over
     /// the range of `y` (`seq(min(y), max(y), length.out = 1000)`).
     fn y_grid(&self, coef: &Col<f64>) -> (Vec<f64>, Vec<f64>) {
-        let lo = self.y.iter().copied().fold(f64::INFINITY, f64::min);
-        let hi = self.y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let (lo, hi) = self.y_range();
         let by = (hi - lo) / 999.0;
         let grid: Vec<f64> = (0..1000)
             .map(|k| if k == 999 { hi } else { lo + k as f64 * by })
@@ -690,6 +857,11 @@ impl Areg {
     /// response whose transformation stays monotone.
     pub fn bootstrap(&self, indices: &[Vec<usize>]) -> Result<AregBootstrap, RegressionError> {
         let n = self.y.len();
+        if self.x_design.nrows() != n {
+            return Err(RegressionError::InvalidInput(
+                "bootstrap needs the data of the fit (not a model rebuilt from parts)".to_string(),
+            ));
+        }
         let (mad, med) = match (self.mad, self.med) {
             (Some(a), Some(b)) if self.y_expansion != Expansion::Linear => (a, b),
             _ => {

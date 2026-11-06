@@ -5,7 +5,7 @@
 //! `tests/r_scripts/generate_areg_validation.R`: `log y` additive in a
 //! linear `x1`, a sine of `x2` and a three-level factor.
 
-use anofox_regression::transform::{areg, AregOptions, AregType};
+use anofox_regression::transform::{areg, Areg, AregBasis, AregOptions, AregType};
 use faer::Mat;
 
 mod fixture {
@@ -153,4 +153,67 @@ fn non_monotone_response_transformation_has_no_inverse() {
     assert!(f.inverse_y(&[0.0]).is_none());
     assert!(f.mad.is_none() && f.med.is_none());
     assert!(f.bootstrap(&[(0..n).collect()]).is_err());
+}
+
+/// 0.12: an `Areg` rebuilt from its parts transforms, predicts and
+/// back-transforms new rows exactly as the fit.
+#[test]
+fn from_parts_round_trips() {
+    let linear = AregOptions::default()
+        .x_types(Some(vec![
+            AregType::Spline,
+            AregType::Linear,
+            AregType::Categorical,
+        ]))
+        .y_type(AregType::Linear);
+    for opts in [smooth(), linear] {
+        let f = areg(&x(), &Y, &opts).unwrap();
+        let g = Areg::from_parts(
+            f.x_bases(),
+            f.x_coefficients.clone(),
+            f.y_basis(),
+            f.y_coefficients.clone(),
+            f.y_range(),
+        )
+        .unwrap();
+        let rows = Mat::from_fn(20, P, |i, j| {
+            X[(7 * i % N) * P + j] * if j == 2 { 1.0 } else { 0.9 }
+        });
+        assert_eq!(g.predict(&rows), f.predict(&rows));
+        let ys: Vec<f64> = Y.iter().step_by(9).map(|v| v * 1.1).collect();
+        assert_eq!(g.transform_y(&ys), f.transform_y(&ys));
+        let lp = f.predict(&rows);
+        assert_eq!(g.inverse_y(&lp), f.inverse_y(&lp));
+        assert_eq!(g.x_df, f.x_df);
+        assert!(g.bootstrap(&[vec![0; N]]).is_err());
+    }
+    let f = areg(&x(), &Y, &smooth()).unwrap();
+    assert!(matches!(f.y_basis(), AregBasis::Spline { .. }));
+    // wrong coefficient count, bad levels, bad range
+    assert!(Areg::from_parts(
+        f.x_bases(),
+        faer::Col::zeros(3),
+        f.y_basis(),
+        f.y_coefficients.clone(),
+        f.y_range()
+    )
+    .is_err());
+    assert!(Areg::from_parts(
+        vec![AregBasis::Categorical {
+            levels: vec![1.0, 0.0]
+        }],
+        faer::Col::zeros(2),
+        AregBasis::Linear,
+        faer::Col::from_fn(2, |j| j as f64),
+        (0.0, 1.0)
+    )
+    .is_err());
+    assert!(Areg::from_parts(
+        f.x_bases(),
+        f.x_coefficients.clone(),
+        f.y_basis(),
+        f.y_coefficients.clone(),
+        (1.0, 1.0)
+    )
+    .is_err());
 }

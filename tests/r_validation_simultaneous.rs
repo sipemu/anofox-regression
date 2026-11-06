@@ -47,8 +47,9 @@ fn check(
     r_crit: &[f64],
 ) {
     let (b, v) = mats(beta, vcov);
-    let (_, est, c) =
-        spec.predict_grid_simultaneous(&b, &v, true, k, Some(grid.to_vec()), crit, 0.95);
+    let (_, est, c) = spec
+        .predict_grid_simultaneous(&b, &v, true, k, Some(grid.to_vec()), crit, 0.95)
+        .unwrap();
     close(&format!("{tag} crit vs tight mvtnorm"), c, r_crit[1], 2e-4);
     close(&format!("{tag} crit vs Predict"), c, r_crit[0], 2e-3);
     let g = grid.len();
