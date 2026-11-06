@@ -154,6 +154,26 @@ impl FittedAft {
         })
     }
 
+    /// Rebuild a fitted model from stored parts; see
+    /// [`AftResult::from_parts`]. `fit.distribution()`, `fit.intercept()`,
+    /// `fit.coefficients()`, `fit.scale()` and
+    /// `fit.inference().and_then(|i| i.vcov.as_ref())` of a fit rebuild it.
+    pub fn from_parts(
+        distribution: AftDistribution,
+        intercept: Option<f64>,
+        coefficients: Vec<f64>,
+        scale: f64,
+        vcov: Option<&Mat<f64>>,
+    ) -> Result<Self, crate::solvers::RegressionError> {
+        Self::from_result(AftResult::from_parts(
+            distribution,
+            intercept,
+            coefficients,
+            scale,
+            vcov,
+        )?)
+    }
+
     /// Feature coefficients on the log-time scale.
     pub fn coefficients(&self) -> &Col<f64> {
         &self.coefficients

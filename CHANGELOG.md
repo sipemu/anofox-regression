@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-06
+
+### Added
+
+- **`FittedAft::from_parts(distribution, intercept, coefficients, scale, vcov)` and `AftResult::from_parts(..)`.** Rebuild a stored AFT model (`vcov: Option<&Mat<f64>>` in the layout of `AftInference::vcov`): survival curves, quantiles and predictions equal the fit's; with the covariance the Wald inference and `cluster_vcov` work too. JS `FittedAft.fromParts`.
+- **Typed errors for degenerate data.** `RegressionError::Degenerate(DegenerateData)` with `ConstantResponse` (`spearman2`, `redun`, …), `TooFewLevels` (`spearman2_categorical`), `ConstantColumn` (`principal_components`), `SimilarityNotComputable` (`varclus`), `NonPositiveResponse` (`box_cox`) and `TooFewObservedValues` (`transcan`); and `RegressionError::Spline(SplineError)` for a spline basis that cannot be built from the data (`areg`, `redun`, `transcan`; e.g. `SplineError::TooFewObservations` with fewer than 6 non-missing values). Both were `InvalidInput` strings (**behaviour change** of the error variants).
+- **`DesignError::UnknownLevel { predictor, value }`.**
+
+### Fixed
+
+- **`effects::ModelSpec::design` coded a value that is not a level of a categorical predictor (or NaN) as the reference level**, unlike `row`. It is now `DesignError::UnknownLevel`; a wrong number of columns is `DesignError::Invalid` (columns used to be zipped silently). Nomogram ticks that are no level are `UnknownLevel` too.
+
 ## [0.12.0] - 2026-11-06
 
 Requested by the DuckDB extension (`anofox-statistics`), which stores fitted

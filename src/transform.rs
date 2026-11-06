@@ -132,9 +132,7 @@ impl BoxCoxProblem {
             });
         }
         if y.iter().any(|v| !(*v > 0.0 && v.is_finite())) {
-            return Err(RegressionError::InvalidInput(
-                "the Box–Cox response must be positive".to_string(),
-            ));
+            return Err(crate::solvers::DegenerateData::NonPositiveResponse.into());
         }
         let design = if options.with_intercept {
             Mat::from_fn(

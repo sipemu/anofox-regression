@@ -172,3 +172,124 @@ impl AftResult {
         crate::inference::cluster_sandwich(&bread, &scores, &refs, options)
     }
 }
+
+impl AftResult {
+    /// Rebuild an AFT result from stored parts — the distribution, the
+    /// intercept (`None` without one), the feature coefficients, the scale
+    /// `σ` and optionally the covariance of the fitted parameters (intercept,
+    /// coefficients, then `log σ` when the scale is estimated: the layout of
+    /// [`AftInference::vcov`](super::AftInference::vcov)) — so a stored model
+    /// predicts again: [`Self::survival_curve`], [`Self::quantiles`] and the
+    /// predictions of [`FittedAft::from_result`](super::FittedAft::from_result)
+    /// equal the fit's.
+    ///
+    /// With `vcov` the inference (standard errors, Wald z / p, 95 % Wald
+    /// intervals, the information) is rebuilt from it, so
+    /// [`Self::cluster_vcov`] works on the data of the fit (for a penalized
+    /// fit store the Laplace covariance, the inverse of the penalized
+    /// information). The fit statistics (log-likelihoods, AIC, counts) are
+    /// not part of the model and are `NaN` / 0. `scale` must be positive and
+    /// finite (1 for the exponential distribution), the coefficients finite
+    /// (`NaN` marks a dropped column, which predictions skip).
+    pub fn from_parts(
+        distribution: AftDistribution,
+        intercept: Option<f64>,
+        coefficients: Vec<f64>,
+        scale: f64,
+        vcov: Option<&Mat<f64>>,
+    ) -> Result<Self, crate::solvers::RegressionError> {
+        use crate::solvers::RegressionError;
+        let bad =
+            |name: &'static str, reason: &str| RegressionError::invalid_parameter(name, reason);
+        if intercept.is_some_and(|b| !b.is_finite()) || coefficients.iter().any(|b| b.is_infinite())
+        {
+            return Err(bad(
+                "coefficients",
+                "must be finite (NaN only for a dropped column)",
+            ));
+        }
+        if !(scale.is_finite() && scale > 0.0) || (distribution.scale_is_fixed() && scale != 1.0) {
+            return Err(bad(
+                "scale",
+                "must be positive and finite (1 for the exponential)",
+            ));
+        }
+        let core = super::AftFitResult {
+            n_features: coefficients.len(),
+            coefficients,
+            intercept,
+            scale,
+            log_likelihood: f64::NAN,
+            null_log_likelihood: f64::NAN,
+            aic: f64::NAN,
+            bic: f64::NAN,
+            n_observations: 0,
+            n_events: 0,
+            n_censored: 0,
+            iterations: 0,
+            converged: true,
+        };
+        let inference = vcov
+            .map(|v| inference_from_vcov(&core, v, distribution))
+            .transpose()?;
+        Ok(Self {
+            core,
+            inference,
+            model_info: super::model::aft_model_info(distribution),
+        })
+    }
+}
+
+/// Wald inference of stored parts from their covariance.
+fn inference_from_vcov(
+    core: &super::AftFitResult,
+    vcov: &Mat<f64>,
+    distribution: AftDistribution,
+) -> Result<super::AftInference, crate::solvers::RegressionError> {
+    use statrs::distribution::{ContinuousCDF, Normal};
+    let off = usize::from(core.intercept.is_some());
+    let p = core.coefficients.len();
+    let fit_scale = !distribution.scale_is_fixed();
+    let k = off + p + usize::from(fit_scale);
+    let bad = || {
+        crate::solvers::RegressionError::invalid_parameter(
+            "vcov",
+            format!("must be a finite, positive definite {k} x {k} matrix"),
+        )
+    };
+    if vcov.nrows() != k
+        || vcov.ncols() != k
+        || (0..k).any(|r| (0..k).any(|c| !vcov[(r, c)].is_finite()))
+    {
+        return Err(bad());
+    }
+    let sym = Mat::from_fn(k, k, |r, c| 0.5 * (vcov[(r, c)] + vcov[(c, r)]));
+    let llt = sym.llt(faer::Side::Lower).map_err(|_| bad())?;
+    let information = llt.solve(Mat::<f64>::identity(k, k));
+    let mut params: Vec<f64> = core.intercept.into_iter().collect();
+    params.extend(&core.coefficients);
+    let normal = Normal::new(0.0, 1.0).expect("standard normal");
+    let zc = normal.inverse_cdf(0.975);
+    let se: Vec<f64> = (0..off + p).map(|j| sym[(j, j)].sqrt()).collect();
+    let z: Vec<f64> = (0..off + p).map(|j| params[j] / se[j]).collect();
+    let pv: Vec<f64> = z.iter().map(|z| 2.0 * normal.sf(z.abs())).collect();
+    let lo: Vec<f64> = (0..off + p).map(|j| params[j] - zc * se[j]).collect();
+    let hi: Vec<f64> = (0..off + p).map(|j| params[j] + zc * se[j]).collect();
+    let first = |v: &[f64]| (off == 1).then(|| v[0]);
+    Ok(super::AftInference {
+        std_errors: se[off..].to_vec(),
+        z_values: z[off..].to_vec(),
+        p_values: pv[off..].to_vec(),
+        ci_lower: lo[off..].to_vec(),
+        ci_upper: hi[off..].to_vec(),
+        confidence_level: 0.95,
+        intercept_std_error: first(&se),
+        intercept_z_value: first(&z),
+        intercept_p_value: first(&pv),
+        intercept_ci_lower: first(&lo),
+        intercept_ci_upper: first(&hi),
+        log_scale_std_error: fit_scale.then(|| sym[(k - 1, k - 1)].sqrt()),
+        vcov: Some(sym),
+        information: Some(information),
+    })
+}

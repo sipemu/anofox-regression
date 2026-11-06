@@ -68,6 +68,28 @@ impl FittedAft {
 
 #[wasm_bindgen]
 impl FittedAft {
+    /// Rebuild a fitted model from stored parts: the distribution name, the
+    /// intercept (undefined without one), the coefficients, the scale and
+    /// optionally the row-major covariance (intercept, coefficients, then
+    /// `log σ` when the scale is estimated). It predicts as the fit.
+    #[wasm_bindgen(js_name = fromParts)]
+    pub fn from_parts(
+        distribution: &str,
+        intercept: Option<f64>,
+        coefficients: Vec<f64>,
+        scale: f64,
+        vcov: Option<Vec<f64>>,
+    ) -> Result<FittedAft, JsError> {
+        let dist = AftDistribution::from_name(distribution)
+            .ok_or_else(|| JsError::new(&format!("Unknown distribution '{distribution}'")))?;
+        let n_features = coefficients.len();
+        let k = n_features + usize::from(intercept.is_some()) + usize::from(!dist.scale_is_fixed());
+        let v = vcov.map(|v| to_mat(&v, k, k)).transpose()?;
+        let fitted = RustFittedAft::from_parts(dist, intercept, coefficients, scale, v.as_ref())
+            .map_err(fit_error)?;
+        Ok(Self { fitted, n_features })
+    }
+
     /// Get the full result as a JavaScript object.
     #[wasm_bindgen(js_name = getResult)]
     pub fn get_result(&self) -> Result<JsValue, JsError> {

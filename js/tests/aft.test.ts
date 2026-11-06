@@ -59,6 +59,13 @@ describe('AftRegressor', () => {
     });
   }
 
+  it('fromParts predicts as the fit (0.12.1)', () => {
+    const f = new wasm.AftRegressor().fit(x, n, 2, vector(R.PG_TIME), event);
+    const r = f.getResult();
+    const g = wasm.FittedAft.fromParts(r.distribution, r.intercept, vector(r.coefficients), r.scale, undefined);
+    expect(Array.from(g.predictMedian(x, n))).toEqual(Array.from(f.predictMedian(x, n)));
+  });
+
   it('residuals and score contributions have the fit dimensions', () => {
     const f = new wasm.AftRegressor().fit(x, n, 2, vector(R.PG_TIME), event);
     const z = f.standardizedResiduals(x, n, vector(R.PG_TIME));

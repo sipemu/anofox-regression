@@ -75,6 +75,16 @@ pub enum RegressionError {
     #[error("GLS: {0}")]
     Gls(#[from] crate::solvers::gls::GlsError),
 
+    /// A spline basis could not be built from the data (e.g. fewer than 6
+    /// non-missing values for default knots, or too few distinct values).
+    #[error("spline: {0}")]
+    Spline(#[from] crate::splines::SplineError),
+
+    /// The data are degenerate for the method (a constant response, a
+    /// factor with one level, …); see [`DegenerateData`].
+    #[error("degenerate data: {0}")]
+    Degenerate(#[from] DegenerateData),
+
     /// Every row has a missing or non-finite value, so nothing is left to
     /// fit (the GLM / AFT engines drop such rows).
     #[error("all rows filtered due to missing / non-finite values")]
@@ -84,6 +94,32 @@ pub enum RegressionError {
     /// model is not identified.
     #[error("every observation is censored, so the model is not identified")]
     AllCensored,
+}
+
+/// Why the data are degenerate for a method ([`RegressionError::Degenerate`]),
+/// so callers can tell these cases apart without matching message text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum DegenerateData {
+    /// The response is constant (`spearman2`, `redun`, …).
+    #[error("the response is constant")]
+    ConstantResponse,
+    /// A categorical variable has fewer than two levels.
+    #[error("a categorical variable needs two or more levels")]
+    TooFewLevels,
+    /// A column to be scaled is constant (`principal_components`).
+    #[error("cannot scale a constant column")]
+    ConstantColumn,
+    /// Part of a similarity matrix could not be computed (`varclus`, e.g.
+    /// a constant variable).
+    #[error("part of the similarity matrix could not be computed")]
+    SimilarityNotComputable,
+    /// The response of a Box–Cox transformation is not positive and finite.
+    #[error("the Box-Cox response must be positive")]
+    NonPositiveResponse,
+    /// A variable has fewer than three observed values (`transcan`).
+    #[error("a variable needs three or more observed values")]
+    TooFewObservedValues,
 }
 
 impl RegressionError {

@@ -84,7 +84,7 @@ fn expansion(z: &[f64], kind: AregType, nk: usize) -> Result<Expansion, Regressi
         // too few distinct values for nk knots: linear, as areg intends
         AregType::Spline if nk >= 3 && distinct.len() >= nk => Rcs::from_data(z, nk)
             .map(Expansion::Spline)
-            .map_err(|e| RegressionError::InvalidInput(e.to_string())),
+            .map_err(RegressionError::Spline),
         AregType::Categorical if distinct.len() >= 2 => Ok(Expansion::Categorical(distinct)),
         AregType::Categorical => Err(RegressionError::InvalidInput(
             "a categorical predictor needs two or more levels".to_string(),

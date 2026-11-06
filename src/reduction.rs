@@ -19,7 +19,7 @@
 //! # }
 //! ```
 
-use crate::solvers::RegressionError;
+use crate::solvers::{DegenerateData, RegressionError};
 use crate::validation::average_ranks;
 use faer::{Col, Mat};
 use statrs::distribution::{ContinuousCDF, FisherSnedecor};
@@ -71,7 +71,7 @@ fn r_squared(z: &Mat<f64>, y: &[f64]) -> Result<f64, RegressionError> {
     let sst: f64 = y.iter().map(|v| (v - mean).powi(2)).sum();
     let sse: f64 = (0..n).map(|i| (y[i] - fit[i]).powi(2)).sum();
     if sst <= 0.0 {
-        return Err(invalid("y is constant"));
+        return Err(DegenerateData::ConstantResponse.into());
     }
     Ok(1.0 - sse / sst)
 }
@@ -134,7 +134,7 @@ pub fn spearman2_categorical(x: &[usize], y: &[f64]) -> Result<Spearman2, Regres
     levels.sort_unstable();
     levels.dedup();
     if levels.len() < 2 {
-        return Err(invalid("x needs two or more levels"));
+        return Err(DegenerateData::TooFewLevels.into());
     }
     let z = Mat::from_fn(x.len(), levels.len() - 1, |i, j| {
         f64::from(u8::from(x[i] == levels[j + 1]))
@@ -582,9 +582,7 @@ pub fn varclus(
         }
     };
     if (0..p).any(|i| (0..p).any(|j| !sim[(i, j)].is_finite())) {
-        return Err(invalid(
-            "part of the similarity matrix could not be computed",
-        ));
+        return Err(DegenerateData::SimilarityNotComputable.into());
     }
     let diss = Mat::from_fn(p, p, |i, j| 1.0 - sim[(i, j)]);
     Ok(Varclus {
@@ -697,7 +695,7 @@ fn redun_columns(z: &[f64], vtype: VType, nk: usize) -> Result<Mat<f64>, Regress
         }
         VType::Spline => {
             crate::splines::Rcs::from_data(z, nk)
-                .map_err(|e| invalid(&e.to_string()))?
+                .map_err(RegressionError::Spline)?
                 .basis(z, "z")
                 .columns
         }
@@ -919,7 +917,7 @@ pub fn principal_components(
         })
         .collect();
     if scale && sd.iter().any(|s| s.is_nan() || *s <= 0.0) {
-        return Err(invalid("cannot scale a constant column"));
+        return Err(DegenerateData::ConstantColumn.into());
     }
     let z = Mat::from_fn(n, p, |i, j| {
         (x[(i, j)] - center[j]) / if scale { sd[j] } else { 1.0 }
@@ -1079,7 +1077,7 @@ pub fn transcan(
             .map(|i| x[(i, j)])
             .collect();
         if obs.len() < 3 {
-            return Err(invalid("every column needs three or more observed values"));
+            return Err(DegenerateData::TooFewObservedValues.into());
         }
         let col: Vec<f64> = (0..n).map(|i| x[(i, j)]).collect();
         if categorical[j] {
@@ -1099,8 +1097,7 @@ pub fn transcan(
                 xt[(i, j)] = f64::from(u8::from(col[i] == mode));
             }
         } else {
-            let rcs =
-                crate::splines::Rcs::from_data(&obs, nk).map_err(|e| invalid(&e.to_string()))?;
+            let rcs = crate::splines::Rcs::from_data(&obs, nk).map_err(RegressionError::Spline)?;
             bases.push(rcs.basis(&col, "x").columns);
             nparm.push(rcs.n_columns());
             let mut s = obs.clone();
