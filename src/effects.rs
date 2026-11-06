@@ -25,7 +25,7 @@ use crate::numeric::quantile::quantile7;
 use crate::solvers::RegressionError;
 use crate::splines::{Basis, Lsp, Rcs};
 use faer::{Col, Mat};
-use statrs::distribution::{ChiSquared, ContinuousCDF, FisherSnedecor, Normal, StudentsT};
+use statrs::distribution::{ChiSquared, ContinuousCDF, FisherSnedecor, Normal};
 
 /// `datadist` limits of a predictor.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -197,7 +197,7 @@ impl Critical {
         match self {
             Critical::Normal => Normal::new(0.0, 1.0).expect("normal").inverse_cdf(p),
             Critical::StudentT(df) => {
-                StudentsT::new(0.0, 1.0, df).map_or(f64::NAN, |d| d.inverse_cdf(p))
+                crate::numeric::student_t(df).map_or(f64::NAN, |d| d.inverse_cdf(p))
             }
         }
     }
@@ -205,7 +205,7 @@ impl Critical {
         2.0 * match self {
             Critical::Normal => Normal::new(0.0, 1.0).expect("normal").sf(stat.abs()),
             Critical::StudentT(df) => {
-                StudentsT::new(0.0, 1.0, df).map_or(f64::NAN, |d| d.sf(stat.abs()))
+                crate::numeric::student_t(df).map_or(f64::NAN, |d| d.sf(stat.abs()))
             }
         }
     }

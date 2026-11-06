@@ -858,7 +858,7 @@ let g = heuristic_shrinkage(m.statistic, m.df as f64);    // 0.75 → expect ~25
 |---|---|---|
 | OLS / WLS | `fit.cluster_vcov(&x, &[&codes], &ClusterOptions::cr1())?`, or `lm_cluster_vcov(&x, &resid, Option<&w>, with_intercept, &aliased, clusters, &opts)` | `ClusterType::{HC0, HC1, HC2 (Bell–McCaffrey CR2), HC3}`. HC2 and HC3 are for linear models only |
 | any GLM family | `glm_cluster_vcov(&family, &x, with_intercept, &y, &mu, Option<&prior_w>, clusters, &opts)` | `mu` = fitted means (`result().fitted_values`) |
-| AFT | `fitted_aft.cluster_vcov(&x, &time, &event, clusters, &opts)` | `survreg(cluster=)` with `robcov()` |
+| AFT | `fitted_aft.cluster_vcov(&x, &time, &event, clusters, &opts)`; `FittedAft::from_result(fit_aft(..)?)` (0.12) turns a `fit_aft` result into the fitted model | `survreg(cluster=)` with `robcov()` |
 | Cox | `cox_fit.robust_vcov(&clusters)` | `coxph(cluster=)` |
 | ordinal (lrm/orm) | `fitted_ordinal.cluster_vcov(&x, &y, clusters, &opts)` | `rms::robcov(orm)` with `robcov()` |
 | anything | `cluster_sandwich(&bread, &scores, clusters, &opts)` | bread = inverse information (k×k); scores n×k |

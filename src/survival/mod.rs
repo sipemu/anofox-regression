@@ -717,7 +717,27 @@ fn fh_terms(nr: f64, d: f64, nd: f64) -> (f64, f64, f64) {
     (a, b, c)
 }
 
-/// `survfit_confint` of the survival package.
+/// R's `pmax(v, lo)` / `pmin(v, hi)`: NaN stays NaN (`f64::max` / `min`
+/// would return the bound).
+fn pmax(v: f64, lo: f64) -> f64 {
+    if v.is_nan() {
+        v
+    } else {
+        v.max(lo)
+    }
+}
+
+fn pmin(v: f64, hi: f64) -> f64 {
+    if v.is_nan() {
+        v
+    } else {
+        v.min(hi)
+    }
+}
+
+/// `survfit_confint` of the survival package. A NaN limit (e.g. the plain
+/// interval at `S = 0` with an infinite standard error, `∞ · 0`) stays NaN,
+/// as R's `NA`.
 fn conf_limits(p: f64, se: f64, z: f64, kind: ConfType) -> (f64, f64) {
     if se == 0.0 {
         return (p, p);
@@ -725,14 +745,14 @@ fn conf_limits(p: f64, se: f64, z: f64, kind: ConfType) -> (f64, f64) {
     match kind {
         ConfType::Plain => {
             let e = z * se * p;
-            ((p - e).max(0.0), (p + e).min(1.0))
+            (pmax(p - e, 0.0), pmin(p + e, 1.0))
         }
         ConfType::Log => {
             if p == 0.0 {
                 return (f64::NAN, f64::NAN);
             }
             let e = z * se;
-            ((p.ln() - e).exp(), (p.ln() + e).exp().min(1.0))
+            ((p.ln() - e).exp(), pmin((p.ln() + e).exp(), 1.0))
         }
         ConfType::LogLog => {
             if p == 0.0 || p == 1.0 {

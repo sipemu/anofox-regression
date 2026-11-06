@@ -59,7 +59,7 @@ use basin::{
     SimplexProgress, Termination,
 };
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, FisherSnedecor, StudentsT};
+use statrs::distribution::{ContinuousCDF, FisherSnedecor};
 use statrs::function::gamma::{digamma, ln_gamma};
 use std::f64::consts::PI;
 
@@ -3279,7 +3279,7 @@ impl FittedRegressor for FittedAlm {
         let (Some(vcov), true, true) = (self.vcov.as_ref(), supported, df > 0.0) else {
             return PredictionResult::with_intervals(predictions, nan(), nan(), nan());
         };
-        let Ok(t) = StudentsT::new(0.0, 1.0, df) else {
+        let Ok(t) = crate::numeric::student_t(df) else {
             return PredictionResult::with_intervals(predictions, nan(), nan(), nan());
         };
         let q = if self.distribution == D::LogNormal {

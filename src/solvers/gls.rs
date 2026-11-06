@@ -39,7 +39,7 @@ use basin::{
     SimplexProgress, Termination,
 };
 use faer::{Col, Mat};
-use statrs::distribution::{ChiSquared, ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{ChiSquared, ContinuousCDF, Normal};
 use std::collections::HashMap;
 
 /// Within-group correlation structure `R_g` (nlme `corStruct`).
@@ -1268,7 +1268,7 @@ impl FittedGls {
 
     /// Two-sided p-values on `N − p` degrees of freedom (`summary.gls`).
     pub fn p_values(&self) -> Col<f64> {
-        let t = StudentsT::new(0.0, 1.0, self.df_residual).expect("positive df");
+        let t = crate::numeric::student_t(self.df_residual).expect("positive df");
         let tv = self.t_values();
         Col::from_fn(tv.nrows(), |j| 2.0 * t.sf(tv[j].abs()))
     }
@@ -1276,7 +1276,7 @@ impl FittedGls {
     /// Confidence intervals `(lower, upper)` of the coefficients on `N − p`
     /// degrees of freedom (`intervals(fit, which = "coef")`).
     pub fn conf_int(&self) -> (Col<f64>, Col<f64>) {
-        let t = StudentsT::new(0.0, 1.0, self.df_residual).expect("positive df");
+        let t = crate::numeric::student_t(self.df_residual).expect("positive df");
         let q = t.inverse_cdf((1.0 + self.confidence_level) / 2.0);
         let p = self.coefficients.nrows();
         (

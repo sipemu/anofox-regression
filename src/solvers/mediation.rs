@@ -65,7 +65,7 @@
 use crate::numeric::quantile::quantile7;
 use crate::solvers::{FittedRegressor, OlsRegressor, Regressor};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{ContinuousCDF, Normal};
 use thiserror::Error;
 
 /// Errors from [`mediate`].
@@ -541,7 +541,7 @@ fn sobel(
         }
     };
     let t_effect = |est: f64, se: f64, df: f64| -> MediationEffect {
-        let Ok(t) = StudentsT::new(0.0, 1.0, df) else {
+        let Ok(t) = crate::numeric::student_t(df) else {
             return MediationEffect {
                 estimate: est,
                 ..MediationEffect::nan()

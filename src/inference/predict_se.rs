@@ -31,7 +31,7 @@
 
 use crate::core::{IntervalType, PredictionType};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{ContinuousCDF, Normal};
 use thiserror::Error;
 
 /// Scale, interval type and level of [`PredictWithSe::predict_se`].
@@ -222,7 +222,7 @@ pub(crate) fn linear_prediction(
     options.check_level()?;
     let n = fit.nrows();
     let t = if df > 0.0 {
-        StudentsT::new(0.0, 1.0, df)
+        crate::numeric::student_t(df)
             .map(|d| d.inverse_cdf(0.5 + options.level / 2.0))
             .unwrap_or(f64::NAN)
     } else {

@@ -112,3 +112,4 @@ fn utils::matrix::*  # low-level column helpers used inside the solvers (OlsRegr
 type solvers::penalized_glm::engine::{DispersionRule,EngineFit}  # PenalizedGlmRegressor internals
 type solvers::penalized_glm::families::GlmResult  # PenalizedGlmRegressor internals
 type solvers::penalized_glm::loglik::LogLikKind  # PenalizedGlmRegressor internals
+method solvers::aft::regressor::FittedAft::from_result  # JS AftRegressor.fit returns the FittedAft directly; JS has no AftResult object to convert

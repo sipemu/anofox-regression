@@ -54,15 +54,7 @@ impl AftRegressor {
             .collect();
         let t: Vec<f64> = (0..n).map(|i| time[i]).collect();
         let ev: Vec<f64> = event.iter().map(|&e| f64::from(u8::from(e))).collect();
-        let result = fit_aft(&t, &cols, &ev, &self.options)?;
-        let coefficients = Col::from_fn(result.core.coefficients.len(), |j| {
-            result.core.coefficients[j]
-        });
-        Ok(FittedAft {
-            distribution: self.options.dist,
-            coefficients,
-            result,
-        })
+        FittedAft::from_result(fit_aft(&t, &cols, &ev, &self.options)?)
     }
 }
 
@@ -140,6 +132,28 @@ impl HasModelInfo for FittedAft {
 }
 
 impl FittedAft {
+    /// The fitted model of a [`fit_aft`] result (the column-major entry
+    /// point), so a caller of `fit_aft` need not fit again through
+    /// [`AftRegressor`]: predictions, residuals and the covariances of the
+    /// two are the same. Errors when the result's distribution is unknown
+    /// (only possible for a hand-made `model_info`).
+    pub fn from_result(result: AftResult) -> Result<Self, crate::solvers::RegressionError> {
+        let distribution = result.distribution().ok_or_else(|| {
+            crate::solvers::RegressionError::invalid_parameter(
+                "result",
+                "unknown AFT distribution in model_info",
+            )
+        })?;
+        let coefficients = Col::from_fn(result.core.coefficients.len(), |j| {
+            result.core.coefficients[j]
+        });
+        Ok(Self {
+            distribution,
+            coefficients,
+            result,
+        })
+    }
+
     /// Feature coefficients on the log-time scale.
     pub fn coefficients(&self) -> &Col<f64> {
         &self.coefficients

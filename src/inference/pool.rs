@@ -118,9 +118,15 @@ pub fn pool_rubin(
     let df_rubin = Col::from_fn(p, |j| (mf - 1.0) * (1.0 + 1.0 / riv[j]).powi(2));
     let df_barnard_rubin = df_complete.map(|dc| {
         Col::from_fn(p, |j| {
-            let old = (mf - 1.0) / lambda[j].powi(2);
-            let obs = (dc + 1.0) / (dc + 3.0) * dc * (1.0 - lambda[j]);
-            old * obs / (old + obs)
+            // old·obs / (old + obs) with old = (m − 1)/λ², obs =
+            // (ν+1)/(ν+3) ν (1 − λ), in mice's finite form (λ = 0 gives
+            // obs instead of ∞/∞)
+            let tmp = (1.0 - lambda[j]) * (1.0 + dc) * dc;
+            if dc.is_infinite() {
+                (mf - 1.0) / lambda[j].powi(2)
+            } else {
+                (mf - 1.0) * tmp / ((dc + 3.0) * (mf - 1.0) + lambda[j].powi(2) * tmp)
+            }
         })
     });
     let df = df_barnard_rubin.as_ref().unwrap_or(&df_rubin);

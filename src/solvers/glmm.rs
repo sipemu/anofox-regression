@@ -102,7 +102,7 @@ use crate::numeric::optim::{golden_section, nelder_mead, INV_PHI};
 use crate::solvers::penalized_glm::loglik::{log_likelihood as family_log_likelihood, LogLikKind};
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{ContinuousCDF, Normal};
 
 /// A GLMM with a random intercept (and optional random slopes) over one
 /// grouping factor, or several crossed / nested grouping factors.
@@ -1471,7 +1471,7 @@ impl FittedGlmm {
                 for j in 0..df.len() {
                     let (b, se, t) = (self.fixed_effects[j], self.std_errors[j], statistics[j]);
                     let dist = (df[j] > 0.0)
-                        .then(|| StudentsT::new(0.0, 1.0, df[j]).ok())
+                        .then(|| crate::numeric::student_t(df[j]).ok())
                         .flatten();
                     p_values.push(match &dist {
                         Some(d) if t.is_finite() => 2.0 * d.sf(t.abs()),

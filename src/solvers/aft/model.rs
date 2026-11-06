@@ -312,9 +312,7 @@ pub fn fit_aft(
     let n_censored = n - n_events;
 
     if n_events == 0 {
-        return Err(GlmEngineError::InsufficientDataMsg(
-            "every observation is censored, so the model is not identified".to_string(),
-        ));
+        return Err(GlmEngineError::AllCensored);
     }
 
     let fit_scale = !options.dist.scale_is_fixed();
@@ -1303,7 +1301,15 @@ mod tests {
         let (time, x, _) = survival_fixture(AftDistribution::Weibull, 1.0, 0.2, 0.5, 50, None);
         let event = vec![0.0; time.len()];
         let err = fit_aft(&time, &x, &event, &AftOptions::default());
-        assert!(matches!(err, Err(GlmEngineError::InsufficientDataMsg(_))));
+        assert!(matches!(err, Err(GlmEngineError::AllCensored)));
+        // distinguishable after conversion too
+        let e: crate::solvers::RegressionError = err.unwrap_err().into();
+        assert!(matches!(e, crate::solvers::RegressionError::AllCensored));
+        let nan = vec![f64::NAN; time.len()];
+        let e: crate::solvers::RegressionError = fit_aft(&nan, &x, &event, &AftOptions::default())
+            .unwrap_err()
+            .into();
+        assert!(matches!(e, crate::solvers::RegressionError::NoValidData));
     }
 
     #[test]

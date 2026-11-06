@@ -37,7 +37,7 @@ use crate::numeric::linalg::{chol_solve, cholesky};
 use crate::numeric::optim::golden_section;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::ContinuousCDF;
 
 const DEGREE: usize = 3;
 
@@ -397,7 +397,7 @@ impl FittedRegressor for FittedPSpline {
             return PredictionResult::point_only(fit);
         };
         let df = (self.n as f64 - self.edf).max(1.0);
-        let t = StudentsT::new(0.0, 1.0, df)
+        let t = crate::numeric::student_t(df)
             .map(|d| d.inverse_cdf(0.5 + level / 2.0))
             .unwrap_or(1.96);
         let n = x.nrows();

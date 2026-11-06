@@ -369,3 +369,25 @@ fn a_coefficient_at_an_l1_kink_has_no_sandwich() {
         Err(ClusterError::Unsupported(_))
     ));
 }
+
+#[test]
+fn fitted_aft_from_a_fit_aft_result_matches_the_regressor() {
+    let x = columns();
+    let r = fit_aft(&TIME, &x, &EV, &aft_options()).unwrap();
+    let from = anofox_regression::solvers::aft::FittedAft::from_result(r).unwrap();
+    let event: Vec<bool> = EV.iter().map(|&e| e == 1.0).collect();
+    let fitted = AftRegressor::builder()
+        .distribution(AftDistribution::Weibull)
+        .compute_inference(true)
+        .tolerance(1e-12)
+        .build()
+        .fit(&design(), &col(&TIME), &event)
+        .unwrap();
+    let d = design();
+    assert_eq!(from.predict_median(&d), fitted.predict_median(&d));
+    assert_eq!(from.scale(), fitted.scale());
+    let a = from
+        .cluster_vcov(&d, &col(&TIME), &event, &[&G1], &ClusterOptions::robcov())
+        .unwrap();
+    assert_mat("from_result robust", &a, &AFT_ROBUST, 1e-5);
+}

@@ -17,7 +17,7 @@
 use crate::inference::coefficient::CoefficientInference;
 use crate::solvers::RegressionError;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::ContinuousCDF;
 
 /// Type of heteroskedasticity-consistent standard errors.
 ///
@@ -295,7 +295,7 @@ pub fn compute_hc_inference(
                 f64::NAN
             };
 
-            let t_dist = StudentsT::new(0.0, 1.0, df).ok();
+            let t_dist = crate::numeric::student_t(df).ok();
             let p_int = if t_int.is_finite() {
                 t_dist.map_or(f64::NAN, |d| 2.0 * d.sf(t_int.abs()))
             } else {

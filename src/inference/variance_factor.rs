@@ -229,8 +229,8 @@ pub fn intervals_from_variance_factor(
     }
     let h = leverage_new(m, x_new, with_intercept);
     let t_crit = {
-        use statrs::distribution::{ContinuousCDF, StudentsT};
-        StudentsT::new(0.0, 1.0, df)
+        use statrs::distribution::ContinuousCDF;
+        crate::numeric::student_t(df)
             .map(|d| d.inverse_cdf(1.0 - (1.0 - confidence_level) / 2.0))
             .unwrap_or(f64::NAN)
     };

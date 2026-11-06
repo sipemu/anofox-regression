@@ -6,7 +6,7 @@
 //! Reference values come from `tests/r_scripts/generate_survival_validation.R`.
 
 use anofox_regression::survival::{
-    survdiff, survfit, ConfType, HazardType, SurvCurve, SurvInput, SurvfitOptions,
+    kaplan_meier, survdiff, survfit, ConfType, HazardType, SurvCurve, SurvInput, SurvfitOptions,
 };
 
 include!("fixtures/survival_validation.rs");
@@ -334,4 +334,60 @@ fn survdiff_matches_r() {
         STRAT_CHISQ,
         STRAT_P,
     );
+}
+
+/// 0.12: at `S = 0` the standard error is infinite and every interval is NA
+/// in R; the plain interval used to clamp `NaN` to (0, 1). Reference:
+/// `survfit(Surv(c(1, 2, 3, 4, 5), c(1, 1, 0, 1, 1)) ~ 1, conf.type = ...)`.
+#[test]
+fn limits_at_zero_survival_are_nan_as_r() {
+    let t = [1.0, 2.0, 3.0, 4.0, 5.0];
+    let e = [true, true, false, true, true];
+    let nan = f64::NAN;
+    let cases = [
+        (
+            ConfType::Plain,
+            [
+                0.44939098376936748,
+                0.17059340550788249,
+                0.17059340550788249,
+                0.0,
+                nan,
+            ],
+            [1.0, 1.0, 1.0, 0.76793498777027258, nan],
+        ),
+        (
+            ConfType::Log,
+            [
+                0.51612576034217206,
+                0.29331643163832644,
+                0.29331643163832644,
+                0.063054484255136337,
+                nan,
+            ],
+            [1.0, 1.0, 1.0, 1.0, nan],
+        ),
+        (
+            ConfType::LogLog,
+            [
+                0.20380926326763926,
+                0.12573018299443137,
+                0.12573018299443137,
+                0.012301529425416074,
+                nan,
+            ],
+            [
+                0.96917978886674261,
+                0.88175640739353234,
+                0.88175640739353234,
+                0.71921802081041497,
+                nan,
+            ],
+        ),
+    ];
+    for (kind, lo, hi) in cases {
+        let c = kaplan_meier(&t, &e, &SurvfitOptions::default().conf_type(kind)).unwrap();
+        vclose(&format!("{kind:?} lower"), &c.lower, &lo, 1e-12);
+        vclose(&format!("{kind:?} upper"), &c.upper, &hi, 1e-12);
+    }
 }

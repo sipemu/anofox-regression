@@ -80,7 +80,7 @@ use crate::core::{RegressionOptions, RegressionResult};
 use crate::inference::CoefficientInference;
 use crate::solvers::traits::RegressionError;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::ContinuousCDF;
 
 /// Magic bytes of the serialized state.
 const MAGIC: &[u8; 4] = b"AXSS";
@@ -854,7 +854,7 @@ fn apply_inference(result: &mut RegressionResult, m: &Mat<f64>, wald_tests: bool
         result.conf_interval_upper = Some(hi);
         if let (Some(b0), Some(s0)) = (result.intercept, se_int) {
             let t0 = if s0 > 0.0 { b0 / s0 } else { f64::NAN };
-            let dist = StudentsT::new(0.0, 1.0, df).ok();
+            let dist = crate::numeric::student_t(df).ok();
             let p0 = if t0.is_finite() {
                 dist.map_or(f64::NAN, |d| 2.0 * d.sf(t0.abs()))
             } else {
