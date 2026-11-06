@@ -296,6 +296,32 @@ fn invalid(msg: impl Into<String>) -> RegressionError {
     RegressionError::InvalidInput(msg.into())
 }
 
+/// Why the data cannot carry the requested GLS correlation / variance
+/// structure, or the fit of its parameters failed
+/// ([`RegressionError::Gls`]), so callers can tell these cases apart without
+/// matching message text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum GlsError {
+    /// No group has two or more observations: there are no within-group
+    /// pairs for a compound-symmetry correlation (or a variogram).
+    #[error("no group has two or more observations")]
+    NoRepeatedMeasures,
+    /// An unstructured correlation needs two or more distinct times.
+    #[error("an unstructured correlation needs two or more distinct times")]
+    TooFewTimes,
+    /// AR(1) needs integer times.
+    #[error("AR(1) needs integer times")]
+    NonIntegerTimes,
+    /// A `varPower` covariate is zero or not finite.
+    #[error("varPower covariate must be finite and non-zero")]
+    InvalidVarianceCovariate,
+    /// The optimisation of the variance–covariance parameters ended at
+    /// non-finite values or a covariance that is not positive definite.
+    #[error("GLS variance-covariance optimisation failed")]
+    OptimisationFailed,
+}
+
 impl<'a> Problem<'a> {
     fn new(
         reg: &'a GlsRegressor,
@@ -720,7 +746,7 @@ fn positions(
     match correlation {
         GlsCorrelation::Ar1 => {
             if time.iter().any(|t| t.fract() != 0.0) {
-                return Err(invalid("AR(1) needs integer times"));
+                return Err(GlsError::NonIntegerTimes.into());
             }
             let min = time.iter().copied().fold(f64::INFINITY, f64::min);
             Ok((time.iter().map(|t| (t - min) as usize).collect(), 0))
@@ -730,9 +756,7 @@ fn positions(
             distinct.sort_by(f64::total_cmp);
             distinct.dedup();
             if distinct.len() < 2 {
-                return Err(invalid(
-                    "an unstructured correlation needs two or more times",
-                ));
+                return Err(GlsError::TooFewTimes.into());
             }
             let pos = time
                 .iter()
@@ -965,13 +989,11 @@ impl GlsRegressor {
 
     fn check_structure(&self, problem: &Problem<'_>) -> Result<(), RegressionError> {
         if self.correlation == GlsCorrelation::CompoundSymmetry && problem.max_group < 2 {
-            return Err(invalid(
-                "compound symmetry needs a group with two or more observations",
-            ));
+            return Err(GlsError::NoRepeatedMeasures.into());
         }
         if let GlsVariance::Power(v) = &self.variance {
             if v.iter().any(|vi| *vi == 0.0 || !vi.is_finite()) {
-                return Err(invalid("varPower covariate must be finite and non-zero"));
+                return Err(GlsError::InvalidVarianceCovariate.into());
             }
         }
         Ok(())
@@ -999,7 +1021,7 @@ impl GlsRegressor {
         {
             Ok((theta, status))
         } else {
-            Err(invalid("GLS variance–covariance optimisation failed"))
+            Err(GlsError::OptimisationFailed.into())
         }
     }
 
@@ -1382,7 +1404,7 @@ impl FittedGls {
             }
         }
         if pairs.is_empty() {
-            return Err(invalid("no group has two or more observations"));
+            return Err(GlsError::NoRepeatedMeasures.into());
         }
         Ok(collapse_variogram(pairs, nint.max(1)))
     }

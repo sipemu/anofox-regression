@@ -373,6 +373,18 @@ impl FittedOls {
         Ok(crate::convert::ToJs::to_js(&r))
     }
 
+    /// Heteroskedasticity-consistent covariance matrix ("hc0" … "hc3"),
+    /// intercept first, zero rows for aliased columns (`sandwich::vcovHC`).
+    #[wasm_bindgen(js_name = hcVcov)]
+    pub fn hc_vcov(&self, x: &[f64], n_rows: usize, hc_type: &str) -> Result<JsValue, JsError> {
+        let x_mat = super::to_mat(x, n_rows, self.n_features)?;
+        let v = self
+            .fitted
+            .hc_vcov(&x_mat, crate::inference::parse_hc_type(hc_type)?)
+            .map_err(super::fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&v))
+    }
+
     /// HC standard errors with t tests and confidence intervals.
     #[wasm_bindgen(js_name = hcInference)]
     pub fn hc_inference(

@@ -87,6 +87,7 @@ The validation system uses a three-component structure:
 | `tests/r_scripts/generate_validation_210_part6.R` | `rlm()$w` and `summary.rlm(method = "XtX")`, isotonic step vs `approx(method = "constant")`, `survreg` without intercept and `predict.survreg`, `predict.lm` intervals for RLS, Sobel ADE / total vs `confint.lm` (#210) (`tests/r_validation_210_part6.rs`) |
 | `tests/r_scripts/generate_gls_validation_210.R` | `nlme::gls` AR(1) REML, CAR(1) ML, `corExp` without / `corGaus`, `corLin`, `corSpher` with nugget, `varIdent` alone, no intercept, prediction SEs (#210) (`tests/r_validation_gls_210.rs`, fixture `tests/fixtures/gls_validation_210.rs`) |
 | `tests/r_scripts/generate_pspline_validation.R` | `PSplineRegressor` vs `mgcv::gam(s(x, bs = "ps"), method = "GCV.Cp")`, incl. fixed `sp` and extrapolation (#210) (`tests/r_validation_pspline.rs`) |
+| `tests/r_scripts/generate_covariance_012_validation.R` | `vcovHC` of OLS / WLS (HC0–HC3), `rms::robcov` of a penalized `lrm`, penalized sandwich of a Gamma GLM and a Weibull AFT (0.12) (`tests/covariance_012.rs`, fixture `tests/fixtures/covariance_012_validation.rs`; the unpenalized GLM / AFT references are `generate_cluster_validation.R`'s) |
 | `tests/r_scripts/generate_validation_210_part10.R` | `rms::robcov(orm)`, multi-category LR test, `pentrace` on an ordinal response (#210) (`tests/r_validation_210_part10.rs`) |
 | `tests/r_scripts/generate_validation_210_part13.R` | Penalized-GLM Laplace priors vs `glmnet(penalty.factor)`, Tweedie p = 1.5 vs `statmod::tweedie` (#210) (`tests/r_validation_210_part13.rs`) |
 | `tests/r_scripts/generate_validation_210_part14.R` | `greybox::alm`: `predict.alm` intervals, log-S, `scale`, no intercept, MAE / HAM / ROLE losses (#210) (`tests/r_validation_210_part14.rs`) |
@@ -742,6 +743,7 @@ Every reference generator below feeds at least one Rust integration test, and ev
 
 | Test file(s) | Generator | Reference |
 |---|---|---|
+| `covariance_012.rs` | `tests/r_scripts/generate_covariance_012_validation.R` | numDeriv, rms, sandwich, survival |
 | `cv_splits_validation.rs` | `validation/python/generate_cv_splits_validation.py` | sklearn |
 | `issue189_190_glm_dispersion_null_deviance.rs` | `tests/r_scripts/generate_glm_null_deviance_validation.R` | MASS |
 | `issue191_bls.rs` | `tests/r_scripts/generate_bls_validation.R` | bvls, nnls, quadprog |

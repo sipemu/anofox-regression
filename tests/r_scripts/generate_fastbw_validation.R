@@ -13,6 +13,13 @@ emit <- function(name, v) {
 }
 emit_usize <- function(name, v) cat(sprintf("const %s: [usize; %d] = [%s];\n", name, length(v), paste(v, collapse = ", ")))
 
+# Covariance of the approximate reduced model (`var`) and the kept parameters
+# (0-based, intercepts included).
+emit_var <- function(id, b) {
+  emit_usize(sprintf("%s_KEPT", id), b$parms.kept - 1)
+  emit(sprintf("%s_VAR", id), t(b$var))
+}
+
 set.seed(20261028)
 n <- 300
 x1 <- rnorm(n); x2 <- rnorm(n); x3 <- rnorm(n); x4 <- rnorm(n); x5 <- rnorm(n)
@@ -28,6 +35,7 @@ for (rule in c("aic", "p")) {
     emit_usize(sprintf("%s_DELETED", id), b$factors.deleted - 1)
     emit(sprintf("%s_RESULT", id), if (is.null(b$result)) numeric(0) else t(b$result))
     emit(sprintf("%s_COEF", id), b$Coefficients[length(b$factors.deleted), ])
+    emit_var(id, b)
   }
 }
 # #210: non-default sls / aics / k.aic, and an ols fit
@@ -35,6 +43,7 @@ emit_case <- function(id, b) {
   emit_usize(sprintf("%s_DELETED", id), b$factors.deleted - 1)
   emit(sprintf("%s_RESULT", id), if (is.null(b$result)) numeric(0) else t(b$result))
   emit(sprintf("%s_COEF", id), b$Coefficients[length(b$factors.deleted), ])
+  emit_var(id, b)
 }
 emit_case("P20_RESIDUAL", fastbw(f, rule = "p", sls = 0.2))
 emit_case("AICS2_LOGN_INDIVIDUAL", fastbw(f, rule = "aic", type = "individual", aics = 2, k.aic = log(n)))

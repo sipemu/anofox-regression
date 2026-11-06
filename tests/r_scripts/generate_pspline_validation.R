@@ -19,6 +19,9 @@ emit <- function(tag, b) {
   vec(paste0(tag, "_FITTED"), fitted(b))
   p <- predict(b, data.frame(x = xn), se.fit = TRUE)
   vec(paste0(tag, "_PRED"), c(p$fit, p$se.fit))
+  # logLik (MLE scale RSS / n), its df (edf + 1), AIC, BIC
+  ll <- logLik(b)
+  vec(paste0(tag, "_IC"), c(as.numeric(ll), attr(ll, "df"), AIC(b), BIC(b)))
 }
 emit("GCV_K12", gam(y ~ s(x, bs = "ps", k = 12, m = c(2, 2)), method = "GCV.Cp", control = ctl))
 emit("GCV_K20_M3", gam(y ~ s(x, bs = "ps", k = 20, m = c(2, 3)), method = "GCV.Cp", control = ctl))

@@ -217,6 +217,89 @@ fn expanded_design(
 }
 
 impl FittedContinuationRatio {
+    /// Rebuild a fitted model from its parts — [`Self::levels`],
+    /// [`Self::n_features`], the cohort-specific columns, [`Self::coefficients`]
+    /// and [`Self::vcov`] of an earlier fit — so a stored model predicts
+    /// again: [`Self::conditional_probabilities`] and
+    /// [`Self::category_probabilities`] equal those of the original fit, and
+    /// [`Self::vcov`] / [`Self::logistic`]'s prediction standard errors are
+    /// the stored covariance.
+    ///
+    /// `levels` must be finite and strictly increasing (at least three);
+    /// `cohort_specific` are the columns of `x` given to
+    /// [`ContinuationRatioRegressorBuilder::cohort_specific`] (each
+    /// `< n_features`); `coefficients` is the intercept followed by the
+    /// coefficients of the expanded design (`1 + (k − 2) + p + |cohort_specific|
+    /// · (k − 2)` entries, `NaN` for a column the fit dropped); `vcov` is that
+    /// square, finite covariance, or `None` (then [`Self::vcov`] is `NaN`).
+    /// The fit statistics are not part of the model:
+    /// [`Self::log_likelihood`] is `NaN` and the logistic fit reports
+    /// `converged = true` with 0 iterations.
+    pub fn from_parts(
+        levels: Vec<f64>,
+        n_features: usize,
+        cohort_specific: &[usize],
+        coefficients: &Col<f64>,
+        vcov: Option<&Mat<f64>>,
+    ) -> Result<Self, RegressionError> {
+        if levels.len() < 3
+            || levels.iter().any(|v| !v.is_finite())
+            || levels.windows(2).any(|w| w[0] >= w[1])
+        {
+            return Err(RegressionError::invalid_parameter(
+                "levels",
+                "needs at least three finite, strictly increasing values",
+            ));
+        }
+        if let Some(&j) = cohort_specific.iter().find(|&&j| j >= n_features) {
+            return Err(RegressionError::invalid_parameter(
+                "cohort_specific",
+                format!("cohort-specific column {j} is out of range"),
+            ));
+        }
+        let m = levels.len() - 1;
+        let expected = 1 + (m - 1) + n_features + cohort_specific.len() * (m - 1);
+        if coefficients.nrows() != expected {
+            return Err(RegressionError::invalid_parameter(
+                "coefficients",
+                format!(
+                    "needs {expected} entries (intercept first), got {}",
+                    coefficients.nrows()
+                ),
+            ));
+        }
+        if coefficients[0].is_nan() || coefficients.iter().any(|c| c.is_infinite()) {
+            return Err(RegressionError::invalid_parameter(
+                "coefficients",
+                "must be finite (NaN only for a dropped column)",
+            ));
+        }
+        if let Some(v) = vcov {
+            let ok = v.nrows() == expected
+                && v.ncols() == expected
+                && (0..expected).all(|r| (0..expected).all(|c| v[(r, c)].is_finite()));
+            if !ok {
+                return Err(RegressionError::invalid_parameter(
+                    "vcov",
+                    format!("must be a finite {expected} x {expected} matrix"),
+                ));
+            }
+        }
+        let slopes: Vec<f64> = coefficients.iter().skip(1).copied().collect();
+        Ok(Self {
+            levels,
+            n_features,
+            cohort_specific: cohort_specific.to_vec(),
+            logistic: FittedBinomial::logistic_from_parts(coefficients[0], &slopes, vcov),
+        })
+    }
+
+    /// Columns of `x` whose slope differs by cohort (as given to
+    /// [`ContinuationRatioRegressorBuilder::cohort_specific`]).
+    pub fn cohort_specific(&self) -> &[usize] {
+        &self.cohort_specific
+    }
+
     /// The distinct response values.
     pub fn levels(&self) -> &[f64] {
         &self.levels
@@ -243,9 +326,13 @@ impl FittedContinuationRatio {
         })
     }
 
-    /// Covariance of [`Self::coefficients`].
+    /// Covariance of [`Self::coefficients`] (`NaN` for a model rebuilt by
+    /// [`Self::from_parts`] without one).
     pub fn vcov(&self) -> Mat<f64> {
-        self.logistic.vcov().expect("fitted with inference")
+        self.logistic.vcov().unwrap_or_else(|| {
+            let k = self.logistic.result().coefficients.nrows() + 1;
+            Mat::from_fn(k, k, |_, _| f64::NAN)
+        })
     }
 
     /// Maximised log-likelihood (of the expanded data, which equals that of

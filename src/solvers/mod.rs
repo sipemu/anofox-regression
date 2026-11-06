@@ -71,8 +71,8 @@ pub use glmm::{
     FactorSummary, FittedGlmm, GlmmDdf, GlmmInference, GlmmRegressor, GlmmRegressorBuilder,
 };
 pub use gls::{
-    FittedGls, GlsCorrelation, GlsMethod, GlsRegressor, GlsRegressorBuilder, GlsResidualType,
-    GlsVariance, VarCovIntervals, VariogramBin,
+    FittedGls, GlsCorrelation, GlsError, GlsMethod, GlsRegressor, GlsRegressorBuilder,
+    GlsResidualType, GlsVariance, VarCovIntervals, VariogramBin,
 };
 pub use huber::{FittedHuber, HuberRegressor, HuberRegressorBuilder, HuberScale};
 pub use isotonic::{FittedIsotonic, IsotonicRegressor, IsotonicRegressorBuilder, OutOfBounds};
@@ -89,8 +89,8 @@ pub use multinomial_logistic::{
 pub use negative_binomial::{FittedNegativeBinomial, NegativeBinomialRegressor};
 pub use ols::{FittedOls, OlsRegressor, OlsRegressorBuilder};
 pub use ordinal::{
-    xmean_ordinaly, FittedOrdinal, OrdinalLink, OrdinalQuantileMethod, OrdinalRegressor,
-    OrdinalRegressorBuilder, XmeanOrdinaly,
+    xmean_ordinaly, FittedOrdinal, OrdinalInformation, OrdinalLink, OrdinalQuantileMethod,
+    OrdinalRegressor, OrdinalRegressorBuilder, XmeanOrdinaly,
 };
 pub use passive_aggressive::{
     FittedPassiveAggressive, PaLoss, PaState, PassiveAggressiveRegressor,

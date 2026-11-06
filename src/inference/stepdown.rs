@@ -79,6 +79,14 @@ pub struct StepDown {
     /// Approximate coefficients of the reduced model (full length, zero for
     /// deleted parameters).
     pub coefficients: Vec<f64>,
+    /// Approximate covariance of the reduced model's coefficients,
+    /// `V_ii − V_io V_oo⁻¹ V_oi` (`fastbw`'s `var`), in the full parameter
+    /// layout (`beta.len()` square) with zero rows and columns for deleted
+    /// parameters; [`Self::kept_parameters`] indexes the non-zero block.
+    pub vcov: Mat<f64>,
+    /// Indices of the parameters kept, intercepts included (`fastbw`'s
+    /// `parms.kept`, 0-based).
+    pub kept_parameters: Vec<usize>,
 }
 
 fn chisq_sf(x: f64, df: usize) -> f64 {
@@ -183,9 +191,17 @@ pub fn fastbw(
         }
         cur_idx = kept;
     }
+    let mut full_vcov = Mat::zeros(pt, pt);
+    for (a, &ja) in cur_idx.iter().enumerate() {
+        for (b, &jb) in cur_idx.iter().enumerate() {
+            full_vcov[(ja, jb)] = cur_v[(a, b)];
+        }
+    }
     StepDown {
         deleted,
         kept_terms: factors_in,
         coefficients,
+        vcov: full_vcov,
+        kept_parameters: cur_idx,
     }
 }

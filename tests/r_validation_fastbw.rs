@@ -18,6 +18,109 @@ fn check(rule: StepRule, kind: StepType, deleted: &[usize], result: &[f64], coef
     check_fit(&COEF, &VCOV, 7, rule, kind, deleted, result, coef);
 }
 
+/// `fastbw`'s `var` (covariance of the approximate reduced model) and
+/// `parms.kept`; zero rows / columns for the deleted parameters.
+fn check_var(full: (&[f64], &[f64]), rule: StepRule, kind: StepType, kept: &[usize], var: &[f64]) {
+    let (full_coef, full_vcov) = full;
+    let mut t = TermMap::new();
+    t.add_main("x1", &[false, true, true]);
+    for name in ["x2", "x3", "x4", "x5"] {
+        t.add_main(name, &[false]);
+    }
+    t.add_main("g", &[false, false]);
+    let k = full_coef.len();
+    let beta = Col::from_fn(k, |j| full_coef[j]);
+    let v = Mat::from_fn(k, k, |a, b| full_vcov[a * k + b]);
+    let s = fastbw(&beta, &v, 1, &t, rule, kind);
+    assert_eq!(s.kept_parameters, kept, "{rule:?} {kind:?} kept");
+    let m = kept.len();
+    let pos = |a: usize| kept.iter().position(|&j| j == a);
+    for a in 0..k {
+        for b in 0..k {
+            let want = match (pos(a), pos(b)) {
+                (Some(i), Some(j)) => var[i * m + j],
+                _ => 0.0,
+            };
+            close(
+                &format!("{rule:?} {kind:?} var[{a},{b}]"),
+                s.vcov[(a, b)],
+                want,
+                1e-9,
+            );
+        }
+    }
+}
+
+#[test]
+fn fastbw_var_matches_rms() {
+    let aic = StepRule::Aic {
+        k: 2.0,
+        threshold: 0.0,
+    };
+    let p = StepRule::P { sls: 0.05 };
+    let lrm = (&COEF[..], &VCOV[..]);
+    let ols = (&OLS_COEF[..], &OLS_VCOV[..]);
+    check_var(
+        lrm,
+        aic,
+        StepType::Residual,
+        &AIC_RESIDUAL_KEPT,
+        &AIC_RESIDUAL_VAR,
+    );
+    check_var(
+        lrm,
+        aic,
+        StepType::Individual,
+        &AIC_INDIVIDUAL_KEPT,
+        &AIC_INDIVIDUAL_VAR,
+    );
+    check_var(
+        lrm,
+        p,
+        StepType::Residual,
+        &P_RESIDUAL_KEPT,
+        &P_RESIDUAL_VAR,
+    );
+    check_var(
+        lrm,
+        p,
+        StepType::Individual,
+        &P_INDIVIDUAL_KEPT,
+        &P_INDIVIDUAL_VAR,
+    );
+    check_var(
+        lrm,
+        StepRule::P { sls: 0.2 },
+        StepType::Residual,
+        &P20_RESIDUAL_KEPT,
+        &P20_RESIDUAL_VAR,
+    );
+    check_var(
+        lrm,
+        StepRule::Aic {
+            k: 300f64.ln(),
+            threshold: 2.0,
+        },
+        StepType::Individual,
+        &AICS2_LOGN_INDIVIDUAL_KEPT,
+        &AICS2_LOGN_INDIVIDUAL_VAR,
+    );
+    check_var(
+        ols,
+        aic,
+        StepType::Residual,
+        &OLS_AIC_RESIDUAL_KEPT,
+        &OLS_AIC_RESIDUAL_VAR,
+    );
+    check_var(
+        ols,
+        StepRule::P { sls: 0.1 },
+        StepType::Individual,
+        &OLS_P_INDIVIDUAL_KEPT,
+        &OLS_P_INDIVIDUAL_VAR,
+    );
+}
+
 /// `stride` is the number of columns of rms's result table (8 for `ols`,
 /// whose extra last column is the approximate R²).
 #[allow(clippy::too_many_arguments)]

@@ -1192,6 +1192,22 @@ impl FittedOls {
         )
     }
 
+    /// Heteroskedasticity-consistent covariance matrix (`sandwich::vcovHC(lm,
+    /// type)`), in the layout of [`Self::vcov`]: intercept first, zero rows
+    /// and columns for aliased coefficients. `x` is the design of the fit
+    /// (without intercept column). See
+    /// [`compute_hc_vcov`](crate::inference::compute_hc_vcov).
+    pub fn hc_vcov(&self, x: &Mat<f64>, hc_type: HcType) -> Result<Mat<f64>, RegressionError> {
+        crate::inference::compute_hc_vcov(
+            x,
+            &self.result.residuals,
+            None,
+            &self.aliased,
+            self.result.intercept.is_some(),
+            hc_type,
+        )
+    }
+
     /// Compute full HC inference: standard errors, t-statistics, p-values,
     /// and confidence intervals.
     ///

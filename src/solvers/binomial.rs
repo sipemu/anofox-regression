@@ -845,6 +845,57 @@ impl HasModelInfo for FittedBinomial {
 }
 
 impl FittedBinomial {
+    /// A logistic model with an intercept from its estimates (for rebuilding
+    /// models that wrap one): `coefficients` with `NaN` for aliased columns,
+    /// `vcov` (intercept first, zero rows for aliased columns) as
+    /// [`Self::vcov`] returns it. The fit statistics are `NaN`.
+    pub(crate) fn logistic_from_parts(
+        intercept: f64,
+        coefficients: &[f64],
+        vcov: Option<&Mat<f64>>,
+    ) -> Self {
+        let p = coefficients.len();
+        let keep: Vec<usize> = (0..p).filter(|&j| !coefficients[j].is_nan()).collect();
+        let mut result = RegressionResult::empty(p, 0);
+        result.coefficients = Col::from_fn(p, |j| coefficients[j]);
+        result.intercept = Some(intercept);
+        result.aliased = coefficients.iter().map(|c| c.is_nan()).collect();
+        result.rank = keep.len() + 1;
+        result.n_parameters = keep.len() + 1;
+        result.aic = f64::NAN;
+        result.aicc = f64::NAN;
+        result.bic = f64::NAN;
+        result.log_likelihood = f64::NAN;
+        let reduced = (keep.len() < p).then(|| {
+            let kept: Vec<f64> = keep.iter().map(|&j| coefficients[j]).collect();
+            let index: Vec<usize> = std::iter::once(0)
+                .chain(keep.iter().map(|&j| j + 1))
+                .collect();
+            let sub = vcov
+                .map(|v| Mat::from_fn(index.len(), index.len(), |a, b| v[(index[a], index[b])]));
+            (
+                Box::new(Self::logistic_from_parts(intercept, &kept, sub.as_ref())),
+                keep.clone(),
+            )
+        });
+        Self {
+            reduced,
+            result,
+            options: RegressionOptions::default(),
+            family: BinomialFamily::logistic(),
+            deviance: f64::NAN,
+            null_deviance: f64::NAN,
+            dispersion: 1.0,
+            iterations: 0,
+            converged: true,
+            y_values: Col::zeros(0),
+            prior_weights: None,
+            xtwx_inverse: vcov.cloned(),
+            offset: None,
+            aliased: coefficients.iter().map(|c| c.is_nan()).collect(),
+        }
+    }
+
     /// Estimated covariance of the coefficients, `φ̂ · (XᵀWX)⁻¹` (R's
     /// `vcov(glm)`): intercept first when fitted, zero rows and columns for
     /// aliased (dropped constant) columns. `None` unless the model was fitted

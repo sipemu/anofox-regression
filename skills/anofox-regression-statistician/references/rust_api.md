@@ -1,6 +1,6 @@
 # anofox-regression (Rust) — compact API reference
 
-Crate `anofox-regression` **0.11.1** (MIT, MSRV 1.87). Every name here was checked against the 0.11.1
+Crate `anofox-regression` **0.12.0** (MIT, MSRV 1.87). Every name here was checked against the 0.12.0
 source. The snippets were built and run on 0.11.0 with faer 0.23.
 
 ## Contents
@@ -227,8 +227,8 @@ or a non-flat prior) are rejected with `InvalidInput`.
 
 | Estimator | Builder options (beyond common) | Extras on the fitted model |
 |---|---|---|
-| `OlsRegressor::builder()` | `rank_tolerance, solve_method(SolverType), alias_tolerance, na_action` | `FittedOls`: `vcov()`, `hc_standard_errors(&x, HcType)`, `hc_inference(&x, HcType)`, `cluster_vcov(&x, &[&cl], &ClusterOptions)`, `variance_factor()`, `leverage_new(&x_new)`, `options()`; `OlsRegressor::detect_constant_columns(&x)`, `OlsRegressor::is_full_rank(&x)` |
-| `WlsRegressor::builder()` | `weights(Col)` (required), `solve_method, alias_tolerance, na_action` | `FittedWls`: `weights()`, `vcov()`, `cluster_vcov(..)`, `variance_factor()`, `leverage_new()`; zero-weight rows do not count in the df (#195) |
+| `OlsRegressor::builder()` | `rank_tolerance, solve_method(SolverType), alias_tolerance, na_action` | `FittedOls`: `vcov()`, `hc_vcov(&x, HcType)` (0.12, `vcovHC` matrix), `hc_standard_errors(&x, HcType)`, `hc_inference(&x, HcType)`, `cluster_vcov(&x, &[&cl], &ClusterOptions)`, `variance_factor()`, `leverage_new(&x_new)`, `options()`; `OlsRegressor::detect_constant_columns(&x)`, `OlsRegressor::is_full_rank(&x)` |
+| `WlsRegressor::builder()` | `weights(Col)` (required), `solve_method, alias_tolerance, na_action` | `FittedWls`: `weights()`, `vcov()`, `hc_vcov(&x, HcType)` (0.12, weighted `vcovHC`), `cluster_vcov(..)`, `variance_factor()`, `leverage_new()`; zero-weight rows do not count in the df (#195) |
 | `RidgeRegressor::builder()` | `lambda(f64)`, `lambda_scaling(LambdaScaling::{Raw, Glmnet})`, `solve_method`, `conditioning_aware(lambda_small, cond_threshold)` | `FittedRidge`: `lambda()` (the λ used), `vcov()`, `variance_factor()`, `leverage_new()`, `loo(&x,&y)`; inference and intervals are computed |
 | `ElasticNetRegressor::builder()` | `lambda, alpha` (1 = lasso), `lambda_scaling, max_iterations, tolerance` (glmnet's thresh) | `FittedElasticNet`: `lambda(), alpha(), n_nonzero()`; **no SEs** |
 | `LarsRegressor::builder()` (`solvers`) | `method(LarsMethod::{Lar, Lasso})`, `with_intercept`, `n_nonzero_coefs(usize)`, `alpha` (sklearn 1/(2n) scale), `standardize` | `FittedLars`: `alphas() -> ColRef`, `coefs_path()`, `active()` (sklearn's active_), `method()`, `path() -> RegPath`; no SEs |
@@ -315,7 +315,10 @@ let sk = HuberRegressor::builder().scale_method(HuberScale::Joint).build().fit(&
   `::builder()`, which returns `Self`), then `.with_n_basis(k)`, `.with_penalty_order(2)` or
   `.with_lambda(λ)` (default: λ by continuous GCV), then `.fit(&x_n_by_1, &y)`. `FittedPSpline`
   provides `edf()`, `sigma2()`, `lambda()` and `predict_with_interval` (Bayesian posterior SEs);
-  predictions extrapolate linearly outside the range. For regression-spline **design columns** (rcs,
+  predictions extrapolate linearly outside the range. Since 0.12 `result()` has `log_likelihood`, `aic`, `aicc`,
+  `bic` with `edf + 1` d.f. (= mgcv's logLik, AIC and BIC; they were 0 before), and a stored model is
+  rebuilt by `FittedPSpline::from_parts(knots, coefficients, &covariance, sigma2, edf, n)` from `knots()`,
+  `coefficients()`, `covariance()` (mgcv's Bayesian Vp matrix), `sigma2()`, `edf()`, `n_observations()`. For regression-spline **design columns** (rcs,
   B-splines) see §8.
 - **LOWESS** (R's `stats::lowess`): `solvers::lowess::lowess(&[f64] x, &[f64] y,
   &LowessOptions::default())` (fields/setters `frac` 2/3, `iterations` 3, `delta: Option`) returns
@@ -746,7 +749,7 @@ same basis on new data for prediction (all three serialize with the `serde` feat
 | Entry point | Options | Result / R equivalent |
 |---|---|---|
 | `Rcs::from_data(&x, nk)?` / `Rcs::new(&knots)?` | `.with_norm(RcsNorm::{None, LastInterval, Range (default)})`; `nk ≥ 3` | `.basis(&x, "age")` gives `k−1` columns `age, age', age''…` (`nonlinear = [false, true, …]`). `.knots()`, `.n_columns()`. Matches `rms::rcs` / `Hmisc::rcspline.eval` (1e-12) |
-| `rcs_default_knots(&x, nk)?`, `rcs_default_knots_with(&x, nk, fractied)` | `DEFAULT_FRACTIED = 0.05` | knots of `rcspline.eval(knots.only=TRUE)`: type-7 quantiles from `default_knot_quantiles(nk)` (outer 0.10 for k=3, 0.05 for k=4–6, 0.025 for k>6). With n<100 the outer knots move to the 5th smallest/largest value. Tied extremes get special handling. Needs ≥ 6 finite values |
+| `rcs_default_knots(&x, nk)?`, `rcs_default_knots_with(&x, nk, fractied)` | `DEFAULT_FRACTIED = 0.05` | knots of `rcspline.eval(knots.only=TRUE)`: type-7 quantiles from `default_knot_quantiles(nk)` (outer 0.10 for k=3, 0.05 for k=4–6, 0.025 for k>6). With n<100 the outer knots move to the 5th smallest/largest value. Tied extremes get special handling. Needs ≥ 6 finite values; fewer than 5 distinct values (e.g. a constant column) is `SplineError::TooFewUniqueKnots` (panicked before 0.12) |
 | `rcs.restate(intercept, &coef)?` | `coef` = the `k−1` basis coefficients, linear first | `RcsRestated { intercept, linear, knots, cubic }` (one cubic per knot) and `.eval(x)`. Matches `Hmisc::rcspline.restate` |
 | `Lsp::new(&knots)?` | — | `.basis(&x, name)` gives `x, (x−t₁)₊, …`. The hinge columns are flagged nonlinear. Matches `rms::lsp` |
 | `BSpline::from_data(&x, n_knots, degree, KnotPlacement::{Uniform, Quantile})?` / `BSpline::new(&knots, degree)?` | `.with_extrapolation(SplineExtrapolation::{Constant (default), Linear, Continue, Periodic, Error})`, `.with_bias(bool)` (default true) | `.basis(&x, name)?` (**returns a `Result`**, unlike Rcs) gives `n_knots+degree−1` columns (periodic: `n_knots−1`; one fewer without the bias column) named `x_sp_0…`. **All columns are flagged nonlinear** (no linear column, so a B-spline block has no "nonlinear" chunk test). Matches sklearn `SplineTransformer` (1e-12) |
@@ -795,7 +798,7 @@ with zero rows and columns for aliased columns (GLMs need `compute_inference(tru
 | `wald_test(&beta, &vcov, &C, Option<&r>, dist)` | `dist: WaldDistribution::{ChiSquare, F{df_residual}}` | `WaldTest{chi_square, df, f: Option, df_residual, p_value}`, `.chi_square_minus_df()`. `car::linearHypothesis` |
 | `wald_chunk(&beta, &vcov, &cols, dist)` | slope column indices | the same. `WaldError::{Singular, Empty, Column, Dimension}` |
 | `anova(&beta, &vcov, &terms, &AnovaOptions)` | `AnovaOptions::default().distribution(..).sigma2(Some(mse))` (adds partial SS and the ERROR row) | `WaldAnovaTable{rows: Vec<AnovaRow{label, kind: AnovaRowKind, term, columns, test, partial_ss}>, error: Option<(df, SS, MS)>}`. `rms::anova.rms` (1e-9; `main.effect=FALSE, india=TRUE, indnl=TRUE`) |
-| `fastbw(&beta, &vcov, n_intercepts, &terms, rule, kind)` | `StepRule::{Aic{k, threshold}, P{sls}}`, `StepType::{Residual, Individual}` | `StepDown{deleted: Vec<StepDeletion{term, chisq, df, p_value, residual_chisq, residual_df, residual_p, aic}>, kept_terms, coefficients}` (approximated, zeros for the deleted). `rms::fastbw` (1e-9). **Ignores hierarchy**, as rms does |
+| `fastbw(&beta, &vcov, n_intercepts, &terms, rule, kind)` | `StepRule::{Aic{k, threshold}, P{sls}}`, `StepType::{Residual, Individual}` | `StepDown{deleted: Vec<StepDeletion{term, chisq, df, p_value, residual_chisq, residual_df, residual_p, aic}>, kept_terms, coefficients, vcov, kept_parameters}` (approximated, zeros for the deleted; `vcov` = fastbw `var` in the full layout, `kept_parameters` = `parms.kept`, 0.12). `rms::fastbw` (1e-9). **Ignores hierarchy**, as rms does |
 | `approximation::approximate_model(&x, &lp, &vcov_full, &terms, &keep)` | `lp = b0 + Xβ̂` of any fit; `vcov` **intercept first** | `ModelApproximation{kept_terms, columns, coefficients (intercept first), vcov = W V Wᵀ, r_squared}`. RMS §5.5.2 `ols(lp ~ ., sigma=1)` |
 | `approximation::approximation_path(&x, &lp, &terms)` | — | `Vec<ApproximationStep{term, r_squared}>` in fastbw deletion order. RMS Ch 19 |
 | `approximation::heuristic_shrinkage(lr_chisq, df)`, `shrink_slopes(&beta, n_intercepts, gamma)` | — | `γ = (LR−p)/LR`. **Intercepts are not re-estimated**: refit them yourself |
@@ -865,7 +868,15 @@ let g = heuristic_shrinkage(m.statistic, m.df as f64);    // 0.75 → expect ~25
   `ClusterOptions{kind, cadjust}` with the setters. `clusters: &[&[usize]]` takes one integer-code vector per
   dimension. Two-way clustering is inclusion–exclusion. Code arbitrary keys with `solvers::cv::group_codes(&keys) -> (codes, G)`.
 - **The result is intercept first.** Pass it through `drop_intercept` before `anova`.
-- **HC beyond OLS.** `FittedOls::hc_inference` is still OLS-only. For a GLM HC0 sandwich, pass singleton
+- **GLM / AFT entry points (0.12).** `glm_result.cluster_vcov(&y, &x_cols, &[&cl], &ClusterOptions::hc0())` on
+  the `GlmResult` of the `penalized_glm` fit functions (`fit_poisson`, `fit_logistic`, …; pass the same `y` / column-major `x`, offset column included; rows the
+  fit dropped are dropped; result in fitted order, intercept first) = `vcovCL(glm)`; `aft_result.cluster_vcov(&time,
+  &x_cols, &event, &[&cl], &ClusterOptions::robcov())` on `fit_aft`'s result = `survreg(cluster=)`. With priors /
+  ridge both use the **penalized bread** `(XᵀWX + P)⁻¹` (`rms::robcov` of a penalized `lrm`), whatever `vcov_type`
+  the fit reports; `FittedAft::cluster_vcov` does the same since 0.12.
+- **HC matrix.** `FittedOls::hc_vcov` / `FittedWls::hc_vcov` (or `inference::compute_hc_vcov(&x, &resid,
+  Option<&w>, &aliased, with_intercept, HcType)`) return the full `vcovHC` matrix (intercept first, zero rows for
+  aliased columns). For a GLM HC0 sandwich, pass singleton
   clusters `(0..n)` with `ClusterOptions::robcov()` to `glm_cluster_vcov`. By construction this is
   `sandwich::sandwich(glm)`, but it is not separately R-tested. The penalized GLM has its own `VcovType`.
 
@@ -1142,6 +1153,8 @@ Oracles: `r_validation_ordinal.rs`, `r_validation_ordinal_penalty.rs`, `r_valida
 | `linear_predictor(&x)` (xβ, no α, no offset), `exceedance_probabilities(&x)` (n×(k−1)), `category_probabilities(&x)` (n×k) | `predict(orm, type="fitted"/"fitted.ind")` |
 | `predict_mean(&x)`, `predict_mean_with_se(&x) -> (mean, se)` | `Mean.orm` (delta method) |
 | `predict_quantile(&x, q, method)`, `predict_quantile_ci(&x, q, method, level) -> (est, lo, hi)` | `Quantile.orm`. `OrdinalQuantileMethod::{Interpolated (default), Discrete}` |
+| `z_values()`, `p_values()` (0.12) | Wald z = β/SE of the slopes and normal p-values (orm `Wald Z`) |
+| `FittedOrdinal::from_parts(link, levels, intercepts, coefficients, &vcov)`, `from_information(.., information())` (0.12) | rebuild a stored model: predictions exact, SE-based results to rounding (`from_parts` inverts the dense vcov, O(k³)); `information() -> OrdinalInformation{intercept_diagonal, intercept_off_diagonal, cross, slopes}` is the compact O(kp) form for continuous Y. Likelihood summaries of a rebuilt model are NaN |
 | `proportional_odds_score_test(&x, &y, &cols) -> ChiSqTest{statistic, df, p_value}` | score test against partial PO for `cols` (empty = all). d.f. = \|cols\|·(k−2). Dense in k: only for few categories |
 
 `xmean_ordinaly(&x_col, &y, cr: bool) -> XmeanOrdinaly{levels, observed, expected_po, expected_cr: Option}` gives the
@@ -1152,7 +1165,8 @@ numbers of `plot.xmean.ordinaly` (RMS §13.3.3), a univariable check of the PO/C
 levels. `FittedContinuationRatio`: `levels()`, `coefficients()` (**intercept θ₁, then the cohort effects θ_j−θ₁ for
 j=2..k−1, the slopes γ, then the cohort-specific differences, cohort fastest**), `vcov()`, `log_likelihood()`,
 `conditional_probabilities(&x)`, `category_probabilities(&x)`, `n_features()`, `logistic() -> &FittedBinomial` (the
-full binomial fit on the expanded data). `cr_setup(&y) -> ContinuationRatioData{y, cohort, subs, reps, levels}` is the
+full binomial fit on the expanded data), `cohort_specific()`. `FittedContinuationRatio::from_parts(levels, n_features,
+&cohort_specific, &coefficients, Some(&vcov))` (0.12) rebuilds a stored model. `cr_setup(&y) -> ContinuationRatioData{y, cohort, subs, reps, levels}` is the
 raw expansion (cluster on `subs` for bootstrap/robust SEs). Oracle: `r_validation_continuation_ratio.rs`.
 
 ```rust
@@ -1197,6 +1211,8 @@ an `Interval{lower, estimate, upper}` (`intervals.gls`; `None` if the Hessian is
 `predict_with_se(&x) -> (mean, se)` (x without the intercept), `variogram(&time, kind, nint) -> Vec<VariogramBin{variog,
 dist, n_pairs}>` (`Variogram(fit, form=~t|id)`, quantile collapse), and `converged()`/`iterations()`.
 **Compare fixed effects by LR only with `GlsMethod::Ml`**; REML likelihoods of different X are not comparable.
+Data that cannot carry the structure are `RegressionError::Gls(GlsError::{NoRepeatedMeasures, TooFewTimes,
+NonIntegerTimes, InvalidVarianceCovariate, OptimisationFailed})` since 0.12 (were `InvalidInput` strings).
 
 ```rust
 use anofox_regression::solvers::{GlsCorrelation, GlsMethod, GlsRegressor, GlsResidualType, GlsVariance};
@@ -1219,7 +1235,7 @@ let vg = fit.variogram(&time, GlsResidualType::Pearson, 10)?;   // check the AR(
 | Penalty | **default none**. `l2(λ)`, `c(C)` (L2 only) | **default `lambda = 1` (sklearn C = 1)**. `.lambda(λ)` / `.c(C)`, `.l1_ratio(α)` (0 ridge, 1 lasso, exact zeros); intercepts unpenalized |
 | Weights | none | `.weights(Col)` (sample_weight; fold class weights in yourself) |
 | Inference | SEs, Wald z, CIs via `inner().result()`, `vcov()` | **none** (no SEs, no vcov): use it for prediction only |
-| Output | `coefficients() -> &Col`, `intercept()`, `predict` (labels), `predict_proba -> Col` | `coefficients() -> &Mat` (1×p for 2 classes: log-odds of the 2nd class; K×p for K≥3), `intercepts() -> &Col` (sum to 0 for K≥3), `decision_function`, `predict_proba -> Mat n×K`, `predict`, `score` (accuracy), `log_likelihood()`, `objective()`, `converged()` |
+| Output | `coefficients() -> &Col`, `intercept()`, `predict` (labels), `predict_proba -> Col` | `coefficients() -> &Mat` (1×p for 2 classes: log-odds of the 2nd class; K×p for K≥3), `intercepts() -> &Col` (sum to 0 for K≥3), `decision_function`, `predict_proba -> Mat n×K`, `predict`, `score` (accuracy), `log_likelihood()`, `objective()`, `converged()`; `FittedMultinomialLogistic::from_parts(classes, coefficients, intercepts)` (0.12) rebuilds a stored model |
 
 Objective: `Σ sᵢℓᵢ + λ(α‖B‖₁ + (1−α)/2‖B‖²)`. The loss is **not averaged over n**, unlike glmnet. For K ≥ 3 the softmax
 parameters are centred to sum to zero across classes (sklearn's symmetric parameterisation, not a baseline category

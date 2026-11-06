@@ -49,8 +49,8 @@ pub use prediction::{
     compute_xtx_inverse_reduced,
 };
 pub use robust_covariance::{
-    compute_hc_inference, compute_hc_standard_errors, HcInference, HcInterceptInference, HcResult,
-    HcType,
+    compute_hc_inference, compute_hc_standard_errors, compute_hc_vcov, HcInference,
+    HcInterceptInference, HcResult, HcType,
 };
 pub use stepdown::{fastbw, StepDeletion, StepDown, StepRule, StepType};
 pub use variance_factor::{

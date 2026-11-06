@@ -224,6 +224,19 @@ impl FittedWls {
 
 #[wasm_bindgen]
 impl FittedWls {
+    /// Heteroskedasticity-consistent covariance matrix of the weighted fit
+    /// ("hc0" … "hc3"), intercept first, zero rows for aliased columns
+    /// (`sandwich::vcovHC(lm(..., weights = w))`).
+    #[wasm_bindgen(js_name = hcVcov)]
+    pub fn hc_vcov(&self, x: &[f64], n_rows: usize, hc_type: &str) -> Result<JsValue, JsError> {
+        let x_mat = super::to_mat(x, n_rows, self.n_features)?;
+        let v = self
+            .fitted
+            .hc_vcov(&x_mat, crate::inference::parse_hc_type(hc_type)?)
+            .map_err(super::fit_error)?;
+        Ok(crate::convert::ToJs::to_js(&v))
+    }
+
     /// Cluster-robust covariance (`sandwich::vcovCL`), intercept first:
     /// `clusters` is one or two arrays of cluster codes, `options` a preset
     /// ("cr1" default, "hc0", "robcov") or `{ type, cadjust }`. `x` is the

@@ -503,6 +503,26 @@ const FIXED_K12_PRED: [f64; 16] = [
     0.24568316017305053,
 ];
 
+// logLik (σ² = RSS / n), its df (edf + 1), AIC, BIC of the same fits.
+const GCV_K12_IC: [f64; 4] = [
+    3.3916149215030966,
+    6.9409904193395846,
+    7.098750995672976,
+    23.632375045556099,
+];
+const GCV_K20_M3_IC: [f64; 4] = [
+    3.0807687738622747,
+    5.8854575771732751,
+    5.6093776066220009,
+    19.628694312691952,
+];
+const FIXED_K12_IC: [f64; 4] = [
+    1.9130649213444162,
+    6.1250186714599888,
+    8.4239075002311452,
+    23.013865113523668,
+];
+
 fn fit(model: PSplineRegressor) -> FittedPSpline {
     let x = Mat::from_fn(X.len(), 1, |i, _| X[i]);
     let y = Col::from_fn(Y.len(), |i| Y[i]);
@@ -587,4 +607,38 @@ fn fixed_lambda_matches_mgcv_sp() {
         1e-10,
         "fixed lambda",
     );
+}
+
+/// `log_likelihood`, `aic`, `bic` equal mgcv's `logLik.gam` / `AIC` / `BIC`
+/// (df = edf + 1); `aicc` adds the usual small-sample term with that df.
+#[test]
+fn information_criteria_match_mgcv() {
+    let cases = [
+        (PSplineRegressor::new().with_n_basis(12), &GCV_K12_IC, 1e-6),
+        (
+            PSplineRegressor::new()
+                .with_n_basis(20)
+                .with_penalty_order(3),
+            &GCV_K20_M3_IC,
+            1e-6,
+        ),
+        (
+            PSplineRegressor::new().with_n_basis(12).with_lambda(2.0),
+            &FIXED_K12_IC,
+            1e-10,
+        ),
+    ];
+    for (model, ic, tol) in cases {
+        let f = fit(model);
+        let r = f.result();
+        close(
+            &[r.log_likelihood, f.edf() + 1.0, r.aic, r.bic],
+            ic,
+            tol,
+            "logLik / df / AIC / BIC",
+        );
+        let (n, k) = (X.len() as f64, ic[1]);
+        let aicc = ic[2] + 2.0 * k * (k + 1.0) / (n - k - 1.0);
+        close(&[r.aicc], &[aicc], tol, "AICc");
+    }
 }

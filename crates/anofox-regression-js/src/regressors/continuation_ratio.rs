@@ -73,6 +73,41 @@ impl FittedContinuationRatio {
 
 #[wasm_bindgen]
 impl FittedContinuationRatio {
+    /// Rebuild a fitted model from `levels`, the number of predictors, the
+    /// cohort-specific columns, `getCoefficients()` and (optionally) the
+    /// row-major `vcov()` of an earlier fit; it predicts as that fit.
+    #[wasm_bindgen(js_name = fromParts)]
+    pub fn from_parts(
+        levels: Vec<f64>,
+        n_features: usize,
+        cohort_specific: &[u32],
+        coefficients: &[f64],
+        vcov: Option<Vec<f64>>,
+    ) -> Result<FittedContinuationRatio, JsError> {
+        let k = coefficients.len();
+        let v = vcov.map(|v| to_mat(&v, k, k)).transpose()?;
+        let cohort: Vec<usize> = cohort_specific.iter().map(|&c| c as usize).collect();
+        let fitted = RustFittedContinuationRatio::from_parts(
+            levels,
+            n_features,
+            &cohort,
+            &faer::Col::from_fn(k, |j| coefficients[j]),
+            v.as_ref(),
+        )
+        .map_err(fit_error)?;
+        Ok(Self { fitted })
+    }
+
+    /// Columns whose slope differs by cohort.
+    #[wasm_bindgen(js_name = cohortSpecific)]
+    pub fn cohort_specific(&self) -> Vec<u32> {
+        self.fitted
+            .cohort_specific()
+            .iter()
+            .map(|&c| c as u32)
+            .collect()
+    }
+
     /// Get the full result as a JavaScript object.
     #[wasm_bindgen(js_name = getResult)]
     pub fn get_result(&self) -> Result<JsValue, JsError> {

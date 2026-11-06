@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-06
+
+Requested by the DuckDB extension (`anofox-statistics`), which stores fitted
+models as SQL structs and predicts from them later: fitted models can be
+rebuilt from their parts, and the covariance options it exposes are reachable
+from the entry points it calls. Additive except where marked **behaviour
+change**.
+
+### Added
+
+- **Rebuild fitted models from their parts.** A model rebuilt from the parts of a fit predicts as the fit (probabilities, classes, means and quantiles bit-identically; what goes through the covariance to rounding), so a stored model needs no refit:
+  - `FittedMultinomialLogistic::from_parts(classes, coefficients, intercepts)`.
+  - `FittedOrdinal::from_parts(link, levels, intercepts, coefficients, &vcov)` (inverts the dense `vcov`, O(k³)), and the compact `FittedOrdinal::information() -> OrdinalInformation { intercept_diagonal, intercept_off_diagonal, cross, slopes }` with `FittedOrdinal::from_information(link, levels, intercepts, coefficients, information)` (O(k·p) storage, exact) for a continuous response. Means with SEs, quantile CIs, `cluster_vcov` work on the rebuilt model.
+  - `FittedContinuationRatio::from_parts(levels, n_features, &cohort_specific, &coefficients, Option<&vcov>)` and `FittedContinuationRatio::cohort_specific()`.
+  - `FittedPSpline::from_parts(knots, coefficients, &covariance, sigma2, edf, n_observations)` with the new accessors `knots()`, `coefficients()`, `covariance()` (the Bayesian posterior covariance `σ² (BᵀB + λDᵀD)⁻¹`, mgcv's `Vp`) and `n_observations()`.
+  - Inputs are validated (shapes, finiteness, ordering, positive definiteness; an ordinal `vcov` whose inverse is not tridiagonal in the intercepts is rejected). Fit statistics (log-likelihoods, AIC, λ, counts) are not part of a model and are `NaN` after a rebuild.
+  - JS: `FittedMultinomialLogistic.fromParts`, `FittedOrdinal.fromParts` / `fromInformation` / `information()`, `FittedContinuationRatio.fromParts` / `cohortSpecific()`, `FittedPSpline.fromParts` / `knots()` / `coefficients()` / `covariance()` / `nObservations()`.
+- **`FittedOrdinal::z_values()` / `p_values()`.** Wald z of the slopes and two-sided normal p-values (orm's `Wald Z`); JS `getResult().zValues` / `pValues`.
+- **Cluster-robust covariance from the GLM and AFT entry points.** `GlmResult::cluster_vcov(&y, &x, clusters, &options)` for the result of `penalized_glm::fit_poisson` / `fit_binomial` / `fit_logistic` (`.fit`) / `fit_negbinomial` / `fit_gamma` / `fit_tweedie` (same `y` and column-major `x` as the fit, offset column included; rows the fit dropped are dropped; fitted order, intercept first) equals `sandwich::vcovCL(glm)` (1e-8). `AftResult::cluster_vcov(&time, &x, &event, clusters, &options)` and `AftResult::score_contributions(..)` for `aft::fit_aft` equal `survreg(cluster =)` (1e-5). With Gaussian priors or a ridge `lambda` both use the penalized bread `(XᵀWX + P)⁻¹` — the sandwich of the penalized estimating equation, `rms::robcov` of a penalized `lrm` (1e-8), whatever `vcov_type` the fit reports; a coefficient at an L1 prior's kink is an error.
+- **HC covariance matrix.** `FittedOls::hc_vcov(&x, HcType)`, `FittedWls::hc_vcov(&x, HcType)` and `inference::compute_hc_vcov(&x, &residuals, Option<&weights>, &aliased, with_intercept, HcType)` return the full HC0–HC3 matrix in the layout of `vcov()` (intercept first, zero rows for aliased columns); equal to `sandwich::vcovHC` for `lm` and weighted `lm` (1e-10). `compute_hc_standard_errors` is now its diagonal. JS: `FittedOls.hcVcov`, `FittedWls.hcVcov`, `computeHcVcov`.
+- **`fastbw` covariance.** `StepDown::vcov` (the approximate covariance of the reduced model, `fastbw`'s `var`, in the full layout with zero rows for deleted parameters) and `StepDown::kept_parameters` (`parms.kept`); equal to `rms::fastbw` (1e-9). Also in the JS `fastbw` result.
+- **`GlsError`.** `RegressionError::Gls(GlsError)` with `NoRepeatedMeasures` (compound symmetry or a variogram with no group of two or more rows), `TooFewTimes` (unstructured with one distinct time), `NonIntegerTimes` (AR(1)), `InvalidVarianceCovariate` (varPower) and `OptimisationFailed`, so callers can tell these apart without matching message text.
+
+### Fixed
+
+- **`splines::rcs_default_knots` / `rcs_default_knots_with` panicked on a constant column** (slice `xu[1..0]`). Fewer than 5 distinct values (no 3 interior knots) is now `SplineError::TooFewUniqueKnots`, as `rcspline.eval` stops.
+- **`PSplineRegressor` left `log_likelihood`, `aic`, `aicc` and `bic` at 0.** They are now the Gaussian log-likelihood at `σ̂² = RSS / n` with `edf + 1` degrees of freedom, equal to mgcv's `logLik.gam`, `AIC` and `BIC` (1e-10 at a fixed λ, 1e-6 with GCV); `aicc` adds the usual small-sample term with that d.f. (**behaviour change**: the fields were 0). JS `getResult()` has `logLikelihood`, `aic`, `aicc`, `bic`.
+- **`FittedAft::cluster_vcov` with priors used the reported covariance as the bread**, which for `VcovType::Sandwich` / `Naive` is not the inverse of the penalized information. It now uses the penalized information, like `AftResult::cluster_vcov` (**behaviour change** for penalized fits with a non-Laplace `vcov_type`; unpenalized fits are unchanged).
+
+### Changed
+
+- **GLS data problems are `RegressionError::Gls(..)` instead of `RegressionError::InvalidInput(..)`** (**behaviour change**): compound symmetry without a group of two or more rows, an unstructured correlation with fewer than two distinct times, AR(1) with non-integer times, a zero / non-finite varPower covariate, a failed variance–covariance optimisation, and `variogram` without within-group pairs. Which inputs are rejected is unchanged.
+
 ## [0.11.1] - 2026-11-05
 
 ### Fixed

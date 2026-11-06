@@ -8,7 +8,7 @@ use anofox_regression::solvers::{
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use super::{col_vec, fit_error, to_col, to_js, to_mat};
+use super::{col_vec, fit_error, mat_flat, to_col, to_js, to_mat};
 
 /// Result from fitting a P-spline smoother.
 #[derive(Serialize)]
@@ -24,6 +24,12 @@ pub struct PSplineResult {
     pub lambda: f64,
     /// R-squared of the smooth.
     pub r_squared: f64,
+    /// Log-likelihood at σ̂² = RSS / n (`logLik.gam`), with `edf + 1` d.f.
+    pub log_likelihood: f64,
+    /// AIC, AICc and BIC with `edf + 1` d.f. (`AIC.gam`, `BIC`).
+    pub aic: f64,
+    pub aicc: f64,
+    pub bic: f64,
     pub n_observations: usize,
     pub residuals: Vec<f64>,
     pub fitted_values: Vec<f64>,
@@ -59,6 +65,55 @@ pub struct FittedPSpline {
 
 #[wasm_bindgen]
 impl FittedPSpline {
+    /// Rebuild a fitted smoother from `knots()`, `coefficients()`, the
+    /// row-major `covariance()`, `getSigma2()`, `getEdf()` and
+    /// `nObservations()` of an earlier fit; it predicts as that fit.
+    #[wasm_bindgen(js_name = fromParts)]
+    pub fn from_parts(
+        knots: Vec<f64>,
+        coefficients: Vec<f64>,
+        covariance: &[f64],
+        sigma2: f64,
+        edf: f64,
+        n_observations: usize,
+    ) -> Result<FittedPSpline, JsError> {
+        let p = coefficients.len();
+        let fitted = RustFittedPSpline::from_parts(
+            knots,
+            coefficients,
+            &to_mat(covariance, p, p)?,
+            sigma2,
+            edf,
+            n_observations,
+        )
+        .map_err(fit_error)?;
+        Ok(Self { fitted })
+    }
+
+    /// The knots of the cubic B-spline basis.
+    #[wasm_bindgen]
+    pub fn knots(&self) -> Vec<f64> {
+        self.fitted.knots().to_vec()
+    }
+
+    /// The B-spline coefficients.
+    #[wasm_bindgen]
+    pub fn coefficients(&self) -> Vec<f64> {
+        self.fitted.coefficients().to_vec()
+    }
+
+    /// Bayesian posterior covariance of the coefficients, row-major.
+    #[wasm_bindgen]
+    pub fn covariance(&self) -> Vec<f64> {
+        mat_flat(&self.fitted.covariance())
+    }
+
+    /// Number of observations of the fit.
+    #[wasm_bindgen(js_name = nObservations)]
+    pub fn n_observations(&self) -> usize {
+        self.fitted.n_observations()
+    }
+
     /// Get the fit summary as a JavaScript object.
     #[wasm_bindgen(js_name = getResult)]
     pub fn get_result(&self) -> Result<JsValue, JsError> {
@@ -69,6 +124,10 @@ impl FittedPSpline {
             sigma2: self.fitted.sigma2(),
             lambda: self.fitted.lambda(),
             r_squared: result.r_squared,
+            log_likelihood: result.log_likelihood,
+            aic: result.aic,
+            aicc: result.aicc,
+            bic: result.bic,
             n_observations: result.n_observations,
             residuals: col_vec(result.residuals.as_ref()),
             fitted_values: col_vec(result.fitted_values.as_ref()),

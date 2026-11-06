@@ -68,6 +68,12 @@ pub enum RegressionError {
     /// that is not positive definite, a failed decomposition, …).
     #[error("numerical error: {0}")]
     NumericalError(String),
+
+    /// The data cannot carry the requested GLS correlation / variance
+    /// structure, or its optimisation failed (see
+    /// [`GlsError`](crate::solvers::GlsError)).
+    #[error("GLS: {0}")]
+    Gls(#[from] crate::solvers::gls::GlsError),
 }
 
 impl RegressionError {
