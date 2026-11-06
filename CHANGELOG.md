@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-06
+
+### Changed
+
+- **The remaining data degeneracies are `RegressionError::Degenerate(..)` instead of `InvalidInput` strings** (**behaviour change** of the error variants; which inputs are rejected is unchanged):
+  - a categorical `areg` predictor with one level → `DegenerateData::TooFewLevels`;
+  - an `areg_impute` column that is constant or empty → `ConstantColumn`;
+  - an ordinal or multinomial-logistic response with one distinct value, a continuation-ratio response with fewer than three → the new `TooFewResponseLevels`;
+  - a GLMM with fewer than two groups (or a crossed grouping factor with one level) → the new `TooFewGroups`;
+  - a regularization path whose response is constant or uncorrelated with every column (`lambda_max = 0`) → the new `NoAssociation`.
+
 ## [0.12.1] - 2026-11-06
 
 ### Added

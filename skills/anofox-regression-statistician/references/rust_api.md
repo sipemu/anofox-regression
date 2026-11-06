@@ -1,6 +1,6 @@
 # anofox-regression (Rust) — compact API reference
 
-Crate `anofox-regression` **0.12.1** (MIT, MSRV 1.87). Every name here was checked against the 0.12.1
+Crate `anofox-regression` **0.12.2** (MIT, MSRV 1.87). Every name here was checked against the 0.12.2
 source. The snippets were built and run on 0.12.0 with faer 0.23.
 
 ## Contents
@@ -43,7 +43,7 @@ source. The snippets were built and run on 0.12.0 with faer 0.23.
 
 ```toml
 [dependencies]
-anofox-regression = "0.12"         # 0.12.1 at time of writing
+anofox-regression = "0.12"         # 0.12.2 at time of writing
 faer = "0.23"                      # MUST match the crate's faer (also re-exported as anofox_regression::faer)
 ```
 - Optional features (all off by default): `parallel` (rayon; adds `validation::predab_resample_par`
@@ -1271,7 +1271,9 @@ fit.y_coefficients.clone(), fit.y_range())?` with `AregBasis::{Linear, Spline{kn
 model transforms, predicts and back-transforms new rows as the fit. `box_cox_inverse` is `NaN` where `λz + 1 ≤ 0`
 (no y > 0 maps there; it returned a value before 0.12).
 Typed errors (0.12.1): degenerate data are `RegressionError::Degenerate(DegenerateData::{ConstantResponse, TooFewLevels,
-ConstantColumn, SimilarityNotComputable, NonPositiveResponse, TooFewObservedValues})` (reduction, `box_cox`), spline basis
+ConstantColumn, SimilarityNotComputable, NonPositiveResponse, TooFewObservedValues, TooFewResponseLevels, TooFewGroups,
+NoAssociation})` (reduction, `box_cox`, `areg` / `areg_impute`, ordinal / multinomial / continuation-ratio responses, GLMM
+groups, the path's `lambda_max = 0`; 0.12.2), spline basis
 failures `RegressionError::Spline(SplineError::..)` (`areg`, `redun`, `transcan`).
 Oracles: `r_validation_transform.rs`, `r_validation_areg.rs`.
 ```rust

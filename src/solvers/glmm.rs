@@ -248,9 +248,7 @@ impl GlmmRegressor {
         // Compact arbitrary group ids into 0..J and record membership.
         let (group_idx, n_groups) = compact_groups(group);
         if n_groups < 2 {
-            return Err(RegressionError::InvalidInput(
-                "GLMM needs at least two distinct groups".to_string(),
-            ));
+            return Err(crate::solvers::DegenerateData::TooFewGroups.into());
         }
 
         // Fixed design (optional leading intercept) and random design Z.
@@ -385,9 +383,7 @@ impl GlmmRegressor {
         for (g, sl) in groups.iter().zip(&slopes) {
             let (idx, jf) = compact_groups(g);
             if jf < 2 {
-                return Err(RegressionError::InvalidInput(
-                    "each grouping factor needs at least two distinct levels".to_string(),
-                ));
+                return Err(crate::solvers::DegenerateData::TooFewGroups.into());
             }
             check_slope_columns(sl, x.ncols())?;
             let qf = usize::from(self.random_intercept) + sl.len();

@@ -353,9 +353,7 @@ pub fn lambda_grid(
     }
     let lambda_max = gmax * prep.y_scale / (n * opts.alpha.max(1e-3));
     if lambda_max.is_nan() || lambda_max <= 0.0 {
-        return Err(RegressionError::InvalidInput(
-            "lambda_max is zero: y is constant or uncorrelated with every column".to_string(),
-        ));
+        return Err(crate::solvers::DegenerateData::NoAssociation.into());
     }
     if n_lambda == 1 {
         return Ok(vec![lambda_max]);

@@ -50,9 +50,7 @@ pub fn cr_setup(y: &Col<f64>) -> Result<ContinuationRatioData, RegressionError> 
     levels.dedup();
     let k = levels.len();
     if k < 3 {
-        return Err(RegressionError::InvalidInput(
-            "a continuation-ratio model needs at least three response values".to_string(),
-        ));
+        return Err(crate::solvers::DegenerateData::TooFewResponseLevels.into());
     }
     let mut ys = Vec::new();
     let mut cohort = Vec::new();

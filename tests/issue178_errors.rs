@@ -46,6 +46,16 @@ fn input<T>(r: Result<T, RegressionError>) {
     }
 }
 
+/// 0.12.2: data degeneracies are typed.
+#[track_caller]
+fn degenerate<T>(r: Result<T, RegressionError>, want: DegenerateData) {
+    match r {
+        Err(RegressionError::Degenerate(d)) => assert_eq!(d, want),
+        Err(e) => panic!("expected Degenerate({want:?}), got {e:?}"),
+        Ok(_) => panic!("expected Degenerate({want:?}), got Ok"),
+    }
+}
+
 #[test]
 fn regularisation_paths() {
     let (x, y) = data();
@@ -64,7 +74,10 @@ fn regularisation_paths() {
         lambda_grid(&x, &y, &opts, 10, Some(1.5)),
         "lambda_min_ratio",
     );
-    input(lambda_grid(&x, &Col::from_fn(N, |_| 2.0), &opts, 10, None));
+    degenerate(
+        lambda_grid(&x, &Col::from_fn(N, |_| 2.0), &opts, 10, None),
+        DegenerateData::NoAssociation,
+    );
     input(fit_path(&Mat::zeros(N, 0), &y, &[0.1], &opts));
     let two_folds: Vec<usize> = (0..N).map(|i| i % 2).collect();
     param(cv_path(&x, &y, &[0.1, 0.01], &two_folds, &opts), "k");
@@ -129,10 +142,11 @@ fn glmm_options_and_data() {
             .fit(&x, &y, &g),
     );
     let one_level = vec![0usize; N];
-    input(
+    degenerate(
         GlmmRegressor::gaussian()
             .build()
             .fit_crossed(&x, &y, &[&g, &one_level]),
+        DegenerateData::TooFewGroups,
     );
     let offset = Col::from_fn(N, |i| if i == 3 { f64::NAN } else { 0.0 });
     let counts = Col::from_fn(N, |i| (i % 4) as f64);
