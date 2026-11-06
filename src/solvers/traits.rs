@@ -104,10 +104,12 @@ pub enum DegenerateData {
     /// The response is constant (`spearman2`, `redun`, …).
     #[error("the response is constant")]
     ConstantResponse,
-    /// A categorical variable has fewer than two levels.
+    /// A categorical variable has fewer than two levels
+    /// (`spearman2_categorical`, a categorical `areg` predictor).
     #[error("a categorical variable needs two or more levels")]
     TooFewLevels,
-    /// A column to be scaled is constant (`principal_components`).
+    /// A column to be scaled or imputed is constant (`principal_components`,
+    /// `areg_impute`).
     #[error("cannot scale a constant column")]
     ConstantColumn,
     /// Part of a similarity matrix could not be computed (`varclus`, e.g.
@@ -120,6 +122,17 @@ pub enum DegenerateData {
     /// A variable has fewer than three observed values (`transcan`).
     #[error("a variable needs three or more observed values")]
     TooFewObservedValues,
+    /// The response has too few distinct values for the model: fewer than
+    /// two (ordinal, multinomial logistic) or three (continuation ratio).
+    #[error("the response has too few distinct values")]
+    TooFewResponseLevels,
+    /// A grouping factor has fewer than two distinct groups (GLMM).
+    #[error("a grouping factor needs two or more groups")]
+    TooFewGroups,
+    /// The response is constant or uncorrelated with every column, so the
+    /// regularization path has `lambda_max = 0`.
+    #[error("the response is constant or uncorrelated with every column (lambda_max = 0)")]
+    NoAssociation,
 }
 
 impl RegressionError {

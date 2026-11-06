@@ -86,9 +86,7 @@ fn expansion(z: &[f64], kind: AregType, nk: usize) -> Result<Expansion, Regressi
             .map(Expansion::Spline)
             .map_err(RegressionError::Spline),
         AregType::Categorical if distinct.len() >= 2 => Ok(Expansion::Categorical(distinct)),
-        AregType::Categorical => Err(RegressionError::InvalidInput(
-            "a categorical predictor needs two or more levels".to_string(),
-        )),
+        AregType::Categorical => Err(crate::solvers::DegenerateData::TooFewLevels.into()),
         _ => Ok(Expansion::Linear),
     }
 }

@@ -167,9 +167,7 @@ fn encode_classes(y: &Col<f64>) -> Result<(Vec<f64>, Vec<usize>), RegressionErro
     classes.sort_by(f64::total_cmp);
     classes.dedup();
     if classes.len() < 2 {
-        return Err(RegressionError::InvalidInput(
-            "y must contain at least two classes".into(),
-        ));
+        return Err(crate::solvers::DegenerateData::TooFewResponseLevels.into());
     }
     let labels = y
         .iter()

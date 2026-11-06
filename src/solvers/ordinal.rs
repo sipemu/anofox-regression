@@ -647,9 +647,7 @@ impl OrdinalRegressor {
         levels.dedup();
         let k = levels.len();
         if k < 2 {
-            return Err(RegressionError::InvalidInput(
-                "an ordinal response needs at least two distinct values".to_string(),
-            ));
+            return Err(crate::solvers::DegenerateData::TooFewResponseLevels.into());
         }
         let category: Vec<usize> = y
             .iter()

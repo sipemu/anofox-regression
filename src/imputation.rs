@@ -188,9 +188,7 @@ pub fn areg_impute(
         let observed: Vec<f64> = (0..n).map(|i| x[(i, j)]).filter(|v| !v.is_nan()).collect();
         let levels = distinct(observed.iter().copied());
         if levels.len() < 2 {
-            return Err(RegressionError::InvalidInput(format!(
-                "column {j} is constant or empty"
-            )));
+            return Err(crate::solvers::DegenerateData::ConstantColumn.into());
         }
         vtype[j] = match kinds[j] {
             ImputeVariable::Categorical => AregType::Categorical,
