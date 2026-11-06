@@ -385,7 +385,7 @@ impl HuberRegressor {
     /// Leaves the inference fields untouched when `n ≤ p`, `s ≤ 0`, `m = 0`
     /// or `X'X` is singular.
     fn compute_inference(&self, x: &Mat<f64>, result: &mut RegressionResult, scale: f64) {
-        use statrs::distribution::{ContinuousCDF, StudentsT};
+        use statrs::distribution::ContinuousCDF;
         let n = x.nrows();
         let k = x.ncols();
         let off = usize::from(result.intercept.is_some());
@@ -427,7 +427,7 @@ impl HuberRegressor {
         };
 
         let df = nf - p as f64;
-        let Ok(t_dist) = StudentsT::new(0.0, 1.0, df) else {
+        let Ok(t_dist) = crate::numeric::student_t(df) else {
             return;
         };
         let t_crit = t_dist.inverse_cdf(1.0 - (1.0 - self.confidence_level) / 2.0);

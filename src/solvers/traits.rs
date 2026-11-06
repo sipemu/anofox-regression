@@ -68,6 +68,22 @@ pub enum RegressionError {
     /// that is not positive definite, a failed decomposition, …).
     #[error("numerical error: {0}")]
     NumericalError(String),
+
+    /// The data cannot carry the requested GLS correlation / variance
+    /// structure, or its optimisation failed (see
+    /// [`GlsError`](crate::solvers::GlsError)).
+    #[error("GLS: {0}")]
+    Gls(#[from] crate::solvers::gls::GlsError),
+
+    /// Every row has a missing or non-finite value, so nothing is left to
+    /// fit (the GLM / AFT engines drop such rows).
+    #[error("all rows filtered due to missing / non-finite values")]
+    NoValidData,
+
+    /// Every usable observation of a survival model is censored, so the
+    /// model is not identified.
+    #[error("every observation is censored, so the model is not identified")]
+    AllCensored,
 }
 
 impl RegressionError {

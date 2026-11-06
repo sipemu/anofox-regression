@@ -64,6 +64,7 @@ pub(crate) mod normal_eq;
 pub(crate) mod penalty;
 mod predict;
 mod regressor;
+mod robust;
 pub mod types;
 
 #[cfg(test)]

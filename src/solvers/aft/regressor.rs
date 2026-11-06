@@ -54,15 +54,7 @@ impl AftRegressor {
             .collect();
         let t: Vec<f64> = (0..n).map(|i| time[i]).collect();
         let ev: Vec<f64> = event.iter().map(|&e| f64::from(u8::from(e))).collect();
-        let result = fit_aft(&t, &cols, &ev, &self.options)?;
-        let coefficients = Col::from_fn(result.core.coefficients.len(), |j| {
-            result.core.coefficients[j]
-        });
-        Ok(FittedAft {
-            distribution: self.options.dist,
-            coefficients,
-            result,
-        })
+        FittedAft::from_result(fit_aft(&t, &cols, &ev, &self.options)?)
     }
 }
 
@@ -140,6 +132,28 @@ impl HasModelInfo for FittedAft {
 }
 
 impl FittedAft {
+    /// The fitted model of a [`fit_aft`] result (the column-major entry
+    /// point), so a caller of `fit_aft` need not fit again through
+    /// [`AftRegressor`]: predictions, residuals and the covariances of the
+    /// two are the same. Errors when the result's distribution is unknown
+    /// (only possible for a hand-made `model_info`).
+    pub fn from_result(result: AftResult) -> Result<Self, crate::solvers::RegressionError> {
+        let distribution = result.distribution().ok_or_else(|| {
+            crate::solvers::RegressionError::invalid_parameter(
+                "result",
+                "unknown AFT distribution in model_info",
+            )
+        })?;
+        let coefficients = Col::from_fn(result.core.coefficients.len(), |j| {
+            result.core.coefficients[j]
+        });
+        Ok(Self {
+            distribution,
+            coefficients,
+            result,
+        })
+    }
+
     /// Feature coefficients on the log-time scale.
     pub fn coefficients(&self) -> &Col<f64> {
         &self.coefficients
@@ -164,37 +178,29 @@ impl FittedAft {
                 event.len()
             )));
         }
-        let off = usize::from(self.intercept().is_some());
-        let p = x.ncols();
-        let fit_scale = self.distribution != AftDistribution::Exponential;
-        let k = off + p + usize::from(fit_scale);
-        let sigma = self.scale();
-        let eta = self.predict_linear(x);
-        let mut s = Mat::<f64>::zeros(n, k);
-        for i in 0..n {
-            let z = (time[i].ln() - eta[i]) / sigma;
-            let u = if event[i] {
-                self.distribution.d_log_density(z)
-            } else {
-                self.distribution.d_log_survival(z)
-            };
-            if off == 1 {
-                s[(i, 0)] = -u / sigma;
-            }
-            for j in 0..p {
-                s[(i, off + j)] = -u * x[(i, j)] / sigma;
-            }
-            if fit_scale {
-                s[(i, k - 1)] = -u * z - f64::from(u8::from(event[i]));
-            }
-        }
-        Ok(s)
+        let coefficients: Vec<f64> = self.coefficients.iter().copied().collect();
+        Ok(super::robust::score_matrix(
+            self.distribution,
+            self.intercept(),
+            &coefficients,
+            self.scale(),
+            n,
+            |i| {
+                (
+                    time[i],
+                    event[i],
+                    (0..x.ncols()).map(|j| x[(i, j)]).collect(),
+                )
+            },
+        ))
     }
 
     /// Cluster-robust covariance of all parameters (order of
     /// [`Self::score_contributions`]), `A (Σ_g s_g s_gᵀ) A` with `A` the
-    /// fitted covariance; [`crate::inference::ClusterOptions::robcov`]
-    /// reproduces `survreg(..., cluster = id)`. Needs a fit with inference.
+    /// inverse of the penalized observed information (the covariance of an
+    /// unpenalized fit); [`crate::inference::ClusterOptions::robcov`]
+    /// reproduces `survreg(..., cluster = id)`. See
+    /// [`AftResult::cluster_vcov`] for priors. Needs a fit with inference.
     pub fn cluster_vcov(
         &self,
         x: &Mat<f64>,
@@ -203,13 +209,9 @@ impl FittedAft {
         clusters: &[&[usize]],
         options: &crate::inference::ClusterOptions,
     ) -> Result<Mat<f64>, crate::inference::ClusterError> {
-        let bread = self.inference().and_then(|i| i.vcov.as_ref()).ok_or(
-            crate::inference::ClusterError::Unsupported(
-                "the fit has no covariance; fit with compute_inference(true)",
-            ),
-        )?;
+        let bread = super::robust::penalized_bread(&self.result)?;
         let scores = self.score_contributions(x, time, event)?;
-        crate::inference::cluster_sandwich(bread, &scores, clusters, options)
+        crate::inference::cluster_sandwich(&bread, &scores, clusters, options)
     }
 
     /// Standardized residuals `zᵢ = (log tᵢ − ηᵢ)/σ` (RMS §18.3); for a

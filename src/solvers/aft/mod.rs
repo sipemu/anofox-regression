@@ -40,6 +40,7 @@ pub mod distribution;
 mod model;
 mod predict;
 mod regressor;
+mod robust;
 
 pub use distribution::AftDistribution;
 pub use model::{fit_aft, AftFitResult, AftInference, AftOptions, AftResult};

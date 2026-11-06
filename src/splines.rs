@@ -226,6 +226,11 @@ pub fn rcs_default_knots_with(
     xx.sort_by(|a, b| a.total_cmp(b));
     let (xu, counts) = unique_counts(&xx);
     let nxu = xu.len();
+    if nxu < 5 {
+        // At most 2 interior distinct values (a constant column has one
+        // distinct value): no 3 knots can be placed.
+        return Err(SplineError::TooFewUniqueKnots);
+    }
 
     let knots = if nxu <= nk + 2 {
         xu[1..nxu - 1].to_vec()
@@ -628,6 +633,28 @@ fn sorted_unique(mut v: Vec<f64>) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn too_few_distinct_values_is_an_error_not_a_panic() {
+        // A constant column has one distinct value (used to panic on
+        // `xu[1..0]`); up to four distinct values leave fewer than 3 knots.
+        for distinct in 1..=4 {
+            let x: Vec<f64> = (0..40).map(|i| (i % distinct) as f64).collect();
+            for nk in 3..=5 {
+                assert_eq!(
+                    rcs_default_knots(&x, nk),
+                    Err(SplineError::TooFewUniqueKnots),
+                    "{distinct} distinct values, {nk} knots"
+                );
+                assert_eq!(
+                    rcs_default_knots_with(&x, nk, 0.0),
+                    Err(SplineError::TooFewUniqueKnots)
+                );
+            }
+        }
+        let x: Vec<f64> = (0..40).map(|i| (i % 5) as f64).collect();
+        assert_eq!(rcs_default_knots(&x, 3).unwrap(), vec![1.0, 2.0, 3.0]);
+    }
 
     #[test]
     fn table_2_3_quantiles() {

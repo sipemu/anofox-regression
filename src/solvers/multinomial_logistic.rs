@@ -601,6 +601,68 @@ pub struct FittedMultinomialLogistic {
 }
 
 impl FittedMultinomialLogistic {
+    /// Rebuild a fitted model from its parts — [`Self::classes`],
+    /// [`Self::coefficients`] and [`Self::intercepts`] of an earlier fit — so
+    /// a stored model predicts again: [`Self::decision_function`],
+    /// [`Self::predict_proba`], [`Self::predict`] and [`Self::score`] equal
+    /// those of the original fit.
+    ///
+    /// `classes` must be finite and strictly increasing (at least two);
+    /// `coefficients` has one row per linear predictor (1 for two classes,
+    /// `K` otherwise) and one column per feature; `intercepts` one entry per
+    /// row. The fit statistics are not part of the model:
+    /// [`Self::log_likelihood`] and [`Self::objective`] are `NaN`, and the
+    /// rebuilt model reports `converged = true` with 0 iterations.
+    pub fn from_parts(
+        classes: Vec<f64>,
+        coefficients: Mat<f64>,
+        intercepts: Col<f64>,
+    ) -> Result<Self, RegressionError> {
+        if classes.len() < 2 {
+            return Err(RegressionError::invalid_parameter(
+                "classes",
+                format!("needs at least two classes, got {}", classes.len()),
+            ));
+        }
+        if classes.iter().any(|c| !c.is_finite()) || classes.windows(2).any(|w| w[0] >= w[1]) {
+            return Err(RegressionError::invalid_parameter(
+                "classes",
+                "must be finite and strictly increasing",
+            ));
+        }
+        let rows = if classes.len() == 2 { 1 } else { classes.len() };
+        if coefficients.nrows() != rows || intercepts.nrows() != rows {
+            return Err(RegressionError::invalid_parameter(
+                "coefficients",
+                format!(
+                    "{} classes need {rows} coefficient rows and intercepts, got {} and {}",
+                    classes.len(),
+                    coefficients.nrows(),
+                    intercepts.nrows()
+                ),
+            ));
+        }
+        let finite = (0..rows).all(|k| {
+            intercepts[k].is_finite()
+                && (0..coefficients.ncols()).all(|j| coefficients[(k, j)].is_finite())
+        });
+        if !finite {
+            return Err(RegressionError::invalid_parameter(
+                "coefficients",
+                "coefficients and intercepts must be finite",
+            ));
+        }
+        Ok(Self {
+            classes,
+            coefficients,
+            intercepts,
+            iterations: 0,
+            converged: true,
+            objective: f64::NAN,
+            log_likelihood: f64::NAN,
+        })
+    }
+
     /// The sorted distinct class labels (sklearn `classes_`).
     pub fn classes(&self) -> &[f64] {
         &self.classes

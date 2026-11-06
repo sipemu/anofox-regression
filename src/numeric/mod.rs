@@ -7,3 +7,6 @@
 pub(crate) mod linalg;
 pub(crate) mod optim;
 pub(crate) mod quantile;
+pub(crate) mod t_dist;
+
+pub(crate) use t_dist::student_t;

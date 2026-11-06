@@ -70,7 +70,7 @@ result solvers::aft::regressor::FittedAft::{aic,bic,distribution,inference,null_
 result solvers::elastic_net::FittedElasticNet::{alpha,lambda}  # FittedElasticNet.getResult()
 result solvers::glmm::FittedGlmm::{aic,bic,deviance,df_residual,factors,fitted_population,fitted_values,intercept,is_reml,n_factors,n_groups,n_observations,n_parameters,nb_theta,p_values,pearson_residuals,random_corr,random_cov,random_effects_se,random_sd,residuals,satterthwaite_df,sd_random,sigma,std_errors,theta,var_random,vcov,z_values}  # FittedGlmm.getResult()
 result solvers::gls::FittedGls::{aic,bic,df_residual,fitted_values,n_params,p_values,std_errors,t_values,var_cov_intervals,vcov}  # FittedGls.getResult()
-result solvers::ordinal::FittedOrdinal::{aic,effective_df,link,lr_chisq,lr_df,lr_p_value,n_observations,null_log_likelihood,penalized_log_likelihood,std_errors}  # FittedOrdinal.getResult()
+result solvers::ordinal::FittedOrdinal::{aic,effective_df,link,lr_chisq,lr_df,lr_p_value,n_observations,null_log_likelihood,p_values,penalized_log_likelihood,std_errors,z_values}  # FittedOrdinal.getResult()
 result solvers::penalized_glm::regressor::FittedPenalizedGlm::{accuracy,aic,bic,dispersion,family,fitted_values,inference,log_likelihood,n_observations,null_deviance,pseudo_r_squared,separation,std_errors,theta,vcov}  # FittedPenalizedGlm.getResult()
 result solvers::ransac::FittedRansac::{residual_threshold}  # FittedRansac.getResult()
 result solvers::ridge::FittedRidge::{lambda}  # FittedRidge.getResult()
@@ -112,3 +112,4 @@ fn utils::matrix::*  # low-level column helpers used inside the solvers (OlsRegr
 type solvers::penalized_glm::engine::{DispersionRule,EngineFit}  # PenalizedGlmRegressor internals
 type solvers::penalized_glm::families::GlmResult  # PenalizedGlmRegressor internals
 type solvers::penalized_glm::loglik::LogLikKind  # PenalizedGlmRegressor internals
+method solvers::aft::regressor::FittedAft::from_result  # JS AftRegressor.fit returns the FittedAft directly; JS has no AftResult object to convert

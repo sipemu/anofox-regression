@@ -12,7 +12,8 @@
 //! (the log-likelihood, flat at the optimum, at 1e-7).
 
 use anofox_regression::solvers::{
-    FittedGls, GlsCorrelation, GlsMethod, GlsRegressor, GlsResidualType, GlsVariance,
+    FittedGls, GlsCorrelation, GlsError, GlsMethod, GlsRegressor, GlsResidualType, GlsVariance,
+    RegressionError,
 };
 use faer::{Col, Mat};
 
@@ -382,20 +383,39 @@ fn rejects_bad_input() {
         .fit(&x, &y, &short, None)
         .is_err());
     let frac: Vec<f64> = TIME.to_vec();
-    assert!(GlsRegressor::builder()
+    let err = GlsRegressor::builder()
         .correlation(GlsCorrelation::Ar1)
         .build()
         .fit(&x, &y, &id, Some(&frac))
-        .is_err());
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        RegressionError::Gls(GlsError::NonIntegerTimes)
+    ));
     let singletons: Vec<usize> = (0..N).collect();
-    assert!(GlsRegressor::builder()
+    let err = GlsRegressor::builder()
         .correlation(GlsCorrelation::CompoundSymmetry)
         .build()
         .fit(&x, &y, &singletons, None)
-        .is_err());
-    assert!(GlsRegressor::builder()
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        RegressionError::Gls(GlsError::NoRepeatedMeasures)
+    ));
+    let one_time = vec![1.0; N];
+    let err = GlsRegressor::builder()
+        .correlation(GlsCorrelation::Unstructured)
+        .build()
+        .fit(&x, &y, &id, Some(&one_time))
+        .unwrap_err();
+    assert!(matches!(err, RegressionError::Gls(GlsError::TooFewTimes)));
+    let err = GlsRegressor::builder()
         .variance(GlsVariance::Power(vec![0.0; N]))
         .build()
         .fit(&x, &y, &id, None)
-        .is_err());
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        RegressionError::Gls(GlsError::InvalidVarianceCovariate)
+    ));
 }

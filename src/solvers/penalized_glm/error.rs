@@ -30,6 +30,11 @@ pub enum GlmEngineError {
     #[error("All rows filtered due to NULL/NaN values")]
     NoValidData,
 
+    /// Every (usable) observation of a survival model is censored, so the
+    /// model is not identified.
+    #[error("every observation is censored, so the model is not identified")]
+    AllCensored,
+
     /// Lengths of the response and the design disagree.
     #[error("Dimension mismatch: y has {y_len} elements, X has {x_rows} rows")]
     DimensionMismatch {
@@ -91,6 +96,8 @@ impl From<GlmEngineError> for crate::solvers::RegressionError {
                 reason: message,
             },
             GlmEngineError::NumericalFailure(msg) => RegressionError::NumericalError(msg),
+            GlmEngineError::NoValidData => RegressionError::NoValidData,
+            GlmEngineError::AllCensored => RegressionError::AllCensored,
             other => RegressionError::InvalidInput(other.to_string()),
         }
     }

@@ -17,7 +17,7 @@ use crate::utils::{
 };
 use faer::prelude::Solve;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::ContinuousCDF;
 
 /// Weighted Least Squares regression estimator.
 ///
@@ -700,7 +700,7 @@ impl WlsRegressor {
                         f64::NAN
                     };
 
-                    let t_dist = StudentsT::new(0.0, 1.0, df).ok();
+                    let t_dist = crate::numeric::student_t(df).ok();
                     let p_int = if t_int.is_finite() {
                         t_dist.map_or(f64::NAN, |d| 2.0 * d.sf(t_int.abs()))
                     } else {
@@ -832,6 +832,26 @@ impl FittedWls {
             &self.aliased,
             clusters,
             options,
+        )
+    }
+
+    /// Heteroskedasticity-consistent covariance matrix of the weighted fit
+    /// (`sandwich::vcovHC(lm(..., weights = w), type)`), in the layout of
+    /// [`Self::vcov`]: intercept first, zero rows and columns for aliased
+    /// coefficients. `x` is the design of the fit (without intercept column).
+    /// See [`compute_hc_vcov`](crate::inference::compute_hc_vcov).
+    pub fn hc_vcov(
+        &self,
+        x: &Mat<f64>,
+        hc_type: crate::inference::HcType,
+    ) -> Result<Mat<f64>, RegressionError> {
+        crate::inference::compute_hc_vcov(
+            x,
+            &self.result.residuals,
+            (self.weights.nrows() > 0).then_some(&self.weights),
+            &self.aliased,
+            self.result.intercept.is_some(),
+            hc_type,
         )
     }
 

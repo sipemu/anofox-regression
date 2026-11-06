@@ -31,7 +31,7 @@ use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use crate::solvers::QuantileRegressor;
 use faer::linalg::solvers::Solve;
 use faer::{Col, Mat};
-use statrs::distribution::{Continuous, ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{Continuous, ContinuousCDF, Normal};
 
 /// Standard-error type for quantile regression (`quantreg::summary.rq`'s `se`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,7 +118,7 @@ impl QuantileInference {
                 format!("level must lie in (0, 1), got {level}"),
             ));
         }
-        let t = StudentsT::new(0.0, 1.0, self.df_residual)
+        let t = crate::numeric::student_t(self.df_residual)
             .map_err(|e| RegressionError::NumericalError(format!("t distribution: {e}")))?;
         let q = t.inverse_cdf(1.0 - (1.0 - level) / 2.0);
         let n = x.nrows();
@@ -381,7 +381,7 @@ pub(crate) fn inference_for_fit(
     };
 
     let df = (n - k) as f64;
-    let t = StudentsT::new(0.0, 1.0, df)
+    let t = crate::numeric::student_t(df)
         .map_err(|e| RegressionError::NumericalError(format!("t distribution: {e}")))?;
     let q = t.inverse_cdf(1.0 - (1.0 - level) / 2.0);
     let std_error: Vec<f64> = (0..k)

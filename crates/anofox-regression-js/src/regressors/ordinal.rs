@@ -1,8 +1,8 @@
 //! Ordinal (cumulative link) regression wrapper for WebAssembly.
 
 use anofox_regression::solvers::{
-    xmean_ordinaly, FittedOrdinal as RustFittedOrdinal, OrdinalLink, OrdinalQuantileMethod,
-    OrdinalRegressor as RustOrdinalRegressor,
+    xmean_ordinaly, FittedOrdinal as RustFittedOrdinal, OrdinalInformation, OrdinalLink,
+    OrdinalQuantileMethod, OrdinalRegressor as RustOrdinalRegressor,
 };
 use faer::{Col, Mat};
 use serde::Serialize;
@@ -24,6 +24,10 @@ pub struct OrdinalResult {
     pub coefficients: Vec<f64>,
     /// Standard errors of the coefficients.
     pub std_errors: Vec<f64>,
+    /// Wald z statistics of the coefficients.
+    pub z_values: Vec<f64>,
+    /// Two-sided normal p-values of `zValues`.
+    pub p_values: Vec<f64>,
     /// Covariance of (intercepts, coefficients), as nested rows.
     pub vcov: Vec<Vec<f64>>,
     pub log_likelihood: f64,
@@ -54,6 +58,29 @@ pub struct ChiSqTestResult {
 pub struct PredictionWithSe {
     pub fit: Vec<f64>,
     pub se: Vec<f64>,
+}
+
+/// The compact observed information of a cumulative link model.
+#[derive(Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrdinalInformationJs {
+    /// Diagonal of the tridiagonal intercept block.
+    pub intercept_diagonal: Vec<f64>,
+    /// Its first off-diagonal.
+    pub intercept_off_diagonal: Vec<f64>,
+    /// Intercepts × slopes block, as nested rows.
+    pub cross: Vec<Vec<f64>>,
+    /// Slopes block, as nested rows.
+    pub slopes: Vec<Vec<f64>>,
+}
+
+fn rows_to_mat(rows: &[Vec<f64>], n_rows: usize, n_cols: usize) -> Result<Mat<f64>, JsError> {
+    if rows.len() != n_rows || rows.iter().any(|r| r.len() != n_cols) {
+        return Err(JsError::new(&format!(
+            "expected a {n_rows} x {n_cols} block"
+        )));
+    }
+    Ok(Mat::from_fn(n_rows, n_cols, |i, j| rows[i][j]))
 }
 
 /// Quantile predictions with confidence limits.
@@ -130,6 +157,72 @@ impl FittedOrdinal {
 
 #[wasm_bindgen]
 impl FittedOrdinal {
+    /// Rebuild a fitted model from `link`, `levels`, `intercepts`,
+    /// `coefficients` and the row-major covariance `vcov()` of an earlier fit;
+    /// it predicts as that fit (covariance-based results to rounding).
+    #[wasm_bindgen(js_name = fromParts)]
+    pub fn from_parts(
+        link: &str,
+        levels: Vec<f64>,
+        intercepts: &[f64],
+        coefficients: &[f64],
+        vcov: &[f64],
+    ) -> Result<FittedOrdinal, JsError> {
+        let d = intercepts.len() + coefficients.len();
+        let fitted = RustFittedOrdinal::from_parts(
+            parse_link(link)?,
+            levels,
+            Col::from_fn(intercepts.len(), |j| intercepts[j]),
+            Col::from_fn(coefficients.len(), |j| coefficients[j]),
+            &to_mat(vcov, d, d)?,
+        )
+        .map_err(fit_error)?;
+        Ok(Self::from_rust(fitted, coefficients.len()))
+    }
+
+    /// Rebuild a fitted model from its parts with the compact `information()`
+    /// object in place of the covariance; it predicts exactly as the fit.
+    #[wasm_bindgen(js_name = fromInformation)]
+    pub fn from_information(
+        link: &str,
+        levels: Vec<f64>,
+        intercepts: &[f64],
+        coefficients: &[f64],
+        information: JsValue,
+    ) -> Result<FittedOrdinal, JsError> {
+        let info: OrdinalInformationJs = serde_wasm_bindgen::from_value(information)
+            .map_err(|e| JsError::new(&format!("information: {e}")))?;
+        let (m, p) = (intercepts.len(), coefficients.len());
+        let information = OrdinalInformation {
+            intercept_diagonal: info.intercept_diagonal,
+            intercept_off_diagonal: info.intercept_off_diagonal,
+            cross: rows_to_mat(&info.cross, m, p)?,
+            slopes: rows_to_mat(&info.slopes, p, p)?,
+        };
+        let fitted = RustFittedOrdinal::from_information(
+            parse_link(link)?,
+            levels,
+            Col::from_fn(m, |j| intercepts[j]),
+            Col::from_fn(p, |j| coefficients[j]),
+            information,
+        )
+        .map_err(fit_error)?;
+        Ok(Self::from_rust(fitted, p))
+    }
+
+    /// The observed information in compact block form:
+    /// `{ interceptDiagonal, interceptOffDiagonal, cross, slopes }`.
+    #[wasm_bindgen]
+    pub fn information(&self) -> Result<JsValue, JsError> {
+        let i = self.fitted.information();
+        to_js(&OrdinalInformationJs {
+            intercept_diagonal: i.intercept_diagonal,
+            intercept_off_diagonal: i.intercept_off_diagonal,
+            cross: mat_rows(&i.cross),
+            slopes: mat_rows(&i.slopes),
+        })
+    }
+
     /// Get the full result as a JavaScript object.
     #[wasm_bindgen(js_name = getResult)]
     pub fn get_result(&self) -> Result<JsValue, JsError> {
@@ -142,6 +235,8 @@ impl FittedOrdinal {
             intercepts: col_vec(f.intercepts().as_ref()),
             coefficients: col_vec(f.coefficients().as_ref()),
             std_errors: col_vec(f.std_errors().as_ref()),
+            z_values: col_vec(f.z_values().as_ref()),
+            p_values: col_vec(f.p_values().as_ref()),
             vcov: mat_rows(&f.vcov()),
             log_likelihood: f.log_likelihood(),
             penalized_log_likelihood: f.penalized_log_likelihood(),

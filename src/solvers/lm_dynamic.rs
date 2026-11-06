@@ -63,7 +63,7 @@ use crate::solvers::lowess::{lowess, LowessOptions};
 use crate::solvers::ols::OlsRegressor;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::ContinuousCDF;
 
 /// Information criterion type for model weighting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -971,7 +971,7 @@ impl FittedLmDynamic {
     /// Compute t-critical value for confidence intervals.
     fn compute_t_critical(&self, df: f64, level: f64) -> f64 {
         // NaN (no interval) when df is not positive or NaN
-        let Ok(t_dist) = StudentsT::new(0.0, 1.0, df) else {
+        let Ok(t_dist) = crate::numeric::student_t(df) else {
             return f64::NAN;
         };
         let alpha = 1.0 - level;

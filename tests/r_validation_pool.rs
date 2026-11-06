@@ -133,3 +133,39 @@ fn rejects_bad_input() {
     assert!(pooled_wald_d1(&f, &[]).is_err());
     assert!(pooled_wald_d1(&f, &[P]).is_err());
 }
+
+/// 0.12: the Barnard–Rubin d.f. and the fmi are finite when the
+/// imputations agree (λ = 0). Reference: mice 3.19
+/// `pool.scalar(Q, U, n = 30, k = 2)` for `U = c(0.04, 0.05, 0.06)`.
+#[test]
+fn barnard_rubin_df_with_zero_between_variance_matches_mice() {
+    let u = [0.04, 0.05, 0.06];
+    let vc: Vec<Mat<f64>> = u.iter().map(|&x| Mat::from_fn(1, 1, |_, _| x)).collect();
+    let cases: [([f64; 3], [f64; 4]); 2] = [
+        (
+            [1.2, 1.2, 1.2],
+            [
+                1.2,
+                0.050000000000000003,
+                26.193548387096776,
+                0.068508287292817674,
+            ],
+        ),
+        (
+            [1.2, 1.5, 1.1],
+            [
+                1.2666666666666666,
+                0.10777777777777776,
+                4.4250609721150083,
+                0.66104239779253626,
+            ],
+        ),
+    ];
+    for (q, want) in cases {
+        let est: Vec<Col<f64>> = q.iter().map(|&x| Col::from_fn(1, |_| x)).collect();
+        let f = pool_rubin(&est, &vc, Some(28.0)).unwrap();
+        let df = f.df_barnard_rubin.as_ref().unwrap()[0];
+        let got = [f.coefficients[0], f.vcov[(0, 0)], df, f.fmi[0]];
+        all_close("pool.scalar", &got, &want, 1e-12);
+    }
+}

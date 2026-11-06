@@ -18,6 +18,23 @@ pub struct FittedMultinomialLogistic {
 
 #[wasm_bindgen]
 impl FittedMultinomialLogistic {
+    /// Rebuild a fitted model from `classes()`, `coefficients()` (row-major
+    /// `rows × nFeatures`, one row for two classes, `K` otherwise) and
+    /// `intercepts()` of an earlier fit; it predicts as that fit.
+    #[wasm_bindgen(js_name = fromParts)]
+    pub fn from_parts(
+        classes: Vec<f64>,
+        coefficients: &[f64],
+        intercepts: Vec<f64>,
+        n_features: usize,
+    ) -> Result<FittedMultinomialLogistic, JsError> {
+        let rows = intercepts.len();
+        let b = crate::regressors::to_mat(coefficients, rows, n_features)?;
+        let fitted = RustFitted::from_parts(classes, b, Col::from_fn(rows, |k| intercepts[k]))
+            .map_err(crate::regressors::fit_error)?;
+        Ok(Self { fitted, n_features })
+    }
+
     /// The sorted distinct class labels.
     #[wasm_bindgen]
     pub fn classes(&self) -> Vec<f64> {

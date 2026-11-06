@@ -17,7 +17,7 @@
 use crate::core::GlmFamily;
 use faer::linalg::solvers::Solve;
 use faer::Mat;
-use statrs::distribution::{ChiSquared, ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{ChiSquared, ContinuousCDF, Normal};
 use thiserror::Error;
 
 /// Errors of the likelihood tools.
@@ -548,7 +548,7 @@ pub fn profile_confint<F: GlmFamily + ?Sized>(
         Dispersion::Fixed(_) => Normal::new(0.0, 1.0)
             .expect("normal")
             .inverse_cdf(1.0 - alpha / 2.0),
-        Dispersion::Estimated => StudentsT::new(0.0, 1.0, n.saturating_sub(k) as f64)
+        Dispersion::Estimated => crate::numeric::student_t(n.saturating_sub(k) as f64)
             .map_err(|_| LikelihoodError::Data("too few residual degrees of freedom".into()))?
             .inverse_cdf(1.0 - alpha / 2.0),
     };

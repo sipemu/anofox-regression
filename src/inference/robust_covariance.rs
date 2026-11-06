@@ -14,11 +14,10 @@
 //!   Covariance Matrix Estimators with Improved Finite Sample Properties."
 //!   *Journal of Econometrics*, 29(3), 305–325.
 
-use crate::diagnostics::compute_leverage_with_aliased;
 use crate::inference::coefficient::CoefficientInference;
 use crate::solvers::RegressionError;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::ContinuousCDF;
 
 /// Type of heteroskedasticity-consistent standard errors.
 ///
@@ -95,7 +94,9 @@ pub struct HcInterceptInference {
 
 /// Compute HC standard errors for OLS coefficients.
 ///
-/// Uses the sandwich estimator: `V_HC = (X'X)^-1 X' Ω X (X'X)^-1`
+/// Uses the sandwich estimator: `V_HC = (X'X)^-1 X' Ω X (X'X)^-1`; the
+/// standard errors are the square roots of the diagonal of
+/// [`compute_hc_vcov`] (`NaN` for aliased columns).
 ///
 /// # Arguments
 /// * `x` - Feature matrix (n × p), WITHOUT the intercept column
@@ -113,109 +114,135 @@ pub fn compute_hc_standard_errors(
     with_intercept: bool,
     hc_type: HcType,
 ) -> Result<HcResult, RegressionError> {
-    let n = x.nrows();
-    let n_features = x.ncols();
-    let p = aliased.iter().filter(|&&a| !a).count() + if with_intercept { 1 } else { 0 };
+    let vcov = compute_hc_vcov(x, residuals, None, aliased, with_intercept, hc_type)?;
+    let off = usize::from(with_intercept);
+    let se = |k: usize| {
+        let var = vcov[(k, k)];
+        if var >= 0.0 {
+            var.sqrt()
+        } else {
+            f64::NAN
+        }
+    };
+    let std_errors = Col::from_fn(
+        x.ncols(),
+        |j| {
+            if aliased[j] {
+                f64::NAN
+            } else {
+                se(j + off)
+            }
+        },
+    );
+    Ok(HcResult {
+        std_errors,
+        intercept_std_error: with_intercept.then(|| vcov[(0, 0)].max(0.0).sqrt()),
+    })
+}
 
+/// Heteroskedasticity-consistent covariance matrix of an OLS (`weights =
+/// None`) or WLS fit, as `sandwich::vcovHC(lm(...), type)`.
+///
+/// `V = (XᵀWX)⁻¹ (Σᵢ ωᵢ xᵢxᵢᵀ) (XᵀWX)⁻¹` with `ωᵢ = (wᵢeᵢ)²` (HC0),
+/// times `n / (n − k)` (HC1), divided by `1 − hᵢᵢ` (HC2) or `(1 − hᵢᵢ)²`
+/// (HC3), where `hᵢᵢ = wᵢ xᵢᵀ(XᵀWX)⁻¹xᵢ` is the (weighted) leverage, `n` the
+/// number of rows and `k` the number of estimated coefficients. A row with
+/// leverage 1 keeps its HC0 weight.
+///
+/// `x` is the design without intercept column, `residuals = y − ŷ` (one per
+/// row of `x`), `weights` the case weights of a WLS fit, and `aliased` marks
+/// columns that are not part of the fit. The result is `[intercept,] p`
+/// square (intercept first) with zero rows and columns for aliased columns,
+/// the layout of `FittedOls::vcov`.
+pub fn compute_hc_vcov(
+    x: &Mat<f64>,
+    residuals: &Col<f64>,
+    weights: Option<&Col<f64>>,
+    aliased: &[bool],
+    with_intercept: bool,
+    hc_type: HcType,
+) -> Result<Mat<f64>, RegressionError> {
+    let n = x.nrows();
     if residuals.nrows() != n {
         // E.g. a fit from sufficient statistics, which keeps no residuals.
         return Err(RegressionError::invalid_input(
             "HC standard errors need one residual per row of x",
         ));
     }
-    if aliased.len() != n_features {
+    if aliased.len() != x.ncols() {
         return Err(RegressionError::invalid_parameter(
             "aliased",
             "needs one entry per column of x",
         ));
     }
-    if n <= p {
+    if weights.is_some_and(|w| w.nrows() != n) {
+        return Err(RegressionError::invalid_parameter(
+            "weights",
+            "needs one entry per row of x",
+        ));
+    }
+    let design = reduced_design(x, aliased, with_intercept);
+    let k = design.ncols();
+    if n <= k {
         return Err(RegressionError::invalid_input(
             "not enough observations for HC standard errors",
         ));
     }
-
-    // Compute omega weights based on HC type
-    let omega = compute_omega_weights(x, residuals, aliased, with_intercept, hc_type, n, p)?;
-
-    // Build the design matrix (possibly augmented with intercept column)
-    // Only include non-aliased columns
-    let non_aliased_cols: Vec<usize> = (0..n_features).filter(|&j| !aliased[j]).collect();
-    let n_active = non_aliased_cols.len();
-    let design_cols = if with_intercept {
-        n_active + 1
-    } else {
-        n_active
+    let w: Vec<f64> = (0..n).map(|i| weights.map_or(1.0, |w| w[i])).collect();
+    let xw = Mat::from_fn(n, k, |i, j| w[i] * design[(i, j)]);
+    let bread = super::prediction::compute_matrix_inverse(&(design.transpose() * &xw))?;
+    let leverage = |i: usize| -> f64 {
+        let mut h = 0.0;
+        for a in 0..k {
+            for b in 0..k {
+                h += design[(i, a)] * bread[(a, b)] * design[(i, b)];
+            }
+        }
+        w[i] * h
     };
-
-    let mut design = Mat::zeros(n, design_cols);
-    for i in 0..n {
-        let mut col_offset = 0;
-        if with_intercept {
-            design[(i, 0)] = 1.0;
-            col_offset = 1;
-        }
-        for (k, &j) in non_aliased_cols.iter().enumerate() {
-            design[(i, k + col_offset)] = x[(i, j)];
-        }
-    }
-
-    // Compute (X'X)^-1
-    let xtx = design.transpose() * &design;
-    let xtx_inv = super::prediction::compute_matrix_inverse(&xtx)?;
-
-    // Compute the meat: X' Ω X where Ω = diag(omega)
-    let mut meat = Mat::zeros(design_cols, design_cols);
-    for i in 0..n {
-        let w = omega[i];
-        for r in 0..design_cols {
-            for c in 0..design_cols {
-                meat[(r, c)] += w * design[(i, r)] * design[(i, c)];
+    let hc1 = n as f64 / (n - k) as f64;
+    let omega: Vec<f64> = (0..n)
+        .map(|i| {
+            let e_sq = (w[i] * residuals[i]).powi(2);
+            match hc_type {
+                HcType::HC0 => e_sq,
+                HcType::HC1 => hc1 * e_sq,
+                HcType::HC2 | HcType::HC3 => {
+                    let h = leverage(i);
+                    // HC0 weight when h_ii >= 1 (or NaN), for numerical safety
+                    if h.is_nan() || h >= 1.0 {
+                        e_sq
+                    } else if hc_type == HcType::HC2 {
+                        e_sq / (1.0 - h)
+                    } else {
+                        e_sq / ((1.0 - h) * (1.0 - h))
+                    }
+                }
             }
-        }
-    }
-
-    // Sandwich: V = (X'X)^-1 * meat * (X'X)^-1
-    let temp = mat_mul(&xtx_inv, &meat);
-    let vcov = mat_mul(&temp, &xtx_inv);
-
-    // Extract standard errors from diagonal of vcov
-    if with_intercept {
-        let intercept_se = vcov[(0, 0)].max(0.0).sqrt();
-
-        let mut se = Col::zeros(n_features);
-        for j in 0..n_features {
-            if aliased[j] {
-                se[j] = f64::NAN;
-            } else {
-                // Find position in reduced design matrix
-                let k = non_aliased_cols.iter().position(|&c| c == j).unwrap();
-                let var = vcov[(k + 1, k + 1)];
-                se[j] = if var >= 0.0 { var.sqrt() } else { f64::NAN };
-            }
-        }
-
-        Ok(HcResult {
-            std_errors: se,
-            intercept_std_error: Some(intercept_se),
         })
-    } else {
-        let mut se = Col::zeros(n_features);
-        for j in 0..n_features {
-            if aliased[j] {
-                se[j] = f64::NAN;
-            } else {
-                let k = non_aliased_cols.iter().position(|&c| c == j).unwrap();
-                let var = vcov[(k, k)];
-                se[j] = if var >= 0.0 { var.sqrt() } else { f64::NAN };
-            }
-        }
+        .collect();
+    let xo = Mat::from_fn(n, k, |i, j| omega[i] * design[(i, j)]);
+    let meat = design.transpose() * &xo;
+    let reduced = &bread * &meat * &bread;
+    Ok(crate::inference::expand_reduced_factor(
+        &reduced,
+        aliased,
+        with_intercept,
+    ))
+}
 
-        Ok(HcResult {
-            std_errors: se,
-            intercept_std_error: None,
-        })
-    }
+/// Design with a leading intercept column (if any) and the non-aliased
+/// columns of `x`.
+fn reduced_design(x: &Mat<f64>, aliased: &[bool], with_intercept: bool) -> Mat<f64> {
+    let kept: Vec<usize> = (0..x.ncols()).filter(|&j| !aliased[j]).collect();
+    let off = usize::from(with_intercept);
+    Mat::from_fn(x.nrows(), kept.len() + off, |i, j| {
+        if j < off {
+            1.0
+        } else {
+            x[(i, kept[j - off])]
+        }
+    })
 }
 
 /// Compute full HC inference (SE, t-stats, p-values, confidence intervals).
@@ -268,7 +295,7 @@ pub fn compute_hc_inference(
                 f64::NAN
             };
 
-            let t_dist = StudentsT::new(0.0, 1.0, df).ok();
+            let t_dist = crate::numeric::student_t(df).ok();
             let p_int = if t_int.is_finite() {
                 t_dist.map_or(f64::NAN, |d| 2.0 * d.sf(t_int.abs()))
             } else {
@@ -300,68 +327,6 @@ pub fn compute_hc_inference(
         confidence_level,
         intercept: intercept_inference,
     })
-}
-
-/// Compute per-observation omega weights for the HC sandwich estimator.
-fn compute_omega_weights(
-    x: &Mat<f64>,
-    residuals: &Col<f64>,
-    aliased: &[bool],
-    with_intercept: bool,
-    hc_type: HcType,
-    n: usize,
-    p: usize,
-) -> Result<Vec<f64>, RegressionError> {
-    match hc_type {
-        HcType::HC0 => Ok((0..n).map(|i| residuals[i] * residuals[i]).collect()),
-        HcType::HC1 => {
-            let scale = n as f64 / (n - p) as f64;
-            Ok((0..n)
-                .map(|i| scale * residuals[i] * residuals[i])
-                .collect())
-        }
-        HcType::HC2 | HcType::HC3 => {
-            let leverage = compute_leverage_with_aliased(x, aliased, with_intercept);
-
-            let omega: Vec<f64> = (0..n)
-                .map(|i| {
-                    let h_ii = leverage[i];
-                    let e_sq = residuals[i] * residuals[i];
-
-                    // Fallback to HC0 weight when h_ii >= 1.0 for numerical safety
-                    if h_ii.is_nan() || h_ii >= 1.0 {
-                        return e_sq;
-                    }
-
-                    match hc_type {
-                        HcType::HC2 => e_sq / (1.0 - h_ii),
-                        HcType::HC3 => e_sq / ((1.0 - h_ii) * (1.0 - h_ii)),
-                        _ => unreachable!(),
-                    }
-                })
-                .collect();
-
-            Ok(omega)
-        }
-    }
-}
-
-/// Simple matrix multiplication (A × B).
-fn mat_mul(a: &Mat<f64>, b: &Mat<f64>) -> Mat<f64> {
-    let m = a.nrows();
-    let n = b.ncols();
-    let k = a.ncols();
-    let mut result = Mat::zeros(m, n);
-    for i in 0..m {
-        for j in 0..n {
-            let mut sum = 0.0;
-            for l in 0..k {
-                sum += a[(i, l)] * b[(l, j)];
-            }
-            result[(i, j)] = sum;
-        }
-    }
-    result
 }
 
 #[cfg(test)]

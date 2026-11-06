@@ -4,7 +4,7 @@ use crate::solvers::RegressionError;
 
 use crate::core::{IntervalType, PredictionResult};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::ContinuousCDF;
 
 /// Computes prediction intervals for new data points.
 ///
@@ -62,7 +62,7 @@ fn create_nan_result(predictions: &Col<f64>, n: usize) -> PredictionResult {
 
 /// Compute the t-critical value for confidence intervals.
 fn compute_t_critical(df: f64, confidence_level: f64) -> f64 {
-    let t_dist = StudentsT::new(0.0, 1.0, df).expect("valid t-distribution parameters");
+    let t_dist = crate::numeric::student_t(df).expect("valid t-distribution parameters");
     let alpha = 1.0 - confidence_level;
     t_dist.inverse_cdf(1.0 - alpha / 2.0)
 }

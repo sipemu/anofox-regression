@@ -14,17 +14,18 @@ use anofox_regression::inference::pool::PooledWald;
 use anofox_regression::inference::pool::{pool_rubin, pooled_wald_d1, PooledFit as RustPooledFit};
 use anofox_regression::inference::{
     anova, anova_table, cluster_sandwich, compute_hc_inference, compute_hc_standard_errors,
-    compute_prediction_intervals, compute_ridge_variance_factor, compute_variance_factor,
-    compute_xtwx_inverse_augmented, compute_xtwx_inverse_augmented_reduced,
-    compute_xtwx_inverse_reduced, compute_xtx_inverse, compute_xtx_inverse_augmented,
-    compute_xtx_inverse_augmented_reduced, compute_xtx_inverse_reduced, drop_intercept, fastbw,
-    fit_glm, glm_cluster_vcov, glm_score_test, intervals_from_variance_factor, leverage_new,
-    lm_cluster_vcov, lr_test, model_lr_test, nested_f_test, nested_f_test_indices, profile_confint,
-    wald_chunk, wald_test, AnovaOptions, AnovaRow, AnovaRowKind, AnovaTable, AnovaTableOptions,
-    AnovaTerm, AnovaType, ChiSqTest, ClusterOptions, ClusterType, CoefficientInference, Dispersion,
-    GlmData, GlmFit, HcInference, HcInterceptInference, HcResult, HcType, LikelihoodFit,
-    NestedFTest, NestedFTestOptions, PredictSeOptions, PredictionSe, ScoreTest, StepDeletion,
-    StepDown, StepRule, StepType, WaldAnovaTable, WaldDistribution, WaldTest,
+    compute_hc_vcov, compute_prediction_intervals, compute_ridge_variance_factor,
+    compute_variance_factor, compute_xtwx_inverse_augmented,
+    compute_xtwx_inverse_augmented_reduced, compute_xtwx_inverse_reduced, compute_xtx_inverse,
+    compute_xtx_inverse_augmented, compute_xtx_inverse_augmented_reduced,
+    compute_xtx_inverse_reduced, drop_intercept, fastbw, fit_glm, glm_cluster_vcov, glm_score_test,
+    intervals_from_variance_factor, leverage_new, lm_cluster_vcov, lr_test, model_lr_test,
+    nested_f_test, nested_f_test_indices, profile_confint, wald_chunk, wald_test, AnovaOptions,
+    AnovaRow, AnovaRowKind, AnovaTable, AnovaTableOptions, AnovaTerm, AnovaType, ChiSqTest,
+    ClusterOptions, ClusterType, CoefficientInference, Dispersion, GlmData, GlmFit, HcInference,
+    HcInterceptInference, HcResult, HcType, LikelihoodFit, NestedFTest, NestedFTestOptions,
+    PredictSeOptions, PredictionSe, ScoreTest, StepDeletion, StepDown, StepRule, StepType,
+    WaldAnovaTable, WaldDistribution, WaldTest,
 };
 use faer::{Col, Mat};
 use serde::Deserialize;
@@ -149,7 +150,9 @@ impl_to_js!(StepDeletion {
 impl_to_js!(StepDown {
     deleted,
     kept_terms,
-    coefficients
+    coefficients,
+    vcov,
+    kept_parameters
 });
 impl_to_js!(PredictionResult {
     fit,
@@ -1044,6 +1047,34 @@ pub fn compute_hc_standard_errors_js(
     Ok(compute_hc_standard_errors(
         &to_mat(x, n_rows, n_cols)?,
         &to_col(residuals, n_rows, "residual")?,
+        &bools(&aliased, n_cols),
+        with_intercept,
+        parse_hc_type(hc_type)?,
+    )
+    .map_err(fit_error)?
+    .to_js())
+}
+
+/// Heteroskedasticity-consistent covariance matrix of an OLS (`weights`
+/// undefined) or WLS fit from its residuals (`sandwich::vcovHC`), intercept
+/// first, zero rows for aliased columns.
+#[wasm_bindgen(js_name = computeHcVcov)]
+#[allow(clippy::too_many_arguments)]
+pub fn compute_hc_vcov_js(
+    x: &[f64],
+    n_rows: usize,
+    n_cols: usize,
+    residuals: &[f64],
+    weights: Option<Vec<f64>>,
+    with_intercept: bool,
+    hc_type: &str,
+    aliased: Option<Vec<u8>>,
+) -> Result<JsValue, JsError> {
+    let w = weights.map(|w| to_col(&w, n_rows, "weight")).transpose()?;
+    Ok(compute_hc_vcov(
+        &to_mat(x, n_rows, n_cols)?,
+        &to_col(residuals, n_rows, "residual")?,
+        w.as_ref(),
         &bools(&aliased, n_cols),
         with_intercept,
         parse_hc_type(hc_type)?,

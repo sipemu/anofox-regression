@@ -15,6 +15,7 @@ tests/r_scripts/generate_areg_validation.R tests/fixtures/areg_validation.rs
 tests/r_scripts/generate_bootcov_validation.R tests/fixtures/bootcov_validation.rs
 tests/r_scripts/generate_calibrate_cph_validation.R tests/fixtures/calibrate_cph_validation.rs
 tests/r_scripts/generate_cluster_validation.R tests/fixtures/cluster_validation.rs
+tests/r_scripts/generate_covariance_012_validation.R tests/fixtures/covariance_012_validation.rs
 tests/r_scripts/generate_continuation_ratio_validation.R tests/fixtures/continuation_ratio_validation.rs
 tests/r_scripts/generate_coxdiag_validation.R tests/fixtures/coxdiag_validation.rs
 tests/r_scripts/generate_cox_validation.R tests/fixtures/cox_validation.rs

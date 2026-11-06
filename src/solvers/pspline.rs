@@ -16,6 +16,10 @@
 //! * `σ² = RSS / (n − edf)` (`gam$sig2`). Standard errors of the mean use the
 //!   Bayesian posterior covariance `σ² (BᵀB + λ DᵀD)⁻¹` (`predict.gam(se.fit =
 //!   TRUE)`).
+//! * `log_likelihood`, `aic`, `aicc` and `bic` of the result use the
+//!   log-likelihood at `σ̂² = RSS / n` with `edf + 1` degrees of freedom, as
+//!   `logLik.gam` / `AIC` / `BIC` (an exact interpolation, `RSS = 0`, gives
+//!   NaN).
 //! * Outside the data range the smooth is extended linearly from the
 //!   boundary, as `Predict.matrix.pspline.smooth`.
 //!
@@ -33,7 +37,7 @@ use crate::numeric::linalg::{chol_solve, cholesky};
 use crate::numeric::optim::golden_section;
 use crate::solvers::traits::{FittedRegressor, RegressionError, Regressor};
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use statrs::distribution::ContinuousCDF;
 
 const DEGREE: usize = 3;
 
@@ -191,6 +195,7 @@ impl Regressor for PSplineRegressor {
         result.r_squared = if tss > 0.0 { 1.0 - rss / tss } else { 0.0 };
         result.mse = sigma2;
         result.rmse = sigma2.sqrt();
+        set_information_criteria(&mut result, rss, edf, n);
 
         Ok(FittedPSpline {
             knots,
@@ -234,6 +239,119 @@ impl HasModelInfo for FittedPSpline {
 }
 
 impl FittedPSpline {
+    /// Rebuild a fitted smoother from its parts — [`Self::knots`],
+    /// [`Self::coefficients`], [`Self::covariance`], [`Self::sigma2`],
+    /// [`Self::edf`] and the number of observations of an earlier fit — so a
+    /// stored model predicts again: [`FittedRegressor::predict`] equals the
+    /// original fit exactly and
+    /// [`FittedRegressor::predict_with_interval`] to rounding (the covariance
+    /// is inverted back to the penalized normal equations).
+    ///
+    /// `knots` are the `p + 4` strictly increasing knots of the `p = coefficients.len()`
+    /// cubic B-splines (`p ≥ 4`), `covariance` the positive definite `p × p`
+    /// Bayesian posterior covariance `σ² (BᵀB + λ DᵀD)⁻¹`, `sigma2 > 0` the
+    /// residual variance and `0 < edf < n_observations` the effective degrees
+    /// of freedom (the intervals use `n − edf` d.f.). The fit statistics are
+    /// not part of the model: [`Self::lambda`] and the R², log-likelihood
+    /// and information criteria of [`FittedRegressor::result`] are `NaN`, and
+    /// the result has no residuals.
+    pub fn from_parts(
+        knots: Vec<f64>,
+        coefficients: Vec<f64>,
+        covariance: &Mat<f64>,
+        sigma2: f64,
+        edf: f64,
+        n_observations: usize,
+    ) -> Result<Self, RegressionError> {
+        let p = coefficients.len();
+        let bad =
+            |name: &'static str, reason: String| RegressionError::invalid_parameter(name, reason);
+        if p < DEGREE + 1 || coefficients.iter().any(|c| !c.is_finite()) {
+            return Err(bad("coefficients", "needs at least 4 finite values".into()));
+        }
+        if knots.len() != p + DEGREE + 1
+            || knots.iter().any(|k| !k.is_finite())
+            || knots.windows(2).any(|w| w[0] >= w[1])
+        {
+            return Err(bad(
+                "knots",
+                format!(
+                    "needs {} finite, strictly increasing values",
+                    p + DEGREE + 1
+                ),
+            ));
+        }
+        if !(sigma2.is_finite() && sigma2 > 0.0) {
+            return Err(bad("sigma2", "must be finite and positive".into()));
+        }
+        if !(edf.is_finite() && edf > 0.0 && edf < n_observations as f64) {
+            return Err(bad("edf", "must be in (0, n_observations)".into()));
+        }
+        let chol_l = penalized_factor(covariance, sigma2, p).ok_or_else(|| {
+            bad(
+                "covariance",
+                format!("must be a positive definite {p} x {p} matrix"),
+            )
+        })?;
+        let mut result = RegressionResult::empty(p, 0);
+        result.coefficients = Col::from_fn(p, |i| coefficients[i]);
+        result.n_observations = n_observations;
+        result.n_parameters = edf.round().max(1.0) as usize;
+        result.mse = sigma2;
+        result.rmse = sigma2.sqrt();
+        for v in [
+            &mut result.r_squared,
+            &mut result.adj_r_squared,
+            &mut result.f_statistic,
+            &mut result.f_pvalue,
+            &mut result.log_likelihood,
+            &mut result.aic,
+            &mut result.aicc,
+            &mut result.bic,
+        ] {
+            *v = f64::NAN;
+        }
+        Ok(Self {
+            knots,
+            beta: coefficients,
+            chol_l,
+            sigma2,
+            edf,
+            n: n_observations,
+            p,
+            lambda: f64::NAN,
+            result,
+        })
+    }
+
+    /// The `p + 4` knots of the cubic B-spline basis (three beyond each end
+    /// of the widened data range).
+    pub fn knots(&self) -> &[f64] {
+        &self.knots
+    }
+
+    /// The `p` B-spline coefficients.
+    pub fn coefficients(&self) -> &[f64] {
+        &self.beta
+    }
+
+    /// The Bayesian posterior covariance of the coefficients,
+    /// `σ² (BᵀB + λ DᵀD)⁻¹` (mgcv's `Vp`), which the confidence intervals use.
+    pub fn covariance(&self) -> Mat<f64> {
+        let identity: Vec<Vec<f64>> = (0..self.p)
+            .map(|i| (0..self.p).map(|j| f64::from(u8::from(i == j))).collect())
+            .collect();
+        let inv = crate::numeric::linalg::chol_solve_mat(&self.chol_l, &identity);
+        Mat::from_fn(self.p, self.p, |i, j| {
+            self.sigma2 * 0.5 * (inv[i][j] + inv[j][i])
+        })
+    }
+
+    /// Number of observations of the fit.
+    pub fn n_observations(&self) -> usize {
+        self.n
+    }
+
     /// Effective degrees of freedom (trace of the smoother matrix).
     pub fn edf(&self) -> f64 {
         self.edf
@@ -279,7 +397,7 @@ impl FittedRegressor for FittedPSpline {
             return PredictionResult::point_only(fit);
         };
         let df = (self.n as f64 - self.edf).max(1.0);
-        let t = StudentsT::new(0.0, 1.0, df)
+        let t = crate::numeric::student_t(df)
             .map(|d| d.inverse_cdf(0.5 + level / 2.0))
             .unwrap_or(1.96);
         let n = x.nrows();
@@ -299,6 +417,49 @@ impl FittedRegressor for FittedPSpline {
         }
         PredictionResult::with_intervals(fit, lower, upper, se)
     }
+}
+
+/// Cholesky factor of `BᵀB + λ DᵀD = σ² · covariance⁻¹`.
+fn penalized_factor(covariance: &Mat<f64>, sigma2: f64, p: usize) -> Option<Vec<Vec<f64>>> {
+    if covariance.nrows() != p || covariance.ncols() != p {
+        return None;
+    }
+    let c: Vec<Vec<f64>> = (0..p)
+        .map(|i| {
+            (0..p)
+                .map(|j| 0.5 * (covariance[(i, j)] + covariance[(j, i)]) / sigma2)
+                .collect()
+        })
+        .collect();
+    if c.iter().flatten().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let lc = cholesky(&c)?;
+    let identity: Vec<Vec<f64>> = (0..p)
+        .map(|i| (0..p).map(|j| f64::from(u8::from(i == j))).collect())
+        .collect();
+    let a = crate::numeric::linalg::chol_solve_mat(&lc, &identity);
+    let a: Vec<Vec<f64>> = (0..p)
+        .map(|i| (0..p).map(|j| 0.5 * (a[i][j] + a[j][i])).collect())
+        .collect();
+    cholesky(&a)
+}
+
+/// `logLik.gam` of a Gaussian smooth: the log-likelihood at the MLE scale
+/// `RSS / n`, with `edf + 1` degrees of freedom (the smooth's `edf` and the
+/// scale), so `aic` / `bic` equal mgcv's `AIC` / `BIC`.
+fn set_information_criteria(result: &mut RegressionResult, rss: f64, edf: f64, n: usize) {
+    let nf = n as f64;
+    result.log_likelihood = if rss > 0.0 {
+        -0.5 * nf * ((2.0 * std::f64::consts::PI * rss / nf).ln() + 1.0)
+    } else {
+        f64::NAN
+    };
+    let (aic, aicc, bic) =
+        crate::solvers::fit_stats::information_criteria(result.log_likelihood, edf + 1.0, nf);
+    result.aic = aic;
+    result.aicc = aicc;
+    result.bic = bic;
 }
 
 // ---------- numerics ----------

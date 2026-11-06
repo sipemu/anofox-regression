@@ -4,7 +4,7 @@
 
 use crate::core::RegressionResult;
 use faer::Col;
-use statrs::distribution::{ContinuousCDF, Normal, StudentsT};
+use statrs::distribution::{ContinuousCDF, Normal};
 
 /// Reference distribution of the Wald statistic.
 #[derive(Debug, Clone, Copy)]
@@ -26,7 +26,7 @@ impl WaldReference {
             WaldReference::Normal => Normal::new(0.0, 1.0)
                 .map(|d| d.sf(stat.abs()))
                 .unwrap_or(f64::NAN),
-            WaldReference::StudentT(df) if df > 0.0 => StudentsT::new(0.0, 1.0, df)
+            WaldReference::StudentT(df) if df > 0.0 => crate::numeric::student_t(df)
                 .map(|d| d.sf(stat.abs()))
                 .unwrap_or(f64::NAN),
             WaldReference::StudentT(_) => f64::NAN,
@@ -40,7 +40,7 @@ impl WaldReference {
             WaldReference::Normal => Normal::new(0.0, 1.0)
                 .map(|d| d.inverse_cdf(p))
                 .unwrap_or(f64::NAN),
-            WaldReference::StudentT(df) if df > 0.0 => StudentsT::new(0.0, 1.0, df)
+            WaldReference::StudentT(df) if df > 0.0 => crate::numeric::student_t(df)
                 .map(|d| d.inverse_cdf(p))
                 .unwrap_or(f64::NAN),
             WaldReference::StudentT(_) => f64::NAN,

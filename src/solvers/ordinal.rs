@@ -256,6 +256,82 @@ struct Information {
     d: Mat<f64>,
 }
 
+/// The observed information of a cumulative link model at its estimate, in
+/// the compact block form the model keeps (O(k·p) instead of the O(k²) of the
+/// dense covariance): `I = [[A, B], [Bᵀ, D]]` with `A` the tridiagonal
+/// intercept block, `B` intercepts × slopes and `D` the slopes block. The
+/// penalty of a penalized fit is included (`D` is the penalized block).
+///
+/// [`FittedOrdinal::information`] returns it, and
+/// [`FittedOrdinal::from_information`] rebuilds a model from it; the
+/// covariance is its inverse ([`FittedOrdinal::vcov`]).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrdinalInformation {
+    /// Diagonal of `A` (`k − 1` entries).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
+    pub intercept_diagonal: Vec<f64>,
+    /// First off-diagonal of `A` (`k − 2` entries; `A` is symmetric).
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::floats"))]
+    pub intercept_off_diagonal: Vec<f64>,
+    /// `B`, `(k − 1) × p`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
+    pub cross: Mat<f64>,
+    /// `D`, `p × p`.
+    #[cfg_attr(feature = "serde", serde(with = "crate::serde_impl::mat"))]
+    pub slopes: Mat<f64>,
+}
+
+impl From<&Information> for OrdinalInformation {
+    fn from(info: &Information) -> Self {
+        Self {
+            intercept_diagonal: info.a_diag.clone(),
+            intercept_off_diagonal: info.a_off.clone(),
+            cross: info.b.clone(),
+            slopes: info.d.clone(),
+        }
+    }
+}
+
+/// Relative size of an entry of the intercept block of `vcov⁻¹` beyond the
+/// first off-diagonal that is still taken for rounding error.
+const TRIDIAGONAL_TOLERANCE: f64 = 1e-6;
+
+/// The compact information from a dense covariance of `(α, β)`: its inverse,
+/// whose intercept block must be tridiagonal.
+fn information_from_vcov(vcov: &Mat<f64>, m: usize) -> Result<Information, RegressionError> {
+    let d = vcov.nrows();
+    let bad = |reason: &str| RegressionError::invalid_parameter("vcov", reason.to_string());
+    if vcov.ncols() != d {
+        return Err(bad("must be square"));
+    }
+    if (0..d).any(|r| (0..d).any(|c| !vcov[(r, c)].is_finite())) {
+        return Err(bad("must be finite"));
+    }
+    let sym = Mat::from_fn(d, d, |r, c| 0.5 * (vcov[(r, c)] + vcov[(c, r)]));
+    let llt = sym
+        .llt(Side::Lower)
+        .map_err(|_| bad("must be positive definite"))?;
+    let info = llt.solve(Mat::<f64>::identity(d, d));
+    let info = Mat::from_fn(d, d, |r, c| 0.5 * (info[(r, c)] + info[(c, r)]));
+    for r in 0..m {
+        for c in r + 2..m {
+            let scale = (info[(r, r)] * info[(c, c)]).abs().sqrt();
+            if info[(r, c)].abs() > TRIDIAGONAL_TOLERANCE * scale {
+                return Err(bad("is not the covariance of a cumulative link model \
+                     (the intercept block of its inverse is not tridiagonal)"));
+            }
+        }
+    }
+    let p = d - m;
+    Ok(Information {
+        a_diag: (0..m).map(|j| info[(j, j)]).collect(),
+        a_off: (0..m.saturating_sub(1)).map(|j| info[(j, j + 1)]).collect(),
+        b: Mat::from_fn(m, p, |r, c| info[(r, m + c)]),
+        d: Mat::from_fn(p, p, |r, c| info[(m + r, m + c)]),
+    })
+}
+
 /// LDLᵀ factor of the tridiagonal block and the Schur complement inverse.
 struct InformationFactor<'a> {
     info: &'a Information,
@@ -715,6 +791,197 @@ impl OrdinalRegressor {
 }
 
 impl FittedOrdinal {
+    /// Rebuild a fitted model from its parts — the [`Self::link`],
+    /// [`Self::levels`], [`Self::intercepts`], [`Self::coefficients`] and
+    /// [`Self::vcov`] of an earlier fit — so a stored model predicts again.
+    ///
+    /// The probabilities, [`Self::predict_mean`], [`Self::predict_quantile`]
+    /// equal those of the original fit exactly, and everything that uses the
+    /// covariance ([`Self::std_errors`], [`Self::z_values`],
+    /// [`Self::predict_mean_with_se`], [`Self::predict_quantile_ci`],
+    /// [`Self::cluster_vcov`], …) to rounding: `vcov` is inverted back to the
+    /// information the model keeps, which costs O(k³) for `k` levels. For a
+    /// continuous response (one intercept per distinct value) store
+    /// [`Self::information`] instead and use [`Self::from_information`].
+    ///
+    /// `levels` must be finite and strictly increasing (at least two),
+    /// `intercepts` (`k − 1`) finite and strictly decreasing, `coefficients`
+    /// finite, and `vcov` the positive definite `(k − 1 + p)` square
+    /// covariance of `(α, β)` (intercepts first) whose inverse has a
+    /// tridiagonal intercept block, as [`Self::vcov`] returns it (not
+    /// [`Self::vcov_sandwich`] of a penalized fit). For a penalized fit the
+    /// rebuilt model has no penalty matrix: [`Self::effective_df`] counts 1
+    /// per slope. The fit statistics are not part of the model: the
+    /// log-likelihoods, [`Self::lr_chisq`], [`Self::aic`] and the
+    /// [`Self::counts`] are `NaN`, [`Self::n_observations`] is 0, and the
+    /// model has no weights or offset.
+    pub fn from_parts(
+        link: OrdinalLink,
+        levels: Vec<f64>,
+        intercepts: Col<f64>,
+        coefficients: Col<f64>,
+        vcov: &Mat<f64>,
+    ) -> Result<Self, RegressionError> {
+        Self::check_parts(&levels, &intercepts, &coefficients)?;
+        let (m, p) = (intercepts.nrows(), coefficients.nrows());
+        if vcov.nrows() != m + p {
+            return Err(RegressionError::invalid_parameter(
+                "vcov",
+                format!(
+                    "must be {0} x {0} (intercepts and slopes), got {1} x {2}",
+                    m + p,
+                    vcov.nrows(),
+                    vcov.ncols()
+                ),
+            ));
+        }
+        let information = information_from_vcov(vcov, m)?;
+        Self::assemble_parts(link, levels, intercepts, coefficients, information)
+    }
+
+    /// Rebuild a fitted model from its parts with the compact
+    /// [`OrdinalInformation`] of [`Self::information`] in place of the dense
+    /// covariance (O(k·p) storage). Every prediction and covariance equals
+    /// that of the original fit exactly; otherwise as [`Self::from_parts`].
+    pub fn from_information(
+        link: OrdinalLink,
+        levels: Vec<f64>,
+        intercepts: Col<f64>,
+        coefficients: Col<f64>,
+        information: OrdinalInformation,
+    ) -> Result<Self, RegressionError> {
+        Self::check_parts(&levels, &intercepts, &coefficients)?;
+        let (m, p) = (intercepts.nrows(), coefficients.nrows());
+        let i = information;
+        let shapes = i.intercept_diagonal.len() == m
+            && i.intercept_off_diagonal.len() == m.saturating_sub(1)
+            && i.cross.nrows() == m
+            && i.cross.ncols() == p
+            && i.slopes.nrows() == p
+            && i.slopes.ncols() == p;
+        if !shapes {
+            return Err(RegressionError::invalid_parameter(
+                "information",
+                format!("blocks do not match {m} intercepts and {p} slopes"),
+            ));
+        }
+        let finite = i
+            .intercept_diagonal
+            .iter()
+            .chain(&i.intercept_off_diagonal)
+            .chain(i.cross.col_iter().flat_map(|c| c.iter()))
+            .chain(i.slopes.col_iter().flat_map(|c| c.iter()))
+            .all(|v| v.is_finite());
+        if !finite {
+            return Err(RegressionError::invalid_parameter(
+                "information",
+                "must be finite",
+            ));
+        }
+        let information = Information {
+            a_diag: i.intercept_diagonal,
+            a_off: i.intercept_off_diagonal,
+            b: i.cross,
+            d: Mat::from_fn(p, p, |r, c| 0.5 * (i.slopes[(r, c)] + i.slopes[(c, r)])),
+        };
+        Self::assemble_parts(link, levels, intercepts, coefficients, information)
+    }
+
+    fn check_parts(
+        levels: &[f64],
+        intercepts: &Col<f64>,
+        coefficients: &Col<f64>,
+    ) -> Result<(), RegressionError> {
+        if levels.len() < 2
+            || levels.iter().any(|v| !v.is_finite())
+            || levels.windows(2).any(|w| w[0] >= w[1])
+        {
+            return Err(RegressionError::invalid_parameter(
+                "levels",
+                "needs at least two finite, strictly increasing values",
+            ));
+        }
+        let alpha: Vec<f64> = intercepts.iter().copied().collect();
+        if alpha.len() + 1 != levels.len()
+            || alpha.iter().any(|v| !v.is_finite())
+            || alpha.windows(2).any(|w| w[0] <= w[1])
+        {
+            return Err(RegressionError::invalid_parameter(
+                "intercepts",
+                format!(
+                    "needs {} finite, strictly decreasing values (one per level but the first)",
+                    levels.len() - 1
+                ),
+            ));
+        }
+        if coefficients.iter().any(|v| !v.is_finite()) {
+            return Err(RegressionError::invalid_parameter(
+                "coefficients",
+                "must be finite",
+            ));
+        }
+        Ok(())
+    }
+
+    fn assemble_parts(
+        link: OrdinalLink,
+        levels: Vec<f64>,
+        intercepts: Col<f64>,
+        coefficients: Col<f64>,
+        information: Information,
+    ) -> Result<Self, RegressionError> {
+        if InformationFactor::new(&information).is_none() {
+            return Err(RegressionError::invalid_parameter(
+                "information",
+                "must be positive definite",
+            ));
+        }
+        let k = levels.len();
+        Ok(Self {
+            link,
+            levels,
+            counts: vec![f64::NAN; k],
+            intercepts,
+            coefficients,
+            log_likelihood: f64::NAN,
+            penalized_log_likelihood: f64::NAN,
+            null_log_likelihood: f64::NAN,
+            iterations: 0,
+            converged: true,
+            n_observations: 0,
+            information,
+            weights: None,
+            offset: None,
+            penalty: None,
+        })
+    }
+
+    /// The observed information at the estimate in compact block form (the
+    /// inverse of [`Self::vcov`]), for storing a model with
+    /// [`Self::from_information`].
+    pub fn information(&self) -> OrdinalInformation {
+        OrdinalInformation::from(&self.information)
+    }
+
+    /// Wald z statistics of the slopes, `β / SE` (`orm`'s `Wald Z`).
+    pub fn z_values(&self) -> Col<f64> {
+        let se = self.std_errors();
+        Col::from_fn(se.nrows(), |j| self.coefficients[j] / se[j])
+    }
+
+    /// Two-sided p-values of [`Self::z_values`] from the standard normal.
+    pub fn p_values(&self) -> Col<f64> {
+        let z = self.z_values();
+        let normal = std_normal();
+        Col::from_fn(z.nrows(), |j| {
+            if z[j].is_nan() {
+                f64::NAN
+            } else {
+                2.0 * normal.sf(z[j].abs())
+            }
+        })
+    }
+
     /// The link.
     pub fn link(&self) -> OrdinalLink {
         self.link
